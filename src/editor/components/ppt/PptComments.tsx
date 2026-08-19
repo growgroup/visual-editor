@@ -394,8 +394,20 @@ export function PptCommentsPanel({
   const open = comments.filter((c) => !c.resolved);
   const resolved = comments.filter((c) => c.resolved);
 
-  const Thread = ({ c }: { c: SlideComment }) => (
+  /**
+   * 1スレッドの見た目。
+   *
+   * ⚠️ ここをコンポーネント（`const Thread = () => …` を JSX で `<Thread />` と書く形）
+   * にしてはいけない。パネルが再描画されるたびに関数の実体が変わり、Reactが
+   * 「別のコンポーネント」と見なしてスレッドごと作り直す。
+   * その結果、返信欄のテキストエリアが1打鍵ごとに作り直され、
+   *   ・キャレットが先頭に戻るため、文字が右から左に入るように見える
+   *   ・日本語入力の変換が1文字ずつ確定してしまう
+   * という状態になる（実際に起きた）。ただの関数として呼び出す形にしておく。
+   */
+  const renderThread = (c: SlideComment) => (
     <div
+      key={c.id}
       ref={(el) => { threadRefs.current[c.id] = el; }}
       className="rounded-lg border p-2.5"
       style={{
@@ -662,7 +674,7 @@ export function PptCommentsPanel({
             まだコメントはありません。要素を選択して投稿すると、その要素に吹き出しが付きます。
           </p>
         )}
-        {open.map((c) => <Thread key={c.id} c={c} />)}
+        {open.map((c) => renderThread(c))}
 
         {resolved.length > 0 && (
           <button
@@ -673,7 +685,7 @@ export function PptCommentsPanel({
             {showResolved ? '▾' : '▸'} 解決済み ({resolved.length})
           </button>
         )}
-        {showResolved && resolved.map((c) => <Thread key={c.id} c={c} />)}
+        {showResolved && resolved.map((c) => renderThread(c))}
       </div>
     </div>
   );

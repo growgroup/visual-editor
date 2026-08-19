@@ -4,8 +4,9 @@
  * PowerPoint風UIのコメント機能(実機の「モダンコメント」に寄せたフル実装)。
  *
  * - スレッド形式(返信・解決/再開・削除)。deck.json のエントリに永続化
- * - 要素アンカー: 追加時に要素を選択していれば、その要素の刻印(data-gg-src)に紐づき、
- *   キャンバス上にコメントバブル(マーカー)が出る。クリックでパネルの該当スレッドへ
+ * - 要素アンカー: 追加時に要素を選択していれば、その要素の刻印(data-gg-src / data-wf-src)に
+ *   紐づき、キャンバス上にコメントバブル(マーカー)が出る。クリックでパネルの該当スレッドへ。
+ *   投稿する前に「何に対するコメントか」を必ず出す(選択中の要素名 / ページ全体)
  * - マーカーは iframe 内のオーバーレイ層(.gg-comment-layer)に描く。
  *   保存時に丸ごと剥がされるため、上書きHTML・原本TSXには一切混入しない
  * - 名前は localStorage に記憶(ローカルツールなのでアカウントは要求しない)
@@ -21,6 +22,79 @@ import { can } from '../../../io';
 import { PPT_PALETTES, type PptTheme } from './PptChrome';
 
 const AUTHOR_KEY = 'gg-editor:comment-author';
+
+/**
+ * 要素の「出所の刻印」に使う属性。
+ *
+ * - `data-gg-src` … 提案スライド側。1要素に1つの一意な値
+ * - `data-wf-src` … 構成ラフ側。TSXのソース位置(`app/page.tsx:127:9`)で、
+ *   map で描かれた要素では**同じ値が複数の要素に付く**
+ *
+ * そのため保存する値は「刻印 + 同じ刻印の中での順番」にする（`…:127:9#2`）。
+ * 順番まで持てば、繰り返しの中の何番目かまで特定できる。
+ */
+const ANCHOR_ATTRS = ['data-gg-src', 'data-wf-src'] as const;
+
+/** 要素からアンカー値を作る。刻印が無ければ null（＝ページ全体へのコメント） */
+export function anchorValueOf(root: HTMLElement, el: HTMLElement): string | null {
+  for (const attr of ANCHOR_ATTRS) {
+    const raw = el.getAttribute(attr);
+    if (!raw) continue;
+    const same = Array.from(root.querySelectorAll<HTMLElement>(`[${attr}="${CSS.escape(raw)}"]`));
+    if (same.length <= 1) return raw;
+    const index = same.indexOf(el);
+    return index <= 0 ? raw : `${raw}#${index}`;
+  }
+  return null;
+}
+
+/**
+ * 選択中の要素を人が見て分かる名前にする。
+ *
+ * `textContent` をそのまま使うと、外側の器を選んだときに子孫の文字が全部
+ * つながって意味をなさない（「株式会社三和企業情報企業情報企業情報トップ→…」）。
+ * そこで①その要素が直接持っている文字 ②中の見出し ③タグ名 の順に落とす。
+ */
+export function describeElement(el: HTMLElement): { label: string; kind: 'text' | 'range' | 'tag' } {
+  const clean = (s: string | null | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+  const cut = (s: string) => (s.length > 24 ? `${s.slice(0, 24)}…` : s);
+
+  // ① 直接の文字ノードだけを見る（子要素の文字は含めない）
+  const own = clean(
+    Array.from(el.childNodes)
+      .filter((n) => n.nodeType === 3)
+      .map((n) => n.textContent)
+      .join(' '),
+  );
+  if (own) return { label: cut(own), kind: 'text' };
+
+  // ② 器なら、中の見出しで言い表す
+  const inner = el.querySelector<HTMLElement>('h1, h2, h3, h4, th, dt, strong, a, p, li, span');
+  const innerText = clean(inner?.textContent);
+  if (innerText) return { label: cut(innerText), kind: 'range' };
+
+  // ③ 見出しは無いが文字はある（div の中に直接テキストがぶら下がる形など）
+  const anyText = clean(el.textContent);
+  if (anyText) return { label: cut(anyText), kind: 'range' };
+
+  // ④ 文字を持たない（画像枠・区切りなど）
+  const alt = clean(el.getAttribute('alt') || el.getAttribute('aria-label'));
+  if (alt) return { label: cut(alt), kind: 'text' };
+  return { label: `<${el.tagName.toLowerCase()}>`, kind: 'tag' };
+}
+
+/** アンカー値から要素を引く。`#N` が付いていれば N 番目 */
+function findAnchored(root: HTMLElement, value: string): HTMLElement | null {
+  const hash = value.lastIndexOf('#');
+  const index = hash >= 0 ? Number(value.slice(hash + 1)) : NaN;
+  const raw = Number.isFinite(index) ? value.slice(0, hash) : value;
+  for (const attr of ANCHOR_ATTRS) {
+    const found = Array.from(root.querySelectorAll<HTMLElement>(`[${attr}="${CSS.escape(raw)}"]`));
+    if (found.length === 0) continue;
+    return found[Number.isFinite(index) ? index : 0] ?? found[0];
+  }
+  return null;
+}
 
 export function loadAuthor(): string {
   try {
@@ -98,9 +172,7 @@ export function useCommentMarkers({
       layer.innerHTML = '';
       const anchored = comments.filter((c) => c.anchorSrc && !c.resolved);
       for (const c of anchored) {
-        const target = artboard.querySelector<HTMLElement>(
-          `[data-gg-src="${CSS.escape(c.anchorSrc!)}"]`,
-        );
+        const target = findAnchored(artboard, c.anchorSrc!);
         const bubble = doc.createElement('button');
         bubble.setAttribute('data-comment-id', c.id);
         bubble.title = `${c.author}: ${c.text.slice(0, 60)}`;
@@ -292,15 +364,16 @@ export function PptCommentsPanel({
     }
   }, [busy]);
 
-  /** 選択中の要素からアンカーを拾う(選択なしならスライド全体) */
+  /** 選択中の要素からアンカーを拾う(選択なしならページ全体へのコメント) */
   const currentAnchor = useMemo(() => {
     const doc = getIframeDoc();
     if (!doc || !selectedElement) return null;
     const el = doc.querySelector<HTMLElement>(`[data-element-id="${selectedElement.id}"]`);
-    const src = el?.getAttribute('data-gg-src');
-    if (!el || !src) return null;
-    const label = (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 24);
-    return { src, label };
+    if (!el) return null;
+    const src = anchorValueOf(doc.body, el);
+    if (!src) return null;
+    const { label, kind } = describeElement(el);
+    return { src, label, kind, tag: el.tagName.toLowerCase() };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedElement, getIframeDoc]);
 
@@ -517,10 +590,41 @@ export function PptCommentsPanel({
             style={{ backgroundColor: pal.control, borderColor: pal.border, color: pal.text }}
           />
         </div>
-        {currentAnchor && (
-          <div className="mt-1.5 flex items-center gap-1 text-[10px]" style={{ color: '#0F6CBD' }}>
-            <MapPin className="h-3 w-3" />
-            選択中の「{currentAnchor.label || '要素'}」に添付されます
+        {/* 何に対するコメントかを、投稿する前に必ず見せる */}
+        {currentAnchor ? (
+          <div
+            className="mt-1.5 flex items-start gap-1.5 rounded border px-1.5 py-1 text-[10px]"
+            style={{
+              color: '#0F6CBD',
+              borderColor: '#0F6CBD',
+              backgroundColor: 'rgba(15,108,189,.08)',
+            }}
+            title={currentAnchor.src}
+          >
+            <MapPin className="mt-px h-3 w-3 shrink-0" />
+            <span className="min-w-0">
+              {currentAnchor.kind === 'range' ? (
+                <>
+                  選択中の<span className="font-bold">{currentAnchor.tag}</span>（「
+                  <span className="font-bold">{currentAnchor.label}</span>」を含む範囲）へのコメント
+                </>
+              ) : (
+                <>
+                  選択中の<span className="font-bold">{currentAnchor.tag}</span>「
+                  <span className="font-bold">{currentAnchor.label}</span>」へのコメント
+                </>
+              )}
+            </span>
+          </div>
+        ) : (
+          <div
+            className="mt-1.5 flex items-start gap-1.5 rounded border border-dashed px-1.5 py-1 text-[10px]"
+            style={{ color: pal.sub, borderColor: pal.border }}
+          >
+            <MapPin className="mt-px h-3 w-3 shrink-0" />
+            <span>
+              ページ全体へのコメント（要素を選ぶと、その要素へのコメントになります）
+            </span>
           </div>
         )}
         <div className="mt-1.5 flex items-end gap-1.5">

@@ -1829,7 +1829,12 @@ function FrontendVisualEditorInner({
               openVariables: () => setIsVariablesPanelOpen(true),
               activeTool,
               setActiveTool,
-              toggleFormatPane: () => setPptFormatPaneOpen((v) => !v),
+              toggleFormatPane: () => {
+                setPptFormatPaneOpen((v) => {
+                  if (!v) setPptCommentsOpen(false);
+                  return !v;
+                });
+              },
               formatPaneOpen: pptFormatPaneOpen,
             };
             const pageNo = Number(currentContentId ?? contentId) || 1;
@@ -1858,8 +1863,13 @@ function FrontendVisualEditorInner({
                   deckTitle={deckTitle}
                   comments={{
                     open: pptCommentsOpen,
-                    toggle: () => setPptCommentsOpen((v) => !v),
+                    toggle: () =>
+                      setPptCommentsOpen((v) => {
+                        if (!v) setPptFormatPaneOpen(false);
+                        return !v;
+                      }),
                     newComment: () => {
+                      setPptFormatPaneOpen(false);
                       setPptCommentsOpen(true);
                       setPptCommentFocus((n) => n + 1);
                     },
@@ -1873,7 +1883,11 @@ function FrontendVisualEditorInner({
       <EditorHeader
         comments={{
           open: pptCommentsOpen,
-          toggle: () => setPptCommentsOpen((v) => !v),
+          toggle: () =>
+            setPptCommentsOpen((v) => {
+              if (!v) setPptFormatPaneOpen(false);
+              return !v;
+            }),
           page: Number(currentContentId ?? contentId) || 1,
         }}
         onSwitchUi={() => switchUi('ppt')}
@@ -2039,8 +2053,10 @@ function FrontendVisualEditorInner({
           )}
         </div>
 
-        {/* 右パネル: プロパティ(Figma風) / コメント(PowerPoint風) */}
-        {!isPpt && <EditorPropertyPanel />}
+        {/* 右パネルは同時に1つだけ出す。
+            コメントを開いている間はプロパティ(詳細編集)を引っ込め、閉じると戻る。
+            2つ並ぶと「いまどちらを操作しているのか」が分からなくなるため */}
+        {!isPpt && !pptCommentsOpen && <EditorPropertyPanel />}
         {!isMultiPageCanvas && (
           <PptCommentMarkers
             page={Number(currentContentId ?? contentId) || 1}

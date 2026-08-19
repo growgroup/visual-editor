@@ -1,6 +1,6 @@
 {
   "name": "@growgroup/visual-editor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "HTMLをブラウザ上で直接編集するビジュアルエディタ。スライド(固定サイズ)とWebページ(可変高さ)の両方に使え、保存先はアダプタで差し替えられます。",
   "keywords": [
     "visual-editor",

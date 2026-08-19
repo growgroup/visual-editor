@@ -1,0 +1,52 @@
+/**
+ * エディタUIのスタイル。**このファイルをビルドした dist/editor.css を配る。**
+ *
+ * 【なぜビルド済みで配るのか】
+ * エディタのUIは Tailwind のクラスで書かれている。ソースのまま配ると、
+ * 利用側の Tailwind がこのパッケージを走査してコンパイルする必要があり、
+ * 利用側のバージョン（v3 / v4）に依存してしまう。
+ * ここで完結してCSSにしてしまえば、利用側のTailwindは何でもよい。
+ *
+ * 【preflight(リセット)を入れない】
+ * 利用側にも Tailwind のリセットが入っている。二重に当てると
+ * 利用側のページの見た目が変わる。theme と utilities だけを取り込む。
+ */
+@import "tailwindcss/theme.css";
+@import "tailwindcss/utilities.css";
+
+/* このパッケージのソースだけを走査する */
+@source "../**/*.{ts,tsx}";
+
+/* エディタUIが参照するトークン（shadcn/ui 由来）。
+   利用側の設定に依存しないよう、ここで閉じる */
+@theme {
+  --color-background: #ffffff;
+  --color-foreground: #0a0a0a;
+  --color-card: #ffffff;
+  --color-card-foreground: #0a0a0a;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #0a0a0a;
+  --color-primary: #171717;
+  --color-primary-foreground: #fafafa;
+  --color-secondary: #f5f5f5;
+  --color-secondary-foreground: #171717;
+  --color-muted: #f5f5f5;
+  --color-muted-foreground: #737373;
+  --color-accent: #f5f5f5;
+  --color-accent-foreground: #171717;
+  --color-destructive: #ef4444;
+  --color-destructive-foreground: #fafafa;
+  --color-border: #e5e5e5;
+  --color-input: #e5e5e5;
+  --color-ring: #0a0a0a;
+  --color-gg-green: #316a40;
+  --color-ink: #2e2e2e;
+  --color-mark-green: #cfe6d6;
+  --radius: 0.5rem;
+}
+
+/* エディタの配色スキン（.gg-editor-skin 配下でだけ効く） */
+@import "./skin.css";
+
+/* アイコン挿入(Material Symbols)。読み込めないと豆腐になる */
+@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=block");

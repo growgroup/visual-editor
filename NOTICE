@@ -1,0 +1,52 @@
+@growgroup/visual-editor
+
+このパッケージは以下のオープンソースソフトウェアを利用・同梱しています。
+それぞれの著作権表示とライセンス条文は各配布物に含まれます。
+
+--------------------------------------------------------------------------
+同梱しているコード
+--------------------------------------------------------------------------
+
+shadcn/ui (MIT License)
+  Copyright (c) 2023 shadcn
+  https://ui.shadcn.com/
+  src/components/ui/ 配下のコンポーネントは shadcn/ui を出発点にしています。
+  shadcn/ui は「コピーして自分のコードとして持つ」設計のため、
+  ここでも依存ではなくソースとして含めています。
+
+--------------------------------------------------------------------------
+依存しているソフトウェア（帰属表示が必要なもの）
+--------------------------------------------------------------------------
+
+class-variance-authority (Apache License 2.0)
+  Copyright (c) 2022 Joe Bell
+  https://github.com/joe-bell/cva
+
+dompurify (Mozilla Public License 2.0 または Apache License 2.0)
+  Copyright (c) Dr.-Ing. Mario Heiderich, Cure53
+  https://github.com/cure53/DOMPurify
+
+pako (MIT License AND Zlib License)
+  Copyright (C) 2014-2017 by Vitaly Puzrin and Andrei Tuputcyn
+  https://github.com/nodeca/pako
+
+lucide-react (ISC License)
+  Copyright (c) for portions of Lucide are held by Cole Bemis 2013-2022
+  as part of Feather (MIT). All other copyright (c) for Lucide are held by
+  Lucide Contributors 2022.
+  https://lucide.dev/
+
+--------------------------------------------------------------------------
+その他の依存（MIT License）
+--------------------------------------------------------------------------
+
+@radix-ui/* , clsx , kiwi-schema , react-colorful , sonner , tailwind-merge
+
+--------------------------------------------------------------------------
+Figma のクリップボード形式の読み取りについて
+--------------------------------------------------------------------------
+
+src/editor/utils/figma-paste.ts は fig-kiwi を用いて、Figma がクリップボードへ
+書き出すバイナリ(kiwi)形式を読み取ります。この機能は、利用者が自分の権利で
+扱えるデザインを貼り付けるためのものです。Figma は Figma, Inc. の商標であり、
+本パッケージは Figma, Inc. とは関係がありません。

@@ -46,6 +46,7 @@
   "scripts": {
     "build:css": "tailwindcss -i ./src/styles/editor.css -o ./dist/editor.css --minify",
     "build": "npm run build:css",
+    "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build && npm run typecheck"
   },

@@ -70,7 +70,9 @@ const SEMANTIC_CONTAINER_NAMES: Record<string, { name: string; kind: LayerKind }
  * パネル幅は 200〜400px で、階層インデントとアイコンに 60〜100px 取られるため、
  * 24 文字を超えると右端のタグ名が見切れる。全文は行の title 属性で読める。
  */
-function truncateLabel(text: string, max = 24): string {
+const LABEL_MAX = 24;
+
+function truncateLabel(text: string, max = LABEL_MAX): string {
   const normalized = text.replace(/\s+/g, ' ').trim();
   return normalized.length > max ? `${normalized.slice(0, max)}…` : normalized;
 }
@@ -161,15 +163,24 @@ function buildLayerLabel(el: HTMLElement): LayerLabel {
 
   // 4. 入れ物
   if (childElementCount > 0) {
-    // 中にテキストがあるなら、その文言で呼ぶのが一番探しやすい
-    if (allText) {
-      const semantic = SEMANTIC_CONTAINER_NAMES[tag];
-      return {
-        name: truncateLabel(allText),
-        kind: semantic ? semantic.kind : 'group',
-      };
-    }
     const semantic = SEMANTIC_CONTAINER_NAMES[tag];
+
+    // 中の見出しがこの入れ物の名前。
+    // textContent をそのまま使うと、大きな入れ物ほど中身の連結になり
+    // 「よくあるご質問English協力会会員…」のような、どこにも存在しない
+    // 文字列が名前になってしまう（先頭24文字で切れるので余計に読めない）
+    const heading = el.querySelector('h1, h2, h3, h4, h5, h6');
+    const headingText = (heading?.textContent ?? '').replace(/\s+/g, ' ').trim();
+    if (headingText) {
+      return { name: truncateLabel(headingText), kind: semantic ? semantic.kind : 'group' };
+    }
+
+    // 見出しが無くても、全体が切らずに収まる短さなら中身の文言で呼べる
+    // （ボタン列・キャプション・小さなカードなど）
+    if (allText && allText.length <= LABEL_MAX) {
+      return { name: allText, kind: semantic ? semantic.kind : 'group' };
+    }
+
     if (semantic) return semantic;
     return { name: `グループ (${childElementCount})`, kind: 'group' };
   }
@@ -463,7 +474,13 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
     if (iframeDoc) {
       iframeDoc.querySelectorAll('[data-element-id]').forEach((el) => {
         const id = el.getAttribute('data-element-id');
-        if (id) elementById.set(id, el as HTMLElement);
+        if (!id) return;
+        // 選択枠のパンくず(.element-breadcrumb)は、指している実要素と同じ
+        // data-element-id を持つ(押すとその要素へ移るため)。文書順では実要素より
+        // 後ろに来るので素直に拾うと実要素を上書きし、要素を1つ選んだ瞬間に
+        // レイヤー名が軒並みタグ名("div")へ化ける
+        if ((el as HTMLElement).closest('.selection-box, .marquee-selection-box')) return;
+        elementById.set(id, el as HTMLElement);
       });
     }
 

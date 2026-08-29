@@ -141,6 +141,22 @@ export interface FrontendVisualEditorProps {
   enableMultiPageCanvas?: boolean;
   /** 外部から渡すコンテンツリスト（指定時はAPI取得をスキップ） */
   contentList?: ContentListItem[];
+  /**
+   * 左パネルの「ページ」タブに差し込む中身。
+   *
+   * 渡すと左パネルが ページ / レイヤー のタブになる。渡さなければ従来どおり。
+   * ページ一覧を利用側が持つとき（ページが固定のサイト等）に、エディタの左へ
+   * さらにもう1枚パネルを並べずに済ませるための口。左に2枚並ぶと
+   * 「左=1枚 / 中央=キャンバス / 右=プロパティ」という骨格が崩れる。
+   */
+  pagesPanel?: React.ReactNode;
+  /**
+   * トップバーの左端に置く導線（プレビュー・関連画面へのリンク等）。
+   *
+   * 別画面への行き先はアプリごとに違うのでエディタは知らない。
+   * ここに置くとタイトルの左、Figmaのメニュー位置に並ぶ。
+   */
+  headerExtra?: React.ReactNode;
 }
 
 /**
@@ -152,8 +168,13 @@ function FrontendVisualEditorInner({
   onClose,
   parentId,
   contentId,
+  pagesPanel,
+  headerExtra,
   isMultiPageCanvas = false,
-}: Pick<FrontendVisualEditorProps, 'onSave' | 'onClose' | 'parentId' | 'contentId'> & {
+}: Pick<
+  FrontendVisualEditorProps,
+  'onSave' | 'onClose' | 'parentId' | 'contentId' | 'pagesPanel' | 'headerExtra'
+> & {
   isMultiPageCanvas?: boolean;
 }) {
   const {
@@ -1906,6 +1927,7 @@ function FrontendVisualEditorInner({
         onExport={parentId && contentId ? handleExport : undefined}
         contextNumber={Number(currentContentId ?? contentId) || undefined}
         contextTitle={contentList.find((c) => c.id === (currentContentId ?? contentId))?.title}
+        headerExtra={headerExtra}
       />
       )}
 
@@ -1918,7 +1940,7 @@ function FrontendVisualEditorInner({
         ) : isMultiPageCanvas ? (
           <EditorLayerPanel />
         ) : (
-          <LeftPanel page={Number(currentContentId ?? contentId) || 1} />
+          <LeftPanel page={Number(currentContentId ?? contentId) || 1} pagesSlot={pagesPanel} />
         )}
 
         {/* コンポーネントパネル（左側、レイヤーパネルの隣） */}
@@ -2384,6 +2406,8 @@ export function FrontendVisualEditor({
   onClose,
   enableMultiPageCanvas = false,
   contentList: externalContentList,
+  pagesPanel,
+  headerExtra,
 }: FrontendVisualEditorProps) {
   const { getIdToken } = useAuth();
   const [contentList, setContentList] = useState<ContentListItem[]>(externalContentList || []);
@@ -2599,6 +2623,8 @@ export function FrontendVisualEditor({
         onClose={onClose}
         parentId={effectiveParentId}
         contentId={currentContentId}
+        pagesPanel={pagesPanel}
+        headerExtra={headerExtra}
         isMultiPageCanvas={enableMultiPageCanvas}
       />
     </EditorProvider>

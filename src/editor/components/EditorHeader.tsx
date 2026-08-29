@@ -64,6 +64,8 @@ interface EditorHeaderProps {
   contextNumber?: number;
   /** [移植時の追加] 編集中スライドのタイトル */
   contextTitle?: string;
+  /** トップバー左端に置く利用側の導線(別画面へのリンク等) */
+  headerExtra?: React.ReactNode;
 }
 
 export function EditorHeader({
@@ -84,6 +86,7 @@ export function EditorHeader({
   contextNumber,
   comments,
   contextTitle,
+  headerExtra,
 }: EditorHeaderProps) {
   const {
     iframeRef,
@@ -298,6 +301,8 @@ export function EditorHeader({
       onClose={onClose}
       isCanvasEditing={isCanvasEditing}
       onSwitchUi={editorMode === "webpage" ? undefined : onSwitchUi}
+      /* 利用側の導線。一覧へ戻る/UI切替が出ない使い方では左端が空くので、そこに並ぶ */
+      leftExtra={headerExtra}
       /* Figma風の固有機能: ズームコントロール */
       rightExtra={
         <div className="flex items-center gap-1">

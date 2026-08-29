@@ -104,12 +104,19 @@ export function loadAuthor(): string {
   }
 }
 
+/** 名前を記憶する。右パネルとコメントボードで同じ置き場を使う */
+export function storeAuthor(value: string): void {
+  try {
+    localStorage.setItem(AUTHOR_KEY, value);
+  } catch { /* 記憶できなくても続行 */ }
+}
+
 /** 未解決コメント数(サムネイルのバッジ用) */
 export function unresolvedCount(comments?: SlideComment[]): number {
   return (comments ?? []).filter((c) => !c.resolved).length;
 }
 
-const fmtTime = (iso: string) => {
+export const fmtTime = (iso: string) => {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return '';
   const pad = (n: number) => String(n).padStart(2, '0');
@@ -253,9 +260,7 @@ export function PptCommentsPanel({
 
   const saveAuthor = (v: string) => {
     setAuthor(v);
-    try {
-      localStorage.setItem(AUTHOR_KEY, v);
-    } catch { /* 記憶できなくても続行 */ }
+    storeAuthor(v);
   };
 
   /**

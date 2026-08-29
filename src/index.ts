@@ -27,6 +27,21 @@ export { WEBPAGE_WIDTH, WEBPAGE_MIN_HEIGHT, SLIDE_WIDTH, SLIDE_HEIGHT, BREAKPOIN
 
 export { registerAutoSaveFlush, flushAutoSave } from "./editor/autosave";
 
+/**
+ * コメントの一覧(カンバン)。エディタとは別の画面に単独で置ける。
+ *
+ * - CommentBoardPanel … 配線済み。setEditorIO さえ渡してあれば props なしで動く
+ * - CommentBoard      … 純UI。デッキも操作も自分で用意したい場合はこちら
+ */
+export { CommentBoardPanel } from "./editor/components/comments/CommentBoardPanel";
+export type { CommentBoardPanelProps } from "./editor/components/comments/CommentBoardPanel";
+export { CommentBoard } from "./editor/components/comments/CommentBoard";
+export type { CommentBoardProps } from "./editor/components/comments/CommentBoard";
+
+/** 配色。CommentBoard の theme に渡す(initialPptTheme はOS設定に追従する) */
+export { initialPptTheme } from "./editor/components/ppt/PptChrome";
+export type { PptTheme } from "./editor/components/ppt/PptChrome";
+
 /** 置き場との境界。利用側が起動時に1回渡す */
 export { setEditorIO, io, can } from "./io";
 export type {

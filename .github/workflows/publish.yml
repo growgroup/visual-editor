@@ -22,12 +22,19 @@ jobs:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
+      # npm の Trusted Publishing(OIDC) は 11.5.1+ が必要
+      - run: npm install -g npm@latest
+
       - run: npm ci
 
       - run: npm run typecheck
 
       - run: npm run build
 
+      # 認証は次のどちらかで通る:
+      #  1. npmjs.com でこのリポジトリを Trusted Publisher に登録する(推奨・トークン不要)
+      #  2. secrets.NPM_TOKEN に npm の Automation token を入れる
+      # Trusted Publisher が設定されていれば OIDC が優先され、トークンは使われない。
       - name: version が変わっていれば publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

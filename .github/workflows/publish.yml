@@ -1,0 +1,42 @@
+name: publish
+
+# main に push するだけで npm に公開する。
+# package.json の version が npm 上の最新と違うときだけ publish し、
+# 同じなら何もしない(通常の push で毎回失敗しないようにするため)。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: # 手動実行も可
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance / Trusted Publishing 用
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npm run build
+
+      - name: version が変わっていれば publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          LOCAL=$(node -p "require('./package.json').version")
+          REMOTE=$(npm view @growgroup/visual-editor version 2>/dev/null || echo none)
+          echo "local=$LOCAL / npm=$REMOTE"
+          if [ "$LOCAL" = "$REMOTE" ]; then
+            echo "同じバージョンなので publish しません"
+            exit 0
+          fi
+          npm publish --provenance --access public

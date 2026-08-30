@@ -20,6 +20,14 @@
 /* エディタUIが参照するトークン（shadcn/ui 由来）。
    利用側の設定に依存しないよう、ここで閉じる */
 @theme {
+  /* Tailwind既定テーマの --font-sans / --font-serif を出力から外す。
+     dist/editor.css が :root へこれらを吐くと、利用側アプリが @theme で定義した
+     フォント(例: 游ゴシック)を読み込み順で上書きしてしまい、エディタを開いた
+     画面だけスライドの書体が変わる(編集キャンバスのiframeはホストの :root から
+     --font-* を収集するため、汚染がそのまま持ち込まれる)。
+     --font-mono はエディタUIの kbd 表示で使うため残す。 */
+  --font-sans: initial;
+  --font-serif: initial;
   --color-background: #ffffff;
   --color-foreground: #0a0a0a;
   --color-card: #ffffff;

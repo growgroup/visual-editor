@@ -1790,11 +1790,12 @@ export function convertDragTargetsToAbsolute(
     .map(({ element, origin }) => {
       const cs = win.getComputedStyle(element);
       if (cs.position === 'absolute' || cs.position === 'fixed') return null;
+      const box = readOffsetBox(element, iframeDoc);
       return {
         element,
         origin,
-        width: element.offsetWidth,
-        height: element.offsetHeight,
+        width: box.width,
+        height: box.height,
         parent: element.parentElement,
       };
     })
@@ -1921,6 +1922,49 @@ export function fitElementToContent(
   return { changed: true };
 }
 
+/**
+ * offsetLeft/offsetTop/offsetWidth/offsetHeight 相当を、SVG でも取れる形で読む。
+ *
+ * [なぜ必要か] `<svg>` と その中身は SVGElement で、offsetLeft 等を**持たない**
+ * (undefined)。そのまま origin にすると `left: NaNpx` が書かれて無視され、
+ * 掴んでも1pxも動かない(スライドのロゴ・図形で実測)。
+ * HTMLElement は従来どおり offset 系(スケール前の CSS px、transform の影響なし)を
+ * 使い、持たない要素だけ矩形から割り戻す。基準は offsetParent と同じ
+ * 「最も近い position が static でない祖先」(無ければ body)。
+ */
+export function readOffsetBox(
+  element: HTMLElement,
+  iframeDoc: Document,
+): { left: number; top: number; width: number; height: number } {
+  if (typeof element.offsetLeft === 'number') {
+    return {
+      left: element.offsetLeft,
+      top: element.offsetTop,
+      width: element.offsetWidth,
+      height: element.offsetHeight,
+    };
+  }
+  const win = iframeDoc.defaultView;
+  const artboard = iframeDoc.getElementById('artboard');
+  const scale = artboard ? artboard.getBoundingClientRect().width / (artboard.offsetWidth || 1) || 1 : 1;
+  let parent: HTMLElement | null = element.parentElement;
+  while (parent && parent !== iframeDoc.body && win?.getComputedStyle(parent).position === 'static') {
+    parent = parent.parentElement;
+  }
+  const base = parent ?? iframeDoc.body;
+  const baseRect = base.getBoundingClientRect();
+  const baseStyle = win?.getComputedStyle(base);
+  const borderLeft = parseFloat(baseStyle?.borderLeftWidth || '0') || 0;
+  const borderTop = parseFloat(baseStyle?.borderTopWidth || '0') || 0;
+  const rect = element.getBoundingClientRect();
+  return {
+    left: (rect.left - baseRect.left) / scale - borderLeft,
+    top: (rect.top - baseRect.top) / scale - borderTop,
+    width: rect.width / scale,
+    height: rect.height / scale,
+  };
+}
+
 export function prepareElementDragOrigin(
   element: HTMLElement,
   iframeDoc: Document,
@@ -1935,7 +1979,8 @@ export function prepareElementDragOrigin(
     if (!options.convertToAbsolute) {
       // 変換が許されていない（オートレイアウト等）。
       // 値だけ返して要素は一切触らない。
-      return { left: element.offsetLeft, top: element.offsetTop };
+      const box = readOffsetBox(element, iframeDoc);
+      return { left: box.left, top: box.top };
     }
 
     // 親を offsetParent に確定させてから採寸する。
@@ -1950,10 +1995,7 @@ export function prepareElementDragOrigin(
     }
 
     // 採寸はスタイルを書き換える前に行う（margin:0 を入れると値が変わるため）
-    const left = element.offsetLeft;
-    const top = element.offsetTop;
-    const width = element.offsetWidth;
-    const height = element.offsetHeight;
+    const { left, top, width, height } = readOffsetBox(element, iframeDoc);
 
     capturePrestyle(element);
     element.style.width = `${width}px`;
@@ -1966,8 +2008,10 @@ export function prepareElementDragOrigin(
   }
 
   // すでに絶対配置。offsetLeft/offsetTop がそのまま left/top の基準になる
-  const left = element.offsetLeft;
-  const top = element.offsetTop;
+  // (SVG は offset 系を持たないので矩形から割り戻す)
+  const box = readOffsetBox(element, iframeDoc);
+  const left = box.left;
+  const top = box.top;
 
   // right / bottom で位置決めされている要素（例: `absolute bottom-[24px] left-[96px]`）に
   // そのまま top を書くと、top と bottom が同時に効いて「移動」ではなく「伸長」になる。
@@ -1984,8 +2028,8 @@ export function prepareElementDragOrigin(
     (element.style.bottom !== '' && element.style.bottom !== 'auto') ||
     /(^|\s)-?bottom-/.test(element.className);
   if (hasRight || hasBottom) {
-    element.style.width = `${element.offsetWidth}px`;
-    element.style.height = `${element.offsetHeight}px`;
+    element.style.width = `${box.width}px`;
+    element.style.height = `${box.height}px`;
     if (hasRight) {
       element.style.right = 'auto';
       // インラインの auto だけでは `right-[24px]` クラスが保存HTMLに残り、

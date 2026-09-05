@@ -318,14 +318,19 @@ export function EditorCanvas() {
     if (!container) return;
 
     const scrollLeft = (container.scrollWidth - container.clientWidth) / 2;
-    const scrollTop = (container.scrollHeight - container.clientHeight) / 2;
+    // webpage は上端固定(紙面は #canvas-scroll-area で flex-start)。
+    // 初期表示もページの先頭から見えるべきで、縦の中央へ飛ばさない
+    const scrollTop =
+      editorMode === "webpage"
+        ? 0
+        : (container.scrollHeight - container.clientHeight) / 2;
 
     container.scrollTo({
       left: scrollLeft,
       top: scrollTop,
       behavior: "instant",
     });
-  }, [containerRef]);
+  }, [containerRef, editorMode]);
 
   useEffect(() => {
     if (isInMultiPageMode) return; // マルチページモードではキャンバスがスクロールを管理

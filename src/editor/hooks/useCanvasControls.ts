@@ -527,10 +527,11 @@ export function useCanvasControls() {
     if (!container) return;
     container.scrollTo({
       left: (container.scrollWidth - container.clientWidth) / 2,
-      top: (container.scrollHeight - container.clientHeight) / 2,
+      // webpage は上端固定(#canvas-scroll-area が flex-start)。先頭から見せる
+      top: editorMode === 'webpage' ? 0 : (container.scrollHeight - container.clientHeight) / 2,
       behavior: 'instant',
     });
-  }, [containerRef]);
+  }, [containerRef, editorMode]);
 
   // ズームフィット計算
   const calculateFitZoom = useCallback(() => {

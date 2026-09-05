@@ -249,9 +249,15 @@ export function applyCanvasZoomDom(iframeDoc: Document, zoomPct: number): void {
   scrollArea.style.minWidth = `${cw}px`;
   scrollArea.style.minHeight = `${ch}px`;
 
+  // webpage は上端固定(#canvas-scroll-area が flex-start、変形の基準も top)。
+  // 上の余白は中央寄せでは自然に生まれたが、上端固定では自分で確保する。
+  // 縦方向の中央寄せもしない(ページの高さが変わるたびに紙面が動く原因だった)
+  const topAnchored = iframeDoc.body.dataset.editorMode === 'webpage';
+  scrollArea.style.paddingTop = topAnchored ? `${padding}px` : '';
+
   // 紙面が容器に収まる軸はスクロールを中央へ(拡大時のパンには干渉しない)
   if (w * scale <= cw) container.scrollLeft = Math.max(0, (scrollArea.offsetWidth - cw) / 2);
-  if (h * scale <= ch) container.scrollTop = Math.max(0, (scrollArea.offsetHeight - ch) / 2);
+  if (!topAnchored && h * scale <= ch) container.scrollTop = Math.max(0, (scrollArea.offsetHeight - ch) / 2);
 }
 
 /* ============================ 原本への書き戻し支援 ============================

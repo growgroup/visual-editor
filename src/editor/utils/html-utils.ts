@@ -179,18 +179,23 @@ export function generateEditableHtml(content: string, editorMode: EditorMode = '
       background-color: ${CANVAS_BG_COLOR};
     }
 
-    /* パディング用ラッパー（スクロール領域確保） */
+    /* パディング用ラッパー（スクロール領域確保）
+       webpage は上端固定にする。中央寄せだと、テキスト入力や並べ替えでページの
+       高さが変わるたびに紙面が上下へ動き、見ていた場所が飛ぶ(実測 84〜729px)。
+       ブラウザのページと同じで、高さが変わっても上端は動かないのが正しい */
     #canvas-scroll-area {
       display: flex;
-      align-items: center;
+      align-items: ${editorMode === 'webpage' ? 'flex-start' : 'center'};
       justify-content: center;
       /* サイズはJSで動的に設定 */
     }
 
-    /* ズーム/パン適用対象 */
+    /* ズーム/パン適用対象。
+       webpage は上端固定なので、縮小も上端を基準にする(center だと縮んだ分だけ
+       紙面が下へずれ、上端固定の意味が無くなる) */
     #artboard-wrapper {
       flex-shrink: 0;
-      transform-origin: center center;
+      transform-origin: ${editorMode === 'webpage' ? 'top center' : 'center center'};
       /* transform は JS で設定 */
       /* 読み込み直後は非表示。倍率適用前の等倍(巨大)な一瞬を見せない。
          EditorCanvas がロード時に倍率を当ててから可視化する */
@@ -230,7 +235,7 @@ export function generateEditableHtml(content: string, editorMode: EditorMode = '
     }
   </style>
 </head>
-<body tabindex="-1">
+<body tabindex="-1" data-editor-mode="${editorMode}">
   <div id="canvas-container">
     <div id="canvas-scroll-area">
       <div id="artboard-wrapper">

@@ -16,7 +16,7 @@
  */
 
 import { useCallback } from 'react';
-import { refreshSelectionOverlay } from '../utils/dom-utils';
+import { refreshSelectionOverlay, getArtboardContent } from '../utils/dom-utils';
 
 interface UseKeyboardShortcutsOptions {
   /** グループ化関数 */
@@ -186,6 +186,17 @@ export function exitTextEditingIn(iframeDoc: Document): boolean {
 
   // 選択ボックスを再表示（1要素ずつ作り直すと他の枠を巻き込んで壊すため全体を再構築）
   refreshSelectionOverlay(iframeDoc);
+
+  // [確定を履歴に積む]
+  // フォーカスが外れて確定する経路(EditorCanvas の focusout)は、contenteditable が
+  // まだ付いている要素からのイベントでだけ内容変更を通知する。ここは先に属性を
+  // 外すので focusout 経路が黙り、Escape で確定した編集が履歴にも自動保存にも
+  // 乗らなかった(Cmd+Z で戻らない・保存されないまま閉じられる)。
+  // 同じ内容なら履歴側で重複扱いになるので、変わっていなくても送ってよい
+  window.postMessage(
+    { type: 'SLIDE_CONTENT_CHANGED', html: getArtboardContent(iframeDoc) },
+    '*',
+  );
   return true;
 }
 

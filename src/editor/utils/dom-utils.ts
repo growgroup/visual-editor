@@ -1923,6 +1923,62 @@ export function fitElementToContent(
 }
 
 /**
+ * テキスト編集中、ブラウザのキャレット追従で紙面が飛ぶのを防ぐ。
+ *
+ * 編集に入る・文字を打つ・End/Home でキャレットが動くたびに、ブラウザは
+ * キャレットを「見える位置」へスクロールさせる。紙面は #artboard-wrapper の
+ * transform で縮小されているため、その計算が狂い、見えているのに大きく
+ * スクロールしてしまう(実測: スライドで 53px、Webページで 1900px 飛んだ)。
+ * ダブルクリックした場所は既に見えているので、キャレット起因のスクロールは要らない。
+ *
+ * 追従は打鍵の後、次の描画更新の中で走る(rAF より後)ので、scroll イベントで
+ * 捕まえて描画される前に戻す。overflow:hidden の html/body/#artboard も
+ * プログラム的にはスクロールされ得るので、要素からルートまでの祖先を全部見る。
+ * ユーザー自身のスクロール(ホイール・パン・スクロールバー)は直前の入力で見分け、
+ * その直後の scroll は「意図した移動」として覚え直す。
+ * 編集を抜けたら(contenteditable が外れたら)自分で外れる。
+ */
+export function lockCaretScroll(element: HTMLElement, iframeDoc: Document): void {
+  const scrollers: HTMLElement[] = [];
+  for (let a = element.parentElement; a; a = a.parentElement) scrollers.push(a);
+  const remembered = scrollers.map((s) => ({ left: s.scrollLeft, top: s.scrollTop }));
+  const remember = () => {
+    scrollers.forEach((s, i) => {
+      remembered[i].left = s.scrollLeft;
+      remembered[i].top = s.scrollTop;
+    });
+  };
+  const restore = () => {
+    scrollers.forEach((s, i) => {
+      if (s.scrollLeft !== remembered[i].left) s.scrollLeft = remembered[i].left;
+      if (s.scrollTop !== remembered[i].top) s.scrollTop = remembered[i].top;
+    });
+  };
+
+  let userScrollUntil = 0;
+  const markUserScroll = () => {
+    userScrollUntil = performance.now() + 400;
+  };
+  const onScroll = () => {
+    if (element.getAttribute('contenteditable') !== 'true') return detach();
+    if (performance.now() < userScrollUntil) remember();
+    else restore();
+  };
+  const detach = () => {
+    iframeDoc.removeEventListener('wheel', markUserScroll, true);
+    iframeDoc.removeEventListener('mousedown', markUserScroll, true);
+    iframeDoc.removeEventListener('touchstart', markUserScroll, true);
+    iframeDoc.removeEventListener('scroll', onScroll, true);
+  };
+  iframeDoc.addEventListener('wheel', markUserScroll, true);
+  iframeDoc.addEventListener('mousedown', markUserScroll, true);
+  iframeDoc.addEventListener('touchstart', markUserScroll, true);
+  iframeDoc.addEventListener('scroll', onScroll, true);
+  // フォーカスや全選択で既に動いていたら、その場で戻す
+  restore();
+}
+
+/**
  * offsetLeft/offsetTop/offsetWidth/offsetHeight 相当を、SVG でも取れる形で読む。
  *
  * [なぜ必要か] `<svg>` と その中身は SVGElement で、offsetLeft 等を**持たない**

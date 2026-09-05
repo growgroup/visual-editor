@@ -19,6 +19,7 @@ import {
   getArtboardScale,
   refreshSelectionOverlay,
   syncSelectionOverlayRects,
+  lockCaretScroll,
 } from "../utils/dom-utils";
 import { extractElementInfo } from "../utils/style-utils";
 import { MARQUEE_DRAG_THRESHOLD } from "../constants";
@@ -1370,8 +1371,13 @@ export function useElementSelection(
           .querySelectorAll(".selection-box")
           .forEach((box) => box.remove());
 
-        // フォーカスを設定
-        element.focus();
+        // 紙面が飛ぶのを防ぐ(キャレット追従のスクロールを打ち消す)。
+        // 祖先のスクロール位置は focus の前に覚える必要があるので、フォーカスより先に張る
+        lockCaretScroll(element, iframeDoc);
+
+        // preventScroll: ダブルクリックした場所は既に見えているので、フォーカスでの
+        // スクロールは要らない(あると編集に入った瞬間に紙面が動く)
+        element.focus({ preventScroll: true });
 
         // テキスト全体を選択（オプション）
         const selection = iframeDoc.getSelection();

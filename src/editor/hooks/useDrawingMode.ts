@@ -6,7 +6,7 @@
 
 import { useEffect } from 'react';
 import { useEditorContext } from '../EditorContext';
-import { generateElementId } from '../utils/dom-utils';
+import { generateElementId, lockCaretScroll } from '../utils/dom-utils';
 import { inkStyle } from '../utils/ink-style';
 import { pendingShape, shapeStyles as shapeLibStyles } from '../utils/shape-library';
 
@@ -205,7 +205,9 @@ export function useDrawingMode() {
           artboard.appendChild(textEl);
         }
 
-        textEl.focus();
+        // 置いた場所は見えているので、フォーカスやキャレット追従で紙面を動かさない
+        lockCaretScroll(textEl, iframeDoc);
+        textEl.focus({ preventScroll: true });
         textEl.classList.add('selected', 'editing');
 
         const range = iframeDoc.createRange();

@@ -191,10 +191,11 @@ export function measureStyleSize(
   doc: Document
 ): { width: number; height: number } {
   const cs = doc.defaultView?.getComputedStyle(element);
-  let width = element.offsetWidth;
-  let height = element.offsetHeight;
+  // SVG は offsetWidth を持たない(undefined)。0 扱いにして下の矩形フォールバックへ流す
+  let width = typeof element.offsetWidth === 'number' ? element.offsetWidth : 0;
+  let height = typeof element.offsetHeight === 'number' ? element.offsetHeight : 0;
 
-  // インライン要素などで offsetWidth が 0 のときは矩形から拾う（保険）
+  // インライン要素や SVG で offsetWidth が取れないときは矩形から拾う（保険）
   if (width === 0 && height === 0) {
     const rect = element.getBoundingClientRect();
     const scale = getArtboardRenderScale(doc);

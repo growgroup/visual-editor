@@ -1094,11 +1094,14 @@ export function useElementSelection(
         const rawTarget = e.target as HTMLElement;
         const existingIds = selectedElementIdsRef.current;
 
-        // selection-boxをクリックした場合、対象要素のドラッグを開始
+        // selection-boxをクリックした場合、対象要素のドラッグを開始。
+        // Cmd/Ctrl(最下層を選ぶ)と Shift(追加/解除)は下の判別器に任せる。
+        // 以前は Cmd でもここで掴んでいたため、選択中の器の上で Cmd+クリックしても
+        // 中の要素を選べなかった(Figmaでは選べる)
         const selectionBox = rawTarget.closest(
           ".selection-box",
         ) as HTMLElement | null;
-        if (selectionBox && !e.shiftKey) {
+        if (selectionBox && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
           const forElementId = selectionBox.getAttribute("data-for-element");
           if (forElementId) {
             const targetEl = iframeDoc.querySelector(
@@ -1159,15 +1162,30 @@ export function useElementSelection(
         // ============================================================
 
         // ---- ① ヒットテスト ----
-        const hit = getEditableElement(e.target, iframeDoc);
+        // 選択枠(オーバーレイ)の上で押した場合、e.target は枠なので紙面の要素が分からない。
+        // 枠の下にある要素を elementsFromPoint で拾い、それを押した点として扱う
+        // (Cmd+クリックの最下層選択、Shift+クリックの追加/解除がここを通る)
+        let hitSource: Element | null = rawTarget;
+        if (selectionBox && typeof iframeDoc.elementsFromPoint === "function") {
+          hitSource =
+            iframeDoc
+              .elementsFromPoint(e.clientX, e.clientY)
+              .find(
+                (el) =>
+                  !el.closest(
+                    ".selection-box,.marquee-selection-box,[data-editor-overlay],#gg-smart-guides,#gg-measure-layer",
+                  ),
+              ) ?? null;
+        }
+        const hit = getEditableElement(hitSource, iframeDoc);
         // 空白＝押した点の祖先に編集可能要素がまったく無い状態。
         // #artboard / 紙面と同じ大きさの器 / #artboard-wrapper / #canvas-container は
         // initializeEditableElements が意図的に data-editable を付けないので
         // ここで自然に「空白」と判定される（IDの白リストは不要）。
         const isBlank =
           !hit &&
-          !(typeof rawTarget?.closest === "function"
-            ? rawTarget.closest('[data-editable="true"]')
+          !(hitSource && typeof hitSource.closest === "function"
+            ? hitSource.closest('[data-editable="true"]')
             : null);
 
         // ---- ② 役割決定 ----
@@ -1212,7 +1230,10 @@ export function useElementSelection(
         // 押した点を含む「選択済み要素」。あればそれを掴んだものとして扱う。
         // （コンテキスト解決で祖先へ引き上げると、掴んだ要素と選択済み要素が
         //   食い違って群が壊れる）
-        const selectedHit = findSelectedHit(rawTarget, iframeDoc);
+        const selectedHit = findSelectedHit(
+          (hitSource as HTMLElement | null) ?? rawTarget,
+          iframeDoc,
+        );
 
         let target: HTMLElement;
         if (meta) {

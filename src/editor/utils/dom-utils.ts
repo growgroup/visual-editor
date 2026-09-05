@@ -1845,6 +1845,19 @@ export function fitElementToContent(
   const fitH = handle.includes('n') || handle.includes('s');
   if (!fitW && !fitH) return { changed: false };
 
+  // 流し込みの子(カードやリスト項目)を並べている器は対象外。
+  // 「最長行に幅を合わせる」はテキスト箱のための採寸で、器に掛けると
+  // 中の文の長さまで幅が縮み、カードが折れてページ高さまで変わる
+  // (Webページの商品一覧で、ハンドルを2回押しただけで 490→337px に潰れた)。
+  // 絶対配置の子だけを持つ器は下の childExtent で正しく扱えるので通す
+  const INLINE_TEXT_TAGS = new Set(['SPAN', 'A', 'B', 'I', 'EM', 'STRONG', 'BR', 'SMALL', 'SUP', 'SUB', 'MARK', 'CODE']);
+  const hasFlowChildren = [...element.children].some((c) => {
+    if (INLINE_TEXT_TAGS.has(c.tagName)) return false;
+    const pos = win.getComputedStyle(c).position;
+    return pos !== 'absolute' && pos !== 'fixed';
+  });
+  if (hasFlowChildren) return { changed: false };
+
   const before = { w: element.offsetWidth, h: element.offsetHeight,
                    left: element.offsetLeft, top: element.offsetTop };
 

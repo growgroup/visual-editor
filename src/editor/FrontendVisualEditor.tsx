@@ -11,7 +11,7 @@
  * 汎用的なHTML編集エディタとして、スライド、ページ、コンポーネント等で利用可能
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useEditorShortcuts } from '../hooks/useEditorShortcuts';
 import {
   editorCancelDragRef,
@@ -816,6 +816,17 @@ function FrontendVisualEditorInner({
 
   /** ページ切替(サムネイル・新しいスライド)の直前に、殻から保存を呼べるようにする */
   useEffect(() => registerAutoSaveFlush(() => saveIfDirtyRef.current()), []);
+
+  /**
+   * この編集画面が消えるとき(ページ切替で key が変わる・閉じる)、保存待ちの変更を捨てない。
+   *
+   * 自動保存は2秒のデバウンス。編集して2秒以内にページを切り替えると、タイマーごと
+   * 捨てられて編集が消えていた(構成ラフで実測: 見出しを直して隣のページへ移ると失われる)。
+   * useLayoutEffect の後始末は iframe がまだ DOM にある間に走るので、ここで
+   * 本文を読み取って保存を始める。onSave はこの画面のもの(古い閉包)なので、
+   * 切替先ではなく編集していたページへ正しく保存される。
+   */
+  useLayoutEffect(() => () => { void saveIfDirtyRef.current(); }, []);
 
   /** ページが変わったら「保存済みの本文」の記憶も切り替える */
   useEffect(() => {

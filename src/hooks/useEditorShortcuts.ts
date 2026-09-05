@@ -99,12 +99,44 @@ function isEditableTarget(target: EventTarget | null): boolean {
  *
  * [移植時の修正] 以前は copy / cut / paste / selectAll もここに入っていたため、
  * テキスト編集中の Cmd+C が「要素のコピー」に化け、Cmd+A が兄弟要素の全選択になっていた。
- * 編集中は Undo/Redo と Escape（編集終了）以外はブラウザ既定に通す。
+ *
+ * [修正] Undo/Redo もここから外した。
+ * 編集中の Cmd+Z を横取りすると、ブラウザ既定の「文字入力の取り消し」が止まる一方で、
+ * エディタの履歴には打鍵ごとの段が無い（テキスト編集は確定時に1件積まれる）ため、
+ * **押しても何も起きない**状態だった（実測: 文字を打ってCmd+Z→入力は戻らない）。
+ * 選択したテキストを打ち間違えて上書きすると、確定するまで取り戻せなかった。
+ * 編集中の取り消しは文字単位＝ブラウザ既定に任せ、
+ * 要素単位の取り消し（エディタの履歴）は編集を抜けてから効かせる。
+ * PowerPoint / Figma も編集中の Cmd+Z は文字単位で動く。
  */
-const ALLOWED_IN_EDITABLE: ShortcutAction[] = ['undo', 'redo', 'deselect'];
+const ALLOWED_IN_EDITABLE: ShortcutAction[] = ['deselect'];
 
 function isAllowedInEditableContext(action: ShortcutAction | undefined): boolean {
   return action ? ALLOWED_IN_EDITABLE.includes(action) : false;
+}
+
+/**
+ * キャンバスにフォーカスがあるときだけ横取りするアクション。
+ *
+ * Tab はブラウザ既定の「次のUIへフォーカス移動」でもある。無条件に奪うと
+ * ヘッダーやパネルのボタンをキーボードだけで辿れなくなるため、
+ * 紙面を触っている間だけ「兄弟要素の巡回」に使う。
+ */
+const CANVAS_ONLY: ShortcutAction[] = ['selectNextSibling', 'selectPrevSibling'];
+
+/**
+ * このイベントがキャンバス(iframe)側の操作か。
+ * - iframe の document から来たイベント → キャンバス
+ * - 親側から来た場合は、body か iframe 自身にフォーカスがあるときだけキャンバス扱い
+ *   （ボタンや入力にフォーカスがあるなら、それはUIの操作中）
+ */
+function isCanvasEvent(event: KeyboardEvent): boolean {
+  const doc = (event.target as HTMLElement | null)?.ownerDocument ?? null;
+  if (doc && typeof document !== 'undefined' && doc !== document) return true;
+  const active = typeof document !== 'undefined' ? document.activeElement : null;
+  if (!active) return true;
+  const tag = active.tagName?.toUpperCase();
+  return tag === 'BODY' || tag === 'IFRAME';
 }
 
 /**
@@ -150,6 +182,11 @@ export function useEditorShortcuts(
         isEditableTarget(keyboardEvent.target) || isEditableTarget(doc?.activeElement ?? null);
 
       if (inEditableContext && !isAllowedInEditableContext(action)) {
+        return;
+      }
+
+      // キャンバス限定のキー(Tab)は、UI側にフォーカスがあるときは既定動作に通す
+      if (CANVAS_ONLY.includes(action) && !isCanvasEvent(keyboardEvent)) {
         return;
       }
 

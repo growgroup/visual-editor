@@ -151,3 +151,19 @@ npm run dev
 webpageは `/edit` を開く。slideは利用側の編集入口（`#/edit/1`）を開き、パネル表示とリボン表示を両方確認する。npm linkを使わない場合、利用側package.jsonで `"@growgroup/visual-editor": "file:../../.claude/packages/gg-visual-editor"` のように差し替える。**この例の相対パスは利用側の位置に合わせて修正する**。今回の2案件からはどちらも `file:../../../../.claude/packages/gg-visual-editor`。
 
 特に、ページ切替直前・閉じる直前の自動保存、手動保存による原本反映、共通パーツの反映、注釈カラムの流し込み、コメントのアンカー位置・返信/解決を確認する。slideはノート保存・画像/メディア・書き出し・AIを実際のIOで確認する。外部レールと「このページの編集を破棄する」は利用側が描画・処理するため、その動作も併せて確認する。
+
+## 利用側での実動作確認(2026-09-05、Claude Code が実施)
+
+Codex の作業後に、パッケージを `npm pack` して webpage 利用側(anms の構成ラフ、Next.js 14 + Tailwind v3)へ一時的に入れて確認した。
+
+| 確認 | 結果 |
+|---|---|
+| 利用側 `tsc --noEmit`(パッケージのソースを含む) | 1回目 NG → `PptComments.tsx` の `bubble.style[key]` が TS7015。型を付けて解消、以後 0 |
+| `/edit` の表示 | 1回目 500 → `dist/editor.css` の `@layer base` を利用側の Tailwind v3(PostCSS)が自分の指令と誤認して停止。層名を `gg-editor-defaults` に変更して解消、以後 200 |
+| `/edit?path=/news/detail`, `/edit?path=/license` | 200。レイヤー初期折り畳み・未選択時の右パネル省略・上部バーの保存状態表示を目視 |
+| `scripts/writeback-test.mjs`(書き戻し往復) | PASS 6 / 0 |
+| playground(`?mode=webpage` 1920/1440, `?mode=slide`) | ヘッドレス Chrome で撮影。重なり・切れなし |
+
+教訓: 同梱 CSS に `@layer base` / `components` / `utilities` を書かない。Tailwind v3 の利用側がビルドを止める。
+未確認のまま: 実ブラウザでのクリック操作(選択・プロパティ・コメント投稿)、slide 利用側(提案書アプリ)での実動作、ダークテーマ。
+撮影画像: `/Users/user/orca/projects/temp/claudedocs/editor-redesign-2026-09/`

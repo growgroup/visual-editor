@@ -224,8 +224,9 @@ export function useCommentMarkers({
           alignItems: 'center', justifyContent: 'center', padding: '0px',
         };
         // 同じ値を再代入してMutationObserverを起こさない。フォーカス中のDOMも維持する。
+        const style = bubble.style as unknown as Record<string, string>;
         for (const [key, value] of Object.entries(styles)) {
-          if (bubble.style[key] !== value) bubble.style[key] = value;
+          if (style[key] !== value) style[key] = value as string;
         }
       }
     };

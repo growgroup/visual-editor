@@ -121,8 +121,11 @@
   outline-offset: 1px;
 }
 
-/* 2026-09: 新しいエディタとそのPortalだけに適用。利用側のレールは対象外。 */
-@layer base {
+/* 2026-09: 新しいエディタとそのPortalだけに適用。利用側のレールは対象外。
+   層の名前を base にしない: 利用側が Tailwind v3(PostCSS)だと dist/editor.css の
+   `@layer base` を自分の指令と誤認して「@tailwind base が無い」とビルドを止める。
+   独自名の層なら素通しされ、層なしの utilities が上書きする関係も保てる。 */
+@layer gg-editor-defaults {
   .gg-editor-ui { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", Meiryo, sans-serif; font-size: 13px; line-height: 1.5; text-align: left; }
   .gg-editor-ui, .gg-editor-ui :where(*, *::before, *::after) { box-sizing: border-box; border-width: 0; border-style: solid; }
   .gg-editor-ui :where(button, input, textarea, select) { font: inherit; color: inherit; margin: 0; }

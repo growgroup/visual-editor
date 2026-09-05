@@ -167,3 +167,4 @@ Codex の作業後に、パッケージを `npm pack` して webpage 利用側(a
 教訓: 同梱 CSS に `@layer base` / `components` / `utilities` を書かない。Tailwind v3 の利用側がビルドを止める。
 未確認のまま: 実ブラウザでのクリック操作(選択・プロパティ・コメント投稿)、slide 利用側(提案書アプリ)での実動作、ダークテーマ。
 撮影画像: `/Users/user/orca/projects/temp/claudedocs/editor-redesign-2026-09/`
+| slide 利用側(growgroup-proposal-react, Vite + Tailwind v4)の `tsc --noEmit` | 0(tgz を一時 install して確認。実動作は認証が必要なため未確認) |

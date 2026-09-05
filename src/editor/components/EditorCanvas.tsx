@@ -978,7 +978,7 @@ export function EditorCanvas() {
       ref={containerRef}
       className="h-full w-full"
       style={{
-        backgroundColor: isInMultiPageMode ? "transparent" : "#1a1a1a",
+        backgroundColor: isInMultiPageMode ? "transparent" : "var(--ed-bg)",
       }}
     >
       <iframe

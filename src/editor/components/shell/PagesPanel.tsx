@@ -82,13 +82,14 @@ export function PagesPanel({ page, height = '33vh' }: { page: number; height?: s
             key={s.id}
             ref={current ? currentRef : undefined}
             data-page-thumb={n}
+            aria-current={current ? "page" : undefined}
             onClick={() => void goto(n)}
             className="flex w-full shrink-0 items-start gap-1.5 px-2 py-1 text-left"
             title={s.title ? `${n}. ${s.title}` : `${n}枚目`}
           >
             <span
               className="mt-0.5 w-4 shrink-0 text-right text-[10px] tabular-nums"
-              style={{ color: current ? '#4fb8ff' : '#6b7280', fontWeight: current ? 700 : 400 }}
+              style={{ color: current ? 'var(--ed-accent)' : 'var(--ed-muted)', fontWeight: current ? 700 : 400 }}
             >
               {n}
             </span>
@@ -103,13 +104,14 @@ export function PagesPanel({ page, height = '33vh' }: { page: number; height?: s
             >
               {thumbWidth > 0 && (
                 <span
-                  className="pointer-events-none absolute left-0 top-0 origin-top-left"
+                  data-editor-preview className="pointer-events-none absolute left-0 top-0 origin-top-left"
                   style={{ width: 1920, height: 1080, transform: `scale(${thumbWidth / 1920})` }}
                 >
                   <MemoSlideRender page={n} template={s.template} edited={s.edited} />
                 </span>
               )}
             </span>
+            <span className="min-w-0 flex-1 self-center text-xs leading-relaxed">{s.title || "無題"}</span>
           </button>
         );
       })}

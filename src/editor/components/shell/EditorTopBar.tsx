@@ -14,6 +14,7 @@
  * leftExtra / rightExtra / menuExtra のスロットで受け取り、この並びを崩さない。
  */
 
+import { toast } from 'sonner';
 import { useState } from 'react';
 import {
   DropdownMenu,
@@ -21,7 +22,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '../../../components/ui/dropdown-menu';
-import { ArrowLeft, ChevronDown, Download, FileText, Loader2, PenTool, Play, Save, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, Clock3, ArrowLeft, ChevronDown, Download, FileText, Loader2, PenTool, Play, Save, X } from 'lucide-react';
 import { useEditorContext } from '../../EditorContext';
 import { getCleanHtml } from '../../utils/html-utils';
 import { startExport, waitForExport, downloadExport, type ExportFormat } from '../../../lib/export';
@@ -46,20 +47,15 @@ export type TopBarPalette = {
 
 /** Figma風の配色(editor-skin.css のパネル色に合わせる) */
 const FIGMA_PALETTE: TopBarPalette = {
-  chrome: '#2c2c2c',
-  text: '#ffffff',
-  sub: '#9ca3af',
-  border: '#444444',
-  hover: '#444444',
-  activeBg: '#3a3a3a',
-  control: '#1e1e1e',
-  disabled: '#5f5f5f',
+  chrome: 'var(--ed-panel)', text: 'var(--ed-text)', sub: 'var(--ed-muted)',
+  border: 'var(--ed-line)', hover: 'var(--ed-surface-hover)', activeBg: 'var(--ed-accent-soft)',
+  control: 'var(--ed-panel-raised)', disabled: 'var(--ed-muted)',
 };
 
 /** 共有ボタンの色だけはUIの「顔」なのでテーマごとに持つ */
 const SHARE_COLOR = {
-  figma: { bg: '#0d99ff', fg: '#ffffff' },
-  ppt: { bg: '#E8912D', fg: '#33230a' },
+  figma: { bg: 'var(--ed-accent-strong)', fg: '#ffffff' },
+  ppt: { bg: 'var(--ed-accent-strong)', fg: '#ffffff' },
 } as const;
 
 export interface EditorTopBarProps {
@@ -143,14 +139,14 @@ export function EditorTopBar({
       const st = await waitForExport(jobId, () => undefined);
       downloadExport(st);
     } catch (e) {
-      window.alert(`書き出しに失敗しました: ${String(e).slice(0, 120)}`);
+      toast.error("書き出しに失敗しました", { description: String(e).slice(0, 120) });
     } finally {
       setExporting(null);
     }
   };
 
-  const iconBtn = 'flex h-7 w-7 shrink-0 items-center justify-center rounded transition-colors disabled:opacity-40';
-  const textBtn = 'flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-[11px] font-medium transition-colors';
+  const iconBtn = 'ed-icon-button';
+  const textBtn = 'ed-button';
   const hoverIn = (e: React.MouseEvent<HTMLElement>) => {
     if (!(e.currentTarget as HTMLButtonElement).disabled) e.currentTarget.style.backgroundColor = pal.hover;
   };
@@ -185,8 +181,8 @@ export function EditorTopBar({
           onClick={onSwitchUi}
           title={
             variant === 'ppt'
-              ? 'Figma風UIに切り替え(編集エンジンは共通)'
-              : 'PowerPoint風UIに切り替え(編集エンジンは共通)'
+              ? 'パネル表示に切り替え'
+              : 'リボン表示に切り替え'
           }
           className={textBtn}
           style={{ borderColor: pal.border, color: pal.sub }}
@@ -200,13 +196,13 @@ export function EditorTopBar({
               P
             </span>
           )}
-          {variant === 'ppt' ? 'Figma風' : 'PPT風'}
+          {variant === 'ppt' ? 'パネル表示' : 'リボン表示'}
         </button>
       )}
       {leftExtra}
 
       {/* 中央: デッキタイトル + スライド番号 */}
-      <div className="flex min-w-0 flex-1 items-center justify-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         {pageNumber != null && (
           <span className="shrink-0 font-mono text-[11px] tabular-nums" style={{ color: pal.sub }}>
             {String(pageNumber).padStart(3, '0')}
@@ -224,14 +220,15 @@ export function EditorTopBar({
         <button
           data-topbar="save"
           onClick={() => void handleSave()}
-          disabled={saving || !hasChanges}
-          title={saving ? '保存中…' : hasChanges ? '今すぐ保存' : '保存済みです(変更があると自動でも保存されます)'}
-          className={iconBtn}
-          style={{ color: saving || !hasChanges ? pal.disabled : pal.text }}
+          disabled={saving}
+          title={saving ? '保存中…' : '今すぐ保存（⌘S / Ctrl+S）'}
+          aria-label="保存"
+          className="ed-button"
           onMouseEnter={hoverIn}
           onMouseLeave={hoverOut}
         >
           <Save className="h-4 w-4" />
+          保存
         </button>
         {/* 書き出しは利用側の処理が要る。渡されていなければ出さない
             （押すと失敗するボタンを残さないため） */}
@@ -257,7 +254,7 @@ export function EditorTopBar({
                 style={{ backgroundColor: share.bg, color: share.fg }}
               >
                 {exporting && <Loader2 className="h-3 w-3 animate-spin" />}
-                {exporting ? `${exporting}を書き出し中…` : '共有'}
+                {exporting ? `${exporting}を書き出し中…` : '書き出し'}
                 <ChevronDown className="h-3 w-3" />
               </button>
             </DropdownMenuTrigger>
@@ -313,7 +310,7 @@ export function EditorTopBar({
           <button
             data-topbar="close"
             onClick={onClose}
-            title="エディタを閉じて一覧へ戻る"
+            title="エディタを閉じる" aria-label="エディタを閉じる"
             className={iconBtn}
             style={{ color: pal.sub }}
             onMouseEnter={hoverIn}
@@ -340,53 +337,17 @@ function SaveStatusPill({
   status: EditorSaveStatus;
   pal: TopBarPalette;
 }) {
-  const note = {
-    saved: '保存済み',
-    dirty: '保存待ち',
-    saving: '保存中…',
-    error: '保存できません',
-  }[status];
-
-  if (variant === 'ppt') {
-    // PowerPoint実機の「自動保存」ピル(トグルは無く、ノブが進み具合を示す)
-    const on = status !== 'error';
-    return (
-      <span
-        data-topbar="save-status"
-        data-save-status={status}
-        className="flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px]"
-        style={{ backgroundColor: pal.hover, color: status === 'error' ? '#ff6b6b' : pal.sub }}
-        title={`自動保存: ${note}(編集の手が止まると保存します)`}
-      >
-        自動保存
-        <span
-          className="relative inline-block h-3 w-6 rounded-full"
-          style={{ backgroundColor: on ? '#C43E1C' : '#8a3a3a' }}
-        >
-          <span
-            className={`absolute right-0.5 top-0.5 h-2 w-2 rounded-full bg-white ${status === 'saving' ? 'animate-pulse' : ''}`}
-          />
-        </span>
-        {note}
-      </span>
-    );
-  }
-
   const view = {
-    saved: { dot: 'bg-emerald-400', box: 'bg-emerald-400/10 text-emerald-300 ring-emerald-400/25', title: '自動保存済みです' },
-    dirty: { dot: 'bg-amber-400', box: 'bg-amber-400/15 text-amber-300 ring-amber-400/30', title: '変更が止まると自動で保存されます' },
-    saving: { dot: 'bg-sky-400 animate-pulse', box: 'bg-sky-400/15 text-sky-300 ring-sky-400/30', title: '保存しています' },
-    error: { dot: 'bg-rose-400', box: 'bg-rose-500/15 text-rose-300 ring-rose-400/30', title: '自動保存に失敗しました。保存ボタンで再試行してください' },
+    saved: { label: '保存済み', Icon: CheckCircle2 },
+    dirty: { label: '未保存・自動保存待ち', Icon: Clock3 },
+    saving: { label: '保存中…', Icon: Loader2 },
+    error: { label: '保存失敗・再試行してください', Icon: AlertCircle },
   }[status];
   return (
-    <span
-      data-topbar="save-status"
-      data-save-status={status}
-      title={view.title}
-      className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold tracking-wide ring-1 ring-inset ${view.box}`}
-    >
-      <span className={`h-1.5 w-1.5 rounded-full ${view.dot}`} />
-      {status === 'dirty' ? '未保存' : note}
+    <span data-topbar="save-status" data-save-status={status} role="status" aria-live="polite"
+      className="ed-save-status" title="編集が止まると自動保存します。保存ボタンからも保存できます。">
+      <view.Icon aria-hidden="true" className={`h-4 w-4 ${status === 'saving' ? 'animate-spin' : ''}`} />
+      {view.label}
     </span>
   );
 }

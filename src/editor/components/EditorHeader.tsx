@@ -22,9 +22,10 @@ import {
   FolderArchive,
   ChevronDown,
   MoreHorizontal,
-  MessageSquare,
+  MessageSquare, PanelLeft, Sun, Moon, Ruler,
 } from "lucide-react";
 import { useEditorContext } from "../EditorContext";
+import { ConfirmDialog } from "./shell/ConfirmDialog";
 import { EditorTopBar } from "./shell/EditorTopBar";
 import { MIN_ZOOM, MAX_ZOOM, editorZoomApiRef } from "../hooks/useCanvasControls";
 import { generateEditableHtml } from "../utils/html-utils";
@@ -38,6 +39,12 @@ import {
 import { can } from "../../io";
 
 interface EditorHeaderProps {
+  theme?: "light" | "dark";
+  onToggleTheme?: () => void;
+  layersOpen?: boolean;
+  onToggleLayers?: () => void;
+  guidesOpen?: boolean;
+  onToggleGuides?: () => void;
   /** コメントパネルの開閉(Figma風にもPowerPoint同等のコメントを出す) */
   comments?: { open: boolean; toggle: () => void; page: number };
   /** PowerPoint風UIへの切り替え(任意) */
@@ -69,6 +76,7 @@ interface EditorHeaderProps {
 }
 
 export function EditorHeader({
+  theme, onToggleTheme, layersOpen, onToggleLayers, guidesOpen, onToggleGuides,
   onSwitchUi,
   onSave,
   onSaveSettings,
@@ -107,6 +115,8 @@ export function EditorHeader({
     setAutoLayoutHtml,
     editorMode,
   } = useEditorContext();
+
+  const [resetOpen, setResetOpen] = useState(false);
 
   // 保存・共有・プレビュー・閉じるは共通トップバー(EditorTopBar)が持つ。
   // ここに実装を残すと、PowerPoint風UIと2本の保存経路ができてしまう
@@ -289,6 +299,7 @@ export function EditorHeader({
   };
 
   return (
+    <>
     <EditorTopBar
       variant="figma"
       /* 一覧・PPT風UIはスライドのデッキが前提。Webページでは出さない */
@@ -302,7 +313,11 @@ export function EditorHeader({
       isCanvasEditing={isCanvasEditing}
       onSwitchUi={editorMode === "webpage" ? undefined : onSwitchUi}
       /* 利用側の導線。一覧へ戻る/UI切替が出ない使い方では左端が空くので、そこに並ぶ */
-      leftExtra={headerExtra}
+      leftExtra={<>{headerExtra}{onToggleLayers && (
+        <button className="ed-button" onClick={onToggleLayers} aria-pressed={layersOpen} title="左パネルの表示を切り替え">
+          <PanelLeft className="h-4 w-4" />レイヤー
+        </button>
+      )}</>}
       /* Figma風の固有機能: ズームコントロール */
       rightExtra={
         <div className="flex items-center gap-1">
@@ -319,7 +334,7 @@ export function EditorHeader({
             onClick={handleZoomOut}
             disabled={!canZoomOut}
             title={canZoomOut ? "縮小" : `これ以上縮小できません（下限 ${MIN_ZOOM}%）`}
-            className="h-7 w-7 text-gray-400 hover:text-white hover:bg-[#444444] disabled:opacity-30"
+            className="h-8 w-8 text-gray-400 hover:text-white hover:bg-[#444444] disabled:opacity-30"
           >
             <ZoomOut className="h-4 w-4" />
           </Button>
@@ -411,7 +426,7 @@ export function EditorHeader({
             onClick={handleZoomIn}
             disabled={!canZoomIn}
             title={canZoomIn ? "拡大" : `これ以上拡大できません（上限 ${MAX_ZOOM}%）`}
-            className="h-7 w-7 text-gray-400 hover:text-white hover:bg-[#444444] disabled:opacity-30"
+            className="h-8 w-8 text-gray-400 hover:text-white hover:bg-[#444444] disabled:opacity-30"
           >
             <ZoomIn className="h-4 w-4" />
           </Button>
@@ -420,7 +435,7 @@ export function EditorHeader({
             size="icon"
             data-zoom-fit
             onClick={handleFitZoom}
-            className="h-7 w-7 text-gray-400 hover:text-white hover:bg-[#444444]"
+            className="h-8 w-8 text-gray-400 hover:text-white hover:bg-[#444444]"
             title="全体を表示（⌘0）"
           >
             <Maximize className="h-4 w-4" />
@@ -440,14 +455,22 @@ export function EditorHeader({
               variant="ghost"
               size="icon"
               data-header-more
-              className="h-7 w-7 text-gray-400 hover:bg-[#444444] hover:text-white"
+              className="h-8 w-8 text-gray-400 hover:bg-[#444444] hover:text-white"
               title="その他の操作"
             >
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-52 bg-[#2c2c2c] border-[#444444]">
-            <DropdownMenuItem onClick={handleReset} className="cursor-pointer gap-2 text-gray-300 hover:bg-[#444444] hover:text-white">
+            {onToggleTheme && <DropdownMenuItem onSelect={onToggleTheme} className="gap-2">
+              {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              {theme === 'dark' ? 'ライト表示にする' : 'ダーク表示にする'}
+            </DropdownMenuItem>}
+            {editorMode === 'webpage' && onToggleGuides && <DropdownMenuItem onSelect={onToggleGuides} className="gap-2">
+              <Ruler className="h-4 w-4" />{guidesOpen ? '幅のガイドを隠す' : '幅のガイドを表示'}
+            </DropdownMenuItem>}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setResetOpen(true)} className="cursor-pointer gap-2 text-gray-300 hover:bg-[#444444] hover:text-white">
               <RotateCcw className="h-4 w-4" />
               変更をリセット
             </DropdownMenuItem>
@@ -493,6 +516,8 @@ export function EditorHeader({
         </DropdownMenu>
       }
     />
+    <ConfirmDialog open={resetOpen} onOpenChange={setResetOpen} title="変更をリセットしますか？" description="最後に保存した内容に戻ります。未保存の変更は失われます。" confirmLabel="リセットする" onConfirm={handleReset} />
+    </>
   );
 }
 
@@ -511,19 +536,11 @@ function CommentToggleButton({
   const deck = useDeck();
   const count = unresolvedCount(deck.slides[page - 1]?.comments);
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={onToggle}
-      title="コメントパネルの表示/非表示"
-      className={`relative h-8 w-8 hover:bg-[#444444] ${open ? "text-[#4fb8ff]" : "text-gray-400 hover:text-white"}`}
-    >
+    <button className="ed-button" data-comment-toggle onClick={onToggle} aria-pressed={open}
+      aria-expanded={open} title="このページのコメントを確認・追加">
       <MessageSquare className="h-4 w-4" />
-      {count > 0 && (
-        <span className="absolute -right-0.5 -top-0.5 rounded-full bg-[#0d99ff] px-1 text-[9px] font-bold leading-[14px] text-white">
-          {count}
-        </span>
-      )}
-    </Button>
+      コメント
+      {count > 0 && <span className="tabular-nums" aria-label={`未解決${count}件`}>{count}</span>}
+    </button>
   );
 }

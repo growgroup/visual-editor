@@ -120,3 +120,159 @@
   outline: 2px solid var(--ed-accent);
   outline-offset: 1px;
 }
+
+/* 2026-09: 新しいエディタとそのPortalだけに適用。利用側のレールは対象外。 */
+@layer base {
+  .gg-editor-ui { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", Meiryo, sans-serif; font-size: 13px; line-height: 1.5; text-align: left; }
+  .gg-editor-ui, .gg-editor-ui :where(*, *::before, *::after) { box-sizing: border-box; border-width: 0; border-style: solid; }
+  .gg-editor-ui :where(button, input, textarea, select) { font: inherit; color: inherit; margin: 0; }
+  .gg-editor-ui :where(button) { background: transparent; cursor: pointer; }
+  .gg-editor-ui :where(button:disabled) { cursor: default; }
+  .gg-editor-ui :where(p, h1, h2, h3, h4, ul, ol) { margin: 0; padding: 0; }
+  .gg-editor-ui :where(svg) { display: block; flex-shrink: 0; }
+  .gg-editor-ui :where(input, textarea) { min-width: 0; }
+}
+
+.gg-editor-ui {
+  color-scheme: light;
+  --ed-bg: #eef1f5;
+  --ed-panel: #ffffff;
+  --ed-panel-raised: #ffffff;
+  --ed-surface: #f3f5f8;
+  --ed-surface-hover: #e8edf4;
+  --ed-text: #202938;
+  --ed-muted: #566477;
+  --ed-line: #dce2ea;
+  --ed-line-strong: #7b889a;
+  --ed-accent: #2459c4;
+  --ed-accent-strong: #2459c4;
+  --ed-accent-hover: #1c48a2;
+  --ed-accent-soft: #eaf0ff;
+  --ed-success: #216346;
+  --ed-warning: #885500;
+  --ed-danger: #b42332;
+  --ed-shadow: 0 8px 32px #20293814, 0 2px 8px #2029380a;
+  --ed-radius: 8px;
+  --ed-focus: 0 0 0 2px var(--ed-panel), 0 0 0 4px var(--ed-accent);
+  --color-background: var(--ed-panel);
+  --color-foreground: var(--ed-text);
+  --color-card: var(--ed-panel);
+  --color-card-foreground: var(--ed-text);
+  --color-popover: var(--ed-panel-raised);
+  --color-popover-foreground: var(--ed-text);
+  --color-primary: var(--ed-accent-strong);
+  --color-primary-foreground: #fff;
+  --color-secondary: var(--ed-surface);
+  --color-secondary-foreground: var(--ed-text);
+  --color-muted: var(--ed-surface);
+  --color-muted-foreground: var(--ed-muted);
+  --color-accent: var(--ed-surface-hover);
+  --color-accent-foreground: var(--ed-text);
+  --color-border: var(--ed-line);
+  --color-input: var(--ed-line-strong);
+  --color-ring: var(--ed-accent);
+  --color-destructive: var(--ed-danger);
+  color: var(--ed-text);
+  accent-color: var(--ed-accent-strong);
+  scrollbar-color: var(--ed-line-strong) transparent;
+}
+.gg-editor-ui[data-editor-theme="dark"] {
+  color-scheme: dark;
+  --ed-bg: #191d24;
+  --ed-panel: #242932;
+  --ed-panel-raised: #2b313c;
+  --ed-surface: #303744;
+  --ed-surface-hover: #3c4554;
+  --ed-text: #f0f3f8;
+  --ed-muted: #b4bfce;
+  --ed-line: #3b4554;
+  --ed-line-strong: #7e8ca0;
+  --ed-accent: #9bbcff;
+  --ed-accent-strong: #3168d5;
+  --ed-accent-hover: #2859bc;
+  --ed-accent-soft: #303e59;
+  --ed-success: #8bddb0;
+  --ed-warning: #f3cc80;
+  --ed-danger: #ffa6ad;
+  --ed-shadow: 0 8px 32px #00000040, 0 2px 8px #00000026;
+}
+/* 古い固定色の部品も同じトークンへ移行。塗り見本・紙面のコンテンツは対象外。 */
+.gg-editor-ui :is(.text-white, .text-gray-100, .text-gray-200, .text-gray-300):not([data-editor-preview] *) { color: var(--ed-text); }
+.gg-editor-ui :is(.text-gray-400, .text-gray-500, .text-gray-600):not([data-editor-preview] *) { color: var(--ed-muted); }
+.gg-editor-ui :is(.hover\:text-white:hover, .hover\:text-gray-200:hover):not([data-editor-preview] *) { color: var(--ed-text); }
+.gg-editor-ui :is(.hover\:bg-\[\#444444\]:hover, .hover\:bg-\[\#383838\]:hover, .hover\:bg-white\/10:hover):not([data-editor-preview] *) { background-color: var(--ed-surface-hover); }
+.gg-editor-ui :is(.text-sky-400, .text-\[\#7cc4ff\]):not([data-editor-preview] *) { color: var(--ed-accent); }
+.gg-editor-ui :is(.text-red-400, .text-red-500):not([data-editor-preview] *) { color: var(--ed-danger); }
+.gg-editor-ui :is(.bg-blue-500, .bg-blue-600, .bg-\[\#0d99ff\], .bg-green-600, .bg-purple-600, .bg-red-500, .bg-black\/90).text-white,
+.gg-editor-ui :is(.bg-blue-500, .bg-blue-600, .bg-\[\#0d99ff\], .bg-green-600, .bg-purple-600, .bg-red-500, .bg-black\/90) .text-white:not([data-editor-preview] *) { color: #fff; }
+.gg-editor-ui :is(.bg-\[\#0d99ff\]\/20, .bg-\[\#0d99ff\]\/15, .bg-\[\#0d99ff\]\/30):not([data-editor-preview] *) { background-color: var(--ed-accent-soft); }
+.gg-editor-ui :is(.bg-white\/15, .bg-white\/10):not([data-editor-preview] *) { background-color: var(--ed-line); }
+.gg-editor-ui :is(.shadow-lg, .shadow-xl, .shadow-2xl):not([data-editor-preview] *) { box-shadow: var(--ed-shadow); }
+.gg-editor-ui :is([class*="text-[6px]"], [class*="text-[7px]"], [class*="text-[8px]"], [class*="text-[9px]"], [class*="text-[9.5px]"], [class*="text-[10px]"], [class*="text-[10.5px]"], [class*="text-[11px]"], [class*="text-[11.5px]"]):not([data-editor-preview] *) { font-size: 12px; }
+.gg-editor-ui :is(button, input, select, textarea, a, [tabindex]):focus-visible {
+  outline: 2px solid var(--ed-accent); outline-offset: 2px; box-shadow: none;
+}
+.gg-editor-ui :is(input, textarea):not([data-editor-preview] *)::placeholder { color: var(--ed-muted); opacity: 1; }
+.gg-editor-ui .ed-icon-button, .gg-editor-ui .ed-button {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; gap: 8px;
+  height: 36px; padding: 0 12px; border: 1px solid var(--ed-line); border-radius: var(--ed-radius);
+  color: var(--ed-text); background: var(--ed-panel); font-size: 13px; font-weight: 500; white-space: nowrap;
+}
+.gg-editor-ui .ed-icon-button { width: 32px; height: 32px; padding: 0; border-color: transparent; background: transparent; }
+.gg-editor-ui :is(.ed-button, .ed-icon-button):hover:not([data-editor-preview] *) { background: var(--ed-surface-hover); }
+.gg-editor-ui :is(.ed-button, .ed-icon-button)[aria-pressed="true"]:not([data-editor-preview] *) { background: var(--ed-accent-soft); color: var(--ed-accent); border-color: var(--ed-accent); }
+.gg-editor-ui .ed-button-primary { background: var(--ed-accent-strong); color: #fff; border-color: transparent; }
+.gg-editor-ui .ed-button-primary:hover { background: var(--ed-accent-hover); }
+.gg-editor-ui button:disabled { opacity: .45; }
+.gg-editor-ui [data-editor-topbar] { height: 56px; gap: 12px; padding-inline: 16px; }
+.gg-editor-ui [data-topbar="title"] { font-size: 14px; }
+.gg-editor-ui .ed-save-status { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; white-space: nowrap; color: var(--ed-muted); }
+.gg-editor-ui .ed-save-status[data-save-status="dirty"] { color: var(--ed-warning); }
+.gg-editor-ui .ed-save-status[data-save-status="error"] { color: var(--ed-danger); }
+.gg-editor-ui .ed-save-status[data-save-status="saved"] svg { color: var(--ed-success); }
+.gg-editor-ui .ed-panel-heading { height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--ed-line); flex-shrink: 0; font-size: 14px; font-weight: 600; }
+.gg-editor-ui .ed-toolbar { border: 1px solid var(--ed-line); border-radius: 12px; padding: 8px; background: var(--ed-panel-raised); color: var(--ed-text); box-shadow: var(--ed-shadow); }
+.gg-editor-ui .ed-footer { height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 16px; border-top: 1px solid var(--ed-line); background: var(--ed-panel); color: var(--ed-muted); font-size: 12px; flex-shrink: 0; }
+.gg-editor-ui .ed-footer-hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gg-editor-ui .ed-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 12px; padding: 24px; color: var(--ed-muted); font-size: 13px; line-height: 1.7; }
+.gg-editor-ui .ed-empty strong { color: var(--ed-text); font-size: 14px; }
+@media (prefers-reduced-motion: reduce) {
+  .gg-editor-ui *, .gg-editor-ui *::before, .gg-editor-ui *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+.gg-editor-ui .ed-panel-tabs { display: flex; height: 48px; width: 100%; flex-shrink: 0; gap: 4px; padding: 8px; border-bottom: 1px solid var(--ed-line); border-radius: 0; background: var(--ed-panel); }
+.gg-editor-ui .ed-panel-tabs > button { flex: 1; font-size: 12px; height: 32px; }
+.gg-editor-ui .ed-panel-tabs > [data-state="active"] { background: var(--ed-accent-soft); color: var(--ed-accent); box-shadow: none; }
+.gg-editor-ui .ed-panel-tab-content { margin: 0; min-height: 0; flex: 1; display: flex; }
+.gg-editor-ui .ed-panel-tab-content[data-state="inactive"] { display: none; }
+.gg-editor-ui .ed-resize-handle { width: 6px; background-color: transparent; }
+.gg-editor-ui .ed-resize-handle:hover, .gg-editor-ui .ed-resize-handle:focus-visible { background-color: var(--ed-accent); }
+.gg-editor-ui .ed-layer-selected { box-shadow: inset 3px 0 var(--ed-accent); }
+.gg-editor-ui .ed-layer-selected :is(.text-white, .text-blue-100, .text-blue-200) { color: var(--ed-accent); }
+.gg-editor-ui [data-property-panel] input:not([type="color"]), .gg-editor-ui [data-property-panel] select { min-height: 28px; }
+.gg-editor-ui [data-property-panel] button[data-state] { min-height: 32px; }
+.gg-editor-ui [data-property-panel] .ed-panel-heading { position: sticky; top: 0; z-index: 1; }
+/* ポータル自身も配色スコープ。利用側にToasterがある場合もその設定を奪わない。 */
+.gg-editor-ui[data-editor-surface="popup"], .gg-editor-ui[data-editor-surface="dialog"], .gg-editor-ui[data-editor-surface="tooltip"] {
+  color: var(--ed-text); background-color: var(--ed-panel-raised); border-color: var(--ed-line); border-radius: 12px; box-shadow: var(--ed-shadow); z-index: 10000;
+}
+.gg-editor-ui[data-editor-surface="popup"] { max-width: calc(100vw - 24px); }
+.gg-editor-ui[data-editor-surface="dialog"] { max-width: min(var(--container-7xl, 80rem), calc(100vw - 48px)); max-height: calc(100dvh - 48px); overflow-y: auto; border-radius: 16px; }
+.gg-editor-ui[data-editor-surface="dialog"].max-w-lg { max-width: min(32rem, calc(100vw - 48px)); }
+.gg-editor-ui[data-editor-surface="overlay"] { background: #10182766; z-index: 9999; }
+.gg-editor-ui[data-editor-surface="tooltip"] { border: 1px solid var(--ed-line); font-size: 12px; }
+.gg-editor-ui [role="menuitem"], .gg-editor-ui [role="menuitemcheckbox"], .gg-editor-ui [role="menuitemradio"] { min-height: 32px; font-size: 13px; }
+.gg-editor-ui :is([role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"])[data-highlighted]:not([data-editor-preview] *) { background-color: var(--ed-accent-soft); color: var(--ed-accent); }
+.gg-editor-ui[data-editor-surface="dialog"] > button:last-child { min-width: 28px; min-height: 28px; display: flex; align-items: center; justify-content: center; }
+.gg-editor-ui .ed-comments-panel { background: var(--ed-surface); }
+.gg-editor-ui .ed-comment-thread p { overflow-wrap: anywhere; }
+.gg-editor-ui .ed-comment-thread button { min-height: 28px; }
+.gg-editor-ui .ed-comments-panel textarea { padding: 12px; border-radius: 8px; min-height: 88px; line-height: 1.6; }
+.gg-editor-ui .ed-comment-thread > div:first-child > button { min-width: 28px; }
+.gg-editor-ui .ed-ribbon [role="tab"] { height: 40px; font-size: 13px; padding-inline: 12px; }
+.gg-editor-ui .ed-ribbon [role="tabpanel"] { padding-inline: 16px; gap: 4px; }
+.gg-editor-ui .ed-ribbon [role="tabpanel"] button { min-height: 28px; }
+.gg-editor-ui .ed-ribbon [role="tabpanel"] input:not([type="color"]), .gg-editor-ui .ed-ribbon [role="tabpanel"] select { min-height: 28px; }
+.gg-editor-ui .ed-ribbon [role="tab"][data-state="active"] { color: var(--ed-accent); }
+
+/* 入力の識別に必要な境界は、レイアウトの薄い区切り線とは分ける。 */
+.gg-editor-ui :is(input:not([type="color"]), textarea, select):not([data-editor-preview] *) { border-color: var(--ed-line-strong) !important; }

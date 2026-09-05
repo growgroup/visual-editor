@@ -12,7 +12,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { readApiJson } from '../../utils/api-json';
-import { createPortal } from 'react-dom';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '../../../components/ui/dialog';
+import { io } from '../../../io';
+
+/** 既存のジョブ応答処理へ、利用側IOのJSONを渡す。HTTPの実装は利用側だけが持つ。 */
+async function proposalRequest(path: string, init?: RequestInit): Promise<Response> {
+  const data = await io().apiFetch!(path, init);
+  return new Response(JSON.stringify(data), { headers: { 'Content-Type': 'application/json' } });
+}
 import { X, Sparkles, Loader2, Check, AlertTriangle } from 'lucide-react';
 import { useEditorContext } from '../../EditorContext';
 
@@ -61,19 +68,13 @@ export function PptDesignProposals({
     return () => { aliveRef.current = false; };
   }, []);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-
   /** ジョブが片付くまで status を叩き続ける */
   const poll = useCallback(
     async <T,>(url: string, onTick: (v: T & { state: string; message?: string }) => void) => {
       for (;;) {
         if (!aliveRef.current) return null;
         await new Promise((r) => setTimeout(r, 2500));
-        const res = await fetch(url).catch(() => null);
+        const res = await proposalRequest(url).catch(() => null);
         if (!res || !res.ok) continue;
         const v = (await readApiJson<T & { state: string; message?: string; error?: string }>(res));
         onTick(v);
@@ -88,7 +89,7 @@ export function PptDesignProposals({
     setPatterns([]);
     setGenState('running');
     setGenMessage('ジョブを開始しています…');
-    const res = await fetch('/__design-gen', {
+    const res = await proposalRequest('/__design-gen', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ page, instruction, count }),
@@ -119,7 +120,7 @@ export function PptDesignProposals({
       setError('');
       setApplyingUrl(url);
       setApplyMessage('ジョブを開始しています…');
-      const res = await fetch('/__design-apply', {
+      const res = await proposalRequest('/__design-apply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ page, image: url, note: instruction }),
@@ -161,21 +162,16 @@ export function PptDesignProposals({
 
   const busy = genState === 'running' || !!applyingUrl;
 
-  return createPortal(
-    <div
-      className="fixed inset-0 z-[10001] flex items-center justify-center p-6"
-      style={{ backgroundColor: 'rgba(0,0,0,0.45)' }}
-      onMouseDown={(e) => { if (e.target === e.currentTarget && !busy) onClose(); }}
-    >
-      <div
-        data-design-proposals="1"
-        className="flex max-h-full w-[min(1100px,95vw)] flex-col overflow-hidden rounded-lg border shadow-2xl"
-        style={{ backgroundColor: pal.chrome, borderColor: pal.border, color: pal.text }}
-      >
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
+      <DialogContent data-design-proposals="1" className="flex w-[min(1100px,95vw)] max-w-none flex-col p-0 [&>button:last-child]:hidden"
+        onEscapeKeyDown={(e) => { if (busy) e.preventDefault(); }}
+        onInteractOutside={(e) => { if (busy) e.preventDefault(); }}>
+        <DialogDescription className="sr-only">スライドのデザイン案を生成して選択します。</DialogDescription>
         {/* 見出し */}
         <div className="flex items-center gap-2 border-b px-4 py-3" style={{ borderColor: pal.border }}>
           <Sparkles className="h-4 w-4" />
-          <span className="text-[13px] font-semibold">デザイン提案</span>
+          <DialogTitle className="text-base">デザイン提案</DialogTitle>
           <span className="text-[11px]" style={{ color: pal.sub }}>
             {page}枚目のスライドを、内容はそのままに別の見せ方で提案します
           </span>
@@ -218,7 +214,7 @@ export function PptDesignProposals({
             onClick={() => void generate()}
             disabled={busy}
             className="flex h-[30px] items-center gap-1.5 rounded px-3 text-[12px] font-medium"
-            style={{ backgroundColor: busy ? pal.disabled : '#ED6C47', color: '#fff' }}
+            style={{ backgroundColor: busy ? pal.disabled : 'var(--ed-accent-strong)', color: '#fff' }}
           >
             {genState === 'running' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
             生成
@@ -268,8 +264,7 @@ export function PptDesignProposals({
         <div className="border-t px-4 py-2 text-[11px]" style={{ borderColor: pal.border, color: pal.sub }}>
           適用するとスライドの実装(TSX)が書き直されます。描画できない結果になった場合は自動で元に戻します。
         </div>
-      </div>
-    </div>,
-    document.body,
+      </DialogContent>
+    </Dialog>
   );
 }

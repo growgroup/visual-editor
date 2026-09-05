@@ -1,0 +1,10 @@
+html, body, #root { height: 100%; margin: 0; }
+.pg-layout { display: flex; height: 100%; font-family: system-ui, sans-serif; }
+.pg-rail { box-sizing: border-box; display: flex; flex-direction: column; gap: 20px; flex: 0 0 240px; padding: 24px 20px; background: #20252d; color: #f0f3f8; overflow: auto; font-size: 13px; line-height: 1.6; }
+.pg-rail > strong { font-size: 18px; }.pg-rail p { margin: 8px 0; }
+.pg-caption { color: #b4bfce; font-size: 12px; }
+.pg-rail nav { display: flex; gap: 8px; }.pg-rail a { color: #c3d6ff; font-size: 13px; }
+.pg-rail nav a { padding: 8px 12px; border-radius: 8px; text-decoration: none; }.pg-rail a[aria-current] { background: #384a68; color: white; }
+.pg-card { border-top: 1px solid #495361; padding-top: 16px; }.pg-card p { color: #b4bfce; }
+.pg-editor { position: relative; flex: 1; min-width: 0; transform: translateZ(0); }
+.pg-reopen { margin: 24px; padding: 12px; }

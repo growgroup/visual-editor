@@ -253,7 +253,7 @@ export function applyCanvasZoomDom(iframeDoc: Document, zoomPct: number): void {
   // 上の余白は中央寄せでは自然に生まれたが、上端固定では自分で確保する。
   // 縦方向の中央寄せもしない(ページの高さが変わるたびに紙面が動く原因だった)
   const topAnchored = iframeDoc.body.dataset.editorMode === 'webpage';
-  scrollArea.style.paddingTop = topAnchored ? `${padding}px` : '';
+  scrollArea.style.paddingTop = topAnchored ? `32px` : '';
 
   // 紙面が容器に収まる軸はスクロールを中央へ(拡大時のパンには干渉しない)
   if (w * scale <= cw) container.scrollLeft = Math.max(0, (scrollArea.offsetWidth - cw) / 2);

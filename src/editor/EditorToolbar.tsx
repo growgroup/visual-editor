@@ -232,7 +232,7 @@ export const EditorToolbar = memo(function EditorToolbar({
         選択中の副次操作(重ね順・グループ)は…メニューへ畳む。配色もビューアに合わせる。
       */}
       <div className="absolute bottom-5 left-1/2 z-50 max-w-[calc(100%-5rem)] -translate-x-1/2 px-0">
-        <div className="no-scrollbar flex items-center gap-0.5 overflow-x-auto rounded-xl border border-[#444444] bg-[#2c2c2c]/95 px-1.5 py-1.5 text-gray-200 shadow-2xl shadow-black/60 backdrop-blur"
+        <div className="ed-toolbar no-scrollbar flex items-center gap-1 overflow-x-auto"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
           {/* 取り消し/やり直し */}
           <ActionButton icon={Undo2} onClick={onUndo} disabled={!canUndo} tooltip="元に戻す" shortcut={`${cmdKey}Z`} />
@@ -359,26 +359,16 @@ export const EditorToolbar = memo(function EditorToolbar({
             </>
           )}
 
-          {/* パネル(CSS変数・コンポーネント) */}
-          {(onOpenVariables || onOpenComponents) && (
+          {(onOpenVariables || onOpenComponents) && <>
             <Separator orientation="vertical" className="mx-1 h-6 bg-white/15" />
-          )}
-          {onOpenVariables && (
-            <ActionButton
-              icon={Paintbrush}
-              onClick={onOpenVariables}
-              tooltip="CSS変数"
-              className={hasVariables ? 'text-sky-400' : undefined}
-            />
-          )}
-          {onOpenComponents && (
-            <ActionButton
-              icon={Component}
-              onClick={onOpenComponents}
-              tooltip="コンポーネント"
-              className={hasComponents ? 'text-sky-400' : undefined}
-            />
-          )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild><Button variant="ghost" size="sm" className="h-9 gap-2 px-2 text-xs"><Component className="h-4 w-4" />パネル<ChevronDown className="h-3 w-3" /></Button></DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="end" className="w-52">
+                {onOpenComponents && <DropdownMenuItem onSelect={onOpenComponents} className="gap-2"><Component className="h-4 w-4" />コンポーネント</DropdownMenuItem>}
+                {onOpenVariables && <DropdownMenuItem onSelect={onOpenVariables} className="gap-2"><Paintbrush className="h-4 w-4" />CSS変数</DropdownMenuItem>}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </>}
 
           {/* 選択中のみ: よく使う3つを出し、残りは…メニュー */}
           {selectedCount > 0 && (

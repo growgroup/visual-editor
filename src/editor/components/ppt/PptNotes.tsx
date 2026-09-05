@@ -11,7 +11,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Loader2, Sparkles, StickyNote } from 'lucide-react';
 import { PPT_PALETTES, type PptTheme } from './PptChrome';
-import { readApiJson } from '../../utils/api-json';
+import { io } from '../../../io';
+const notesApi = async <T,>(path: string, init?: RequestInit) => io().apiFetch!(path, init) as Promise<T>;
 
 type Segment = { page: number; text?: string; note?: string };
 
@@ -28,8 +29,7 @@ export function PptNotes({ page, theme }: { page: number; theme: PptTheme }) {
   // 原稿ファイルを読み込む(1回)
   useEffect(() => {
     let alive = true;
-    fetch('/__presenter-script')
-      .then((r) => r.json())
+    notesApi<{ segments?: Segment[] }>('/__presenter-script')
       .then((data) => {
         if (!alive) return;
         const map = new Map<number, Segment>();
@@ -48,7 +48,7 @@ export function PptNotes({ page, theme }: { page: number; theme: PptTheme }) {
     if (!d) return;
     dirtyRef.current = null;
     try {
-      await fetch('/__presenter-script/segment', {
+      await notesApi('/__presenter-script/segment', {
         method: 'POST',
         body: JSON.stringify(d),
       });
@@ -93,7 +93,7 @@ export function PptNotes({ page, theme }: { page: number; theme: PptTheme }) {
   /** 生成完了後にファイルを読み直し、表示中ページの原稿を差し替える */
   const reloadSegments = useCallback(async () => {
     try {
-      const data = await (await fetch('/__presenter-script')).json();
+      const data = await notesApi<{ segments?: Segment[] }>('/__presenter-script');
       const map = new Map<number, Segment>();
       for (const seg of data.segments ?? []) map.set(seg.page, seg);
       setSegments(map);
@@ -113,15 +113,13 @@ export function PptNotes({ page, theme }: { page: number; theme: PptTheme }) {
       setGenState({ running: true, message: '開始中…' });
       setOpen(true);
       try {
-        const res = await fetch('/__script-gen', { method: 'POST', body: JSON.stringify(payload) });
-        const { jobId, error } = await readApiJson<{ jobId?: string; error?: string }>(res);
+        const data = await notesApi<{ jobId?: string; error?: string }>('/__script-gen', { method: 'POST', body: JSON.stringify(payload) });
+        const { jobId, error } = data;
         if (!jobId) throw new Error(error || '開始できませんでした');
         // 完了までポーリング(生成は1バッチ30秒〜)
         for (;;) {
           await new Promise((r) => setTimeout(r, 1500));
-          const st = await readApiJson<{ state: string; message?: string; error?: string }>(
-            await fetch(`/__script-gen/status/${jobId}`),
-          );
+          const st = await notesApi<{ state: string; message?: string; error?: string }>(`/__script-gen/status/${jobId}`);
           setGenState({ running: st.state === 'running', message: st.message ?? '' });
           if (st.state === 'done') {
             await reloadSegments();
@@ -139,9 +137,9 @@ export function PptNotes({ page, theme }: { page: number; theme: PptTheme }) {
   return (
     <div className="shrink-0 border-t" style={{ borderColor: pal.border, backgroundColor: pal.rail }}>
       {/* 折りたたみバー(実機の「ノートを入力」) */}
-      <div className="flex h-6 w-full items-center gap-1.5 px-3 text-[11px]">
+      <div className="flex h-9 w-full items-center gap-1.5 px-3 text-[11px]">
         <button
-          onClick={() => setOpen((v) => !v)}
+          aria-expanded={open} aria-label="発表者ノートを開閉" onClick={() => setOpen((v) => !v)}
           className="flex min-w-0 flex-1 items-center gap-1.5 text-left"
           style={{ color: hasContent ? pal.text : pal.sub }}
           title="トークスクリプト(発表者コンソールの原稿)を編集"
@@ -151,8 +149,8 @@ export function PptNotes({ page, theme }: { page: number; theme: PptTheme }) {
             {genState.message
               ? genState.message
               : hasContent
-                ? 'ノートあり — トークスクリプトを編集'
-                : 'ノートを入力(トークスクリプト)'}
+                ? '発表者ノートを編集'
+                : '発表者ノートを追加'}
           </span>
         </button>
         {/* AI生成: このスライドだけ / 発表時間を決めて全スライド */}
@@ -218,7 +216,7 @@ export function PptNotes({ page, theme }: { page: number; theme: PptTheme }) {
             </button>
           </span>
         )}
-        <button onClick={() => setOpen((v) => !v)} className="shrink-0" style={{ color: pal.sub }}>
+        <button aria-expanded={open} aria-label="発表者ノートを開閉" onClick={() => setOpen((v) => !v)} className="shrink-0" style={{ color: pal.sub }}>
           {open ? <ChevronDown className="h-3 w-3" /> : <ChevronUp className="h-3 w-3" />}
         </button>
       </div>
@@ -226,6 +224,7 @@ export function PptNotes({ page, theme }: { page: number; theme: PptTheme }) {
       {open && (
         <div className="flex gap-2 px-3 pb-2">
           <textarea
+            aria-label="発表する内容"
             value={text}
             onChange={(e) => { setText(e.target.value); queueSave(e.target.value, note); }}
             placeholder={`スライド ${page} で話すこと…(発表者コンソールにそのまま出ます)`}
@@ -233,6 +232,7 @@ export function PptNotes({ page, theme }: { page: number; theme: PptTheme }) {
             style={{ backgroundColor: pal.control, borderColor: pal.border, color: pal.text }}
           />
           <textarea
+            aria-label="段取りメモ"
             value={note}
             onChange={(e) => { setNote(e.target.value); queueSave(text, e.target.value); }}
             placeholder="段取りメモ(任意)…"

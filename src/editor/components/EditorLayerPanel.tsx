@@ -610,7 +610,7 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
   }, [getIframeDoc]);
 
   // ノードクリックハンドラ
-  const handleNodeClick = useCallback((e: React.MouseEvent, nodeId: string) => {
+  const handleNodeClick = useCallback((e: React.MouseEvent | React.KeyboardEvent, nodeId: string) => {
     e.stopPropagation(); // バブリング防止
 
     let newSelectedIds: string[] = [];
@@ -1096,7 +1096,7 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
 
   return (
     <div
-      className="bg-[#2c2c2c] border-r border-[#444444] flex flex-col relative flex-shrink-0"
+      className="ed-layer-panel min-h-0 flex-1 bg-[#2c2c2c] flex flex-col relative"
       // 2段構成(ページ+レイヤー)に埋め込まれているときは幅を親(LeftPanel)が持つ。
       // ここで固定幅を持つと上下の段で幅が食い違い、リサイズも二重になる
       style={hideSlideList ? { width: '100%' } : { width: `${width}px` }}
@@ -1119,8 +1119,9 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="要素を検索..."
-            className="h-7 text-xs pl-7 bg-[#383838] border-[#444444] text-white placeholder:text-gray-500"
+            placeholder="文字や要素名で検索"
+            aria-label="レイヤーを検索"
+            className="h-8 text-xs pl-7 bg-[#383838] border-[#444444] text-white placeholder:text-gray-500"
           />
         </div>
       </div>
@@ -1194,15 +1195,12 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
           ) : (
             // スライドがない場合は従来のレイヤー表示
             <>
-              <div className="flex items-center gap-2 text-xs text-gray-400 font-medium p-2">
-                <Layers className="w-3.5 h-3.5" />
-                レイヤー
-              </div>
+              <p className="px-3 py-2 text-xs text-gray-400">クリックで選択・ドラッグで並べ替え</p>
               {filteredDomTree.length > 0 ? (
                 filteredDomTree.map((node) => renderTreeNode(node))
               ) : (
                 <div className="text-xs text-gray-500 text-center py-4">
-                  {searchQuery ? '検索結果がありません' : 'レイヤーがありません'}
+                  {searchQuery ? '一致する要素がありません。別の言葉でお試しください。' : 'このページには編集できる要素がありません。'}
                 </div>
               )}
             </>

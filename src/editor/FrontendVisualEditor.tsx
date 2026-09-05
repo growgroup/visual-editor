@@ -11,7 +11,7 @@
  * 汎用的なHTML編集エディタとして、スライド、ページ、コンポーネント等で利用可能
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useEditorShortcuts } from '../hooks/useEditorShortcuts';
 import {
   editorCancelDragRef,
@@ -32,7 +32,9 @@ import { useAuth } from '../components/auth/AuthProvider';
 import { findSlideRoot, findInsertionParent } from './utils/slide-root';
 import { registerAutoSaveFlush } from './autosave';
 import { getCleanHtml } from './utils/html-utils';
-import './editor-skin.css';
+import { EditorAppearanceContext, useEditorTheme } from './contexts/EditorAppearanceContext';
+import { CanvasAppearance } from './components/shell/CanvasAppearance';
+import { can } from '../io';
 import type { Slide } from '../types/slide';
 import {
   useEditorMessages,
@@ -55,16 +57,9 @@ import {
   EditorFooter,
   EditorContextMenu,
   AiPromptPopover,
-  HtmlEditorDialog,
-  HtmlImportDialog,
-  CssEditorDialog,
-  JsEditorDialog,
-  PageSettingsDialog,
-  MediaLibraryDialog,
   EditorCanvas,
   VariablesPanel,
   ComponentPanel,
-  MasterComponentEditor,
 } from './components';
 import { useEditorVariables, useEditorComponents } from './EditorContext';
 import type { CSSVariableDefinition } from '../types/css-variables';
@@ -102,6 +97,13 @@ import { cn } from '../lib/utils';
  * 打鍵やドラッグのたびに保存(=原本TSXへの書き戻しジョブ)が走ることはない。
  */
 const AUTO_SAVE_DELAY_MS = 2000;
+const MasterComponentEditor = lazy(() => import('./components/MasterComponentEditor').then((m) => ({ default: m.MasterComponentEditor })));
+const MediaLibraryDialog = lazy(() => import('./components/MediaLibraryDialog').then((m) => ({ default: m.MediaLibraryDialog })));
+const PageSettingsDialog = lazy(() => import('./components/PageSettingsDialog').then((m) => ({ default: m.PageSettingsDialog })));
+const JsEditorDialog = lazy(() => import('./components/JsEditorDialog').then((m) => ({ default: m.JsEditorDialog })));
+const CssEditorDialog = lazy(() => import('./components/CssEditorDialog').then((m) => ({ default: m.CssEditorDialog })));
+const HtmlImportDialog = lazy(() => import('./components/HtmlImportDialog').then((m) => ({ default: m.HtmlImportDialog })));
+const HtmlEditorDialog = lazy(() => import('./components/HtmlEditorDialog').then((m) => ({ default: m.HtmlEditorDialog })));
 
 /**
  * 保存の状態表示。エディタの殻(Figma風ヘッダー / PowerPoint風タイトルバー)で共通に使う。
@@ -332,15 +334,14 @@ function FrontendVisualEditorInner({
     try { localStorage.setItem('gg-editor:ui-mode', mode); } catch { /* 記憶できなくても動作は継続 */ }
   };
   // PowerPoint風UIのテーマ(OS設定に追従・切替は記憶)とサムネイル検索
-  const [pptTheme, setPptTheme] = useState<PptTheme>(() => initialPptTheme());
-  const togglePptTheme = () => {
-    const next: PptTheme = pptTheme === 'dark' ? 'light' : 'dark';
-    setPptTheme(next);
-    try { localStorage.setItem('gg-editor:ppt-theme', next); } catch { /* 続行 */ }
-  };
+  const { theme: pptTheme, toggleTheme: togglePptTheme } = useEditorTheme();
+  const [layersOpen, setLayersOpen] = useState(editorMode !== 'webpage' || !!pagesPanel);
+  const [guidesOpen, setGuidesOpen] = useState(false);
   const [pptSearch, setPptSearch] = useState('');
   // コメントパネル(PowerPoint風UIのみ)。フォーカス合図はカウンタで送る
   const [pptCommentsOpen, setPptCommentsOpen] = useState(false);
+  const [commentsMounted, setCommentsMounted] = useState(false);
+  useEffect(() => { if (pptCommentsOpen) setCommentsMounted(true); }, [pptCommentsOpen]);
   // PowerPoint風UIの右ペイン「図の書式設定」(影・反射・光彩・ぼかし)
   const [pptFormatPaneOpen, setPptFormatPaneOpen] = useState(false);
   const [pptCommentFocus, setPptCommentFocus] = useState(0);
@@ -1825,18 +1826,22 @@ function FrontendVisualEditorInner({
   // ================= UIモード(Figma風 / PowerPoint風) =================
   // ベース(キャンバス・選択・保存・書き戻し)は完全共通で、切り替わるのは殻だけ。
   // 選択はlocalStorageに記憶する
-  const isPpt = uiMode === 'ppt' && !isMultiPageCanvas;
+  const isPpt = uiMode === 'ppt' && editorMode === 'slide' && !isMultiPageCanvas;
 
   return (
+    <EditorAppearanceContext.Provider value={pptTheme}>
     <div
+      data-editor-theme={pptTheme}
+      data-editor-mode={editorMode}
       className={cn(
         // [移植時の修正] gg-editor-skin でビューアと同じ配色に揃える(editor-skin.css)
-        "gg-editor-skin flex flex-col",
+        "gg-editor-skin gg-editor-ui flex flex-col",
         isMultiPageCanvas ? "absolute inset-0 z-40" : "fixed inset-0 z-50"
       )}
       data-frontend-visual-editor="true"
-      style={{ touchAction: 'none', backgroundColor: isPpt ? PPT_PALETTES[pptTheme].chrome : '#1e1e1e' }}
+      style={{ backgroundColor: 'var(--ed-bg)' }}
     >
+      <CanvasAppearance theme={pptTheme} />
       {/* ヘッダー(UIモードで切り替え) */}
       {isPpt ? (
         <>
@@ -1913,6 +1918,12 @@ function FrontendVisualEditorInner({
         </>
       ) : (
       <EditorHeader
+        theme={pptTheme}
+        onToggleTheme={togglePptTheme}
+        layersOpen={layersOpen}
+        onToggleLayers={() => setLayersOpen((v) => !v)}
+        guidesOpen={guidesOpen}
+        onToggleGuides={() => setGuidesOpen((v) => !v)}
         comments={{
           open: pptCommentsOpen,
           toggle: () =>
@@ -1929,13 +1940,13 @@ function FrontendVisualEditorInner({
         saveStatus={saveStatus}
         isCanvasEditing={isMultiPageCanvas}
         onImport={() => setIsImportDialogOpen(true)}
-        onCssEdit={handleOpenCssEditor}
+        onCssEdit={can('apiFetch') ? handleOpenCssEditor : undefined}
         hasCss={!!importedCss}
-        onJsEdit={handleOpenJsEditor}
+        onJsEdit={can('apiFetch') ? handleOpenJsEditor : undefined}
         hasJs={!!importedJs}
-        onPageSettings={handleOpenPageSettings}
+        onPageSettings={can('apiFetch') ? handleOpenPageSettings : undefined}
         hasPageSettings={!!(pageSettings.title || pageSettings.description || pageSettings.ogp?.image)}
-        onExport={parentId && contentId ? handleExport : undefined}
+        onExport={can('apiFetch') && parentId && contentId ? handleExport : undefined}
         contextNumber={Number(currentContentId ?? contentId) || undefined}
         contextTitle={contentList.find((c) => c.id === (currentContentId ?? contentId))?.title}
         headerExtra={headerExtra}
@@ -1951,7 +1962,9 @@ function FrontendVisualEditorInner({
         ) : isMultiPageCanvas ? (
           <EditorLayerPanel />
         ) : (
-          <LeftPanel page={Number(currentContentId ?? contentId) || 1} pagesSlot={pagesPanel} />
+          <div className={layersOpen && !isComponentPanelOpen ? "flex min-h-0" : "hidden"}>
+            <LeftPanel page={Number(currentContentId ?? contentId) || 1} pagesSlot={pagesPanel} />
+          </div>
         )}
 
         {/* コンポーネントパネル（左側、レイヤーパネルの隣） */}
@@ -1989,10 +2002,10 @@ function FrontendVisualEditorInner({
             <>
               <EditorCanvas />
               {/* ブレイクポイントガイド（webpageモード用） */}
-              <BreakpointGuides
+              {guidesOpen && <BreakpointGuides
                 containerWidth={canvasAreaSize.width}
                 containerHeight={canvasAreaSize.height}
-              />
+              />}
             </>
           )}
 
@@ -2046,9 +2059,9 @@ function FrontendVisualEditorInner({
             onBringToFront={selectedElement ? bringToFront : undefined}
             onSendToBack={selectedElement ? sendToBack : undefined}
             onImageUpload={() => openFilePicker({ x: 100, y: 100 })}
-            onOpenMediaLibrary={() => setIsMediaLibraryOpen(true)}
+            onOpenMediaLibrary={can('apiFetch') ? () => setIsMediaLibraryOpen(true) : undefined}
             isMediaReplaceMode={isImageSelected}
-            onAiRegenerate={selectedElement && selectedElementIds.length <= 1 ? openAiPrompt : undefined}
+            onAiRegenerate={can('apiFetch') && selectedElement && selectedElementIds.length <= 1 ? openAiPrompt : undefined}
             onOpenVariables={() => setIsVariablesPanelOpen(true)}
             hasVariables={hasVariables}
             onOpenComponents={() => setIsComponentPanelOpen(true)}
@@ -2089,8 +2102,8 @@ function FrontendVisualEditorInner({
         {/* 右パネルは同時に1つだけ出す。
             コメントを開いている間はプロパティ(詳細編集)を引っ込め、閉じると戻る。
             2つ並ぶと「いまどちらを操作しているのか」が分からなくなるため */}
-        {!isPpt && !pptCommentsOpen && <EditorPropertyPanel />}
-        {!isMultiPageCanvas && (
+        {!isPpt && !pptCommentsOpen && (editorMode === 'slide' || selectedElement || selectedElementIds.length > 0 || activeTool === 'scale') && <EditorPropertyPanel />}
+        {!isMultiPageCanvas && can('commentAction') && (
           <PptCommentMarkers
             page={Number(currentContentId ?? contentId) || 1}
             onOpenThread={(id) => {
@@ -2102,23 +2115,25 @@ function FrontendVisualEditorInner({
         {isPpt && pptFormatPaneOpen && (
           <PptFormatPane theme={pptTheme} onClose={() => setPptFormatPaneOpen(false)} />
         )}
-        {!isMultiPageCanvas && pptCommentsOpen && (
+        {!isMultiPageCanvas && can('commentAction') && (pptCommentsOpen || commentsMounted) && (
+          <div className={pptCommentsOpen ? 'flex min-h-0' : 'hidden'}>
           <PptCommentsPanel
             page={Number(currentContentId ?? contentId) || 1}
-            theme={isPpt ? pptTheme : 'dark'}
+            theme={pptTheme}
             onClose={() => setPptCommentsOpen(false)}
             focusSignal={pptCommentFocus}
             activeThreadId={pptActiveThread}
             onActiveThread={setPptActiveThread}
           />
+          </div>
         )}
       </div>
 
       {/* ノート欄(トークスクリプト)。PowerPoint風・Figma風の両方に出す。
           Figma風はダーク配色で固定(スキンと馴染む) */}
       {/* ノート欄は発表原稿。Webページには無い概念なので出さない */}
-      {!isMultiPageCanvas && editorMode !== 'webpage' && (
-        <PptNotes page={Number(currentContentId ?? contentId) || 1} theme={isPpt ? pptTheme : 'dark'} />
+      {!isMultiPageCanvas && editorMode !== 'webpage' && can('apiFetch') && (
+        <PptNotes page={Number(currentContentId ?? contentId) || 1} theme={pptTheme} />
       )}
 
       {/* フッター(Figma風) / ステータスバー(PowerPoint風) */}
@@ -2144,7 +2159,7 @@ function FrontendVisualEditorInner({
         onDelete={selectedElement ? deleteElement : undefined}
         onDuplicate={selectedElement ? duplicateElement : undefined}
         onReplaceImageFromFile={isImageSelected ? replaceImageFromFile : undefined}
-        onReplaceImageFromLibrary={isImageSelected ? () => setIsMediaLibraryOpen(true) : undefined}
+        onReplaceImageFromLibrary={can('apiFetch') && isImageSelected ? () => setIsMediaLibraryOpen(true) : undefined}
         onReplaceImageFromClipboard={isImageSelected ? () => void replaceImageFromClipboard() : undefined}
         onCopyStyle={selectedElement ? copyStyle : undefined}
         onPasteStyle={selectedElement ? pasteStyle : undefined}
@@ -2161,7 +2176,7 @@ function FrontendVisualEditorInner({
         onDeleteRow={tableActions?.deleteRow}
         onDeleteColumn={tableActions?.deleteColumn}
         onEditLink={selectedElement ? handleEditLink : undefined}
-        onAiRegenerate={selectedElement && selectedElementIds.length <= 1 ? openAiPrompt : undefined}
+        onAiRegenerate={can('apiFetch') && selectedElement && selectedElementIds.length <= 1 ? openAiPrompt : undefined}
         onEditHtml={selectedElement ? handleEditHtml : undefined}
         onCreateComponent={handleCreateComponent}
         onGoToMainComponent={handleGoToMainComponent}
@@ -2181,6 +2196,7 @@ function FrontendVisualEditorInner({
       />
 
       {/* HTML編集ダイアログ */}
+      {htmlEditorState.isOpen && <Suspense fallback={<div role="status" className="absolute bottom-16 left-4 rounded bg-[#2c2c2c] p-3">読み込み中…</div>}>
       <HtmlEditorDialog
         isOpen={htmlEditorState.isOpen}
         onClose={() => {
@@ -2193,8 +2209,10 @@ function FrontendVisualEditorInner({
         onSave={handleSaveHtml}
         initialHtml={htmlEditorState.initialHtml}
       />
+      </Suspense>}
 
       {/* HTMLインポートダイアログ */}
+      {isImportDialogOpen && <Suspense fallback={<div role="status" className="absolute bottom-16 left-4 rounded bg-[#2c2c2c] p-3">読み込み中…</div>}>
       <HtmlImportDialog
         isOpen={isImportDialogOpen}
         onClose={() => {
@@ -2208,8 +2226,10 @@ function FrontendVisualEditorInner({
         presentationId={parentId}
         slideId={contentId}
       />
+      </Suspense>}
 
       {/* CSS編集ダイアログ */}
+      {isCssEditorOpen && <Suspense fallback={<div role="status" className="absolute bottom-16 left-4 rounded bg-[#2c2c2c] p-3">読み込み中…</div>}>
       <CssEditorDialog
         isOpen={isCssEditorOpen}
         onClose={() => {
@@ -2223,8 +2243,10 @@ function FrontendVisualEditorInner({
         onSave={handleSaveCss}
         onClear={handleClearCss}
       />
+      </Suspense>}
 
       {/* JS編集ダイアログ */}
+      {isJsEditorOpen && <Suspense fallback={<div role="status" className="absolute bottom-16 left-4 rounded bg-[#2c2c2c] p-3">読み込み中…</div>}>
       <JsEditorDialog
         isOpen={isJsEditorOpen}
         onClose={() => {
@@ -2238,8 +2260,10 @@ function FrontendVisualEditorInner({
         onSave={handleSaveJs}
         onClear={handleClearJs}
       />
+      </Suspense>}
 
       {/* ページ設定ダイアログ */}
+      {isPageSettingsOpen && <Suspense fallback={<div role="status" className="absolute bottom-16 left-4 rounded bg-[#2c2c2c] p-3">読み込み中…</div>}>
       <PageSettingsDialog
         isOpen={isPageSettingsOpen}
         onClose={() => {
@@ -2254,8 +2278,10 @@ function FrontendVisualEditorInner({
         onSave={handleSavePageSettings}
         onUploadImage={handleUploadOgpImage}
       />
+      </Suspense>}
 
       {/* メディアライブラリ */}
+      {isMediaLibraryOpen && <Suspense fallback={<div role="status" className="absolute bottom-16 left-4 rounded bg-[#2c2c2c] p-3">読み込み中…</div>}>
       <MediaLibraryDialog
         isOpen={isMediaLibraryOpen}
         onClose={() => {
@@ -2269,6 +2295,7 @@ function FrontendVisualEditorInner({
         mode={isImageSelected ? 'replace' : 'insert'}
         currentSrc={selectedImageSrc}
       />
+      </Suspense>}
 
       {/* CSS変数パネル */}
       <VariablesPanel
@@ -2334,6 +2361,7 @@ function FrontendVisualEditorInner({
       </Dialog>
 
       {/* マスターコンポーネントエディタ */}
+      {isMasterEditorOpen && <Suspense fallback={<div role="status" className="absolute bottom-16 left-4 rounded bg-[#2c2c2c] p-3">読み込み中…</div>}>
       <MasterComponentEditor
         master={editingMasterComponent}
         open={isMasterEditorOpen}
@@ -2351,6 +2379,7 @@ function FrontendVisualEditorInner({
           name: c.name,
         }))}
       />
+      </Suspense>}
 
       {/* レイアウトモード切替ヒントトースト。
           Webページでは絶対配置に倒さないので、それを勧めるこの導線も出さない */}
@@ -2417,6 +2446,7 @@ function FrontendVisualEditorInner({
         </div>
       )}
     </div>
+    </EditorAppearanceContext.Provider>
   );
 }
 

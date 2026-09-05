@@ -5,7 +5,8 @@
  * 右クリックで要素操作メニューを表示
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/dropdown-menu';
+import { useEditorContext } from '../EditorContext';
 import {
   Copy,
   Scissors,
@@ -106,7 +107,7 @@ interface MenuItemProps {
 
 function MenuItem({ icon, label, shortcut, onClick, disabled, danger }: MenuItemProps) {
   return (
-    <button
+    <DropdownMenuItem
       className={`
         w-full flex items-center gap-2 px-3 py-1.5 text-xs
         ${disabled 
@@ -117,7 +118,7 @@ function MenuItem({ icon, label, shortcut, onClick, disabled, danger }: MenuItem
         }
         transition-colors
       `}
-      onClick={(e) => {
+      onSelect={(e) => {
         e.stopPropagation();
         if (!disabled && onClick) onClick();
       }}
@@ -128,7 +129,7 @@ function MenuItem({ icon, label, shortcut, onClick, disabled, danger }: MenuItem
       {shortcut && (
         <span className="text-[10px] text-gray-500">{shortcut}</span>
       )}
-    </button>
+    </DropdownMenuItem>
   );
 }
 
@@ -176,63 +177,7 @@ export function EditorContextMenu({
   onResetOverrides,
   onPushOverridesToMain,
 }: ContextMenuProps) {
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // メニュー外クリックで閉じる
-  useEffect(() => {
-    if (!position) return;
-
-    const handleClickOutside = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose();
-      }
-    };
-
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    // 次のフレームでリスナーを追加（右クリックイベントの完了を待つ）
-    requestAnimationFrame(() => {
-      document.addEventListener('mousedown', handleClickOutside);
-      document.addEventListener('keydown', handleEscape);
-    });
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
-    };
-  }, [position, onClose]);
-
-  // メニュー位置の調整（画面外にはみ出さないように）
-  const getMenuStyle = useCallback(() => {
-    if (!position) return {};
-    
-    const menuWidth = 200;
-    const menuHeight = 320;
-    const padding = 8;
-    
-    let x = position.x;
-    let y = position.y;
-    
-    // 右端チェック
-    if (x + menuWidth > window.innerWidth - padding) {
-      x = window.innerWidth - menuWidth - padding;
-    }
-    
-    // 下端チェック
-    if (y + menuHeight > window.innerHeight - padding) {
-      y = window.innerHeight - menuHeight - padding;
-    }
-    
-    return {
-      left: `${x}px`,
-      top: `${y}px`,
-    };
-  }, [position]);
-
+  const { restoreFocus } = useEditorContext();
   if (!position) return null;
 
   const handleAction = (action?: () => void) => {
@@ -243,12 +188,12 @@ export function EditorContextMenu({
   };
 
   return (
-    <div
-      ref={menuRef}
-      className="fixed z-[60] bg-[#2c2c2c] border border-[#444444] rounded-lg shadow-xl py-1 min-w-[180px]"
-      style={getMenuStyle()}
-      onClick={(e) => e.stopPropagation()}
-    >
+    <DropdownMenu open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DropdownMenuTrigger asChild>
+        <button tabIndex={-1} aria-label="要素の操作" style={{ position: 'fixed', left: position.x, top: position.y, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" sideOffset={0} collisionPadding={8} className="w-60"
+        onCloseAutoFocus={(e) => { e.preventDefault(); restoreFocus(); }}>
       {/* クリップボード操作 */}
       <MenuItem
         icon={<Copy className="w-3.5 h-3.5" />}
@@ -510,6 +455,7 @@ export function EditorContextMenu({
           )}
         </>
       )}
-    </div>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

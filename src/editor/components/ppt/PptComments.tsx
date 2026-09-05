@@ -13,12 +13,13 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, CornerUpLeft, Loader2, MapPin, RotateCcw, Send, Sparkles, Trash2, X } from 'lucide-react';
-import { readApiJson } from '../../utils/api-json';
+import { Check, CornerUpLeft, Loader2, MapPin, RotateCcw, Send, MessageSquare, Sparkles, Trash2, X } from 'lucide-react';
 import { useEditorContext } from '../../EditorContext';
-import { useDeck, refreshDeck } from '../../../components/viewer/useDeck';
+import { useDeck, applyDeck } from '../../../components/viewer/useDeck';
 import { commentAction, type SlideComment } from '../../../lib/deck';
-import { can } from '../../../io';
+import { can, io, type EditorDeck } from '../../../io';
+import { useResizablePanel } from '../../hooks/useResizablePanel';
+import { ConfirmDialog } from '../shell/ConfirmDialog';
 import { PPT_PALETTES, type PptTheme } from './PptChrome';
 
 const AUTHOR_KEY = 'gg-editor:comment-author';
@@ -131,7 +132,7 @@ function Avatar({ name }: { name: string }) {
   return (
     <span
       className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-bold text-white"
-      style={{ backgroundColor: colors[h % colors.length] }}
+      style={{ backgroundColor: colors[h % colors.length], color: "#ffffff" }}
     >
       {(name || '?').slice(0, 1)}
     </span>
@@ -176,31 +177,56 @@ export function useCommentMarkers({
         layer.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:9000;';
         artboard.appendChild(layer);
       }
-      layer.innerHTML = '';
       const anchored = comments.filter((c) => c.anchorSrc && !c.resolved);
+      const wanted = new Set(anchored.map((c) => c.id));
+      layer.querySelectorAll<HTMLButtonElement>('button').forEach((button) => {
+        if (!wanted.has(button.dataset.commentId!)) button.remove();
+      });
+      const rootRect = artboard.getBoundingClientRect();
+      const scale = rootRect.width / artboard.offsetWidth || 1;
+      const size = 32 / scale;
+      const stacks = new Map<string, number>();
       for (const c of anchored) {
         const target = findAnchored(artboard, c.anchorSrc!);
-        const bubble = doc.createElement('button');
-        bubble.setAttribute('data-comment-id', c.id);
-        bubble.title = `${c.author}: ${c.text.slice(0, 60)}`;
-        bubble.textContent = (c.author || '?').slice(0, 1);
-        const x = target ? target.offsetLeft + target.offsetWidth - 6 : 1860;
-        const y = target ? Math.max(0, target.offsetTop - 10) : 20;
-        bubble.style.cssText =
-          `position:absolute;left:${x}px;top:${y}px;width:34px;height:34px;` +
-          'border-radius:50% 50% 50% 4px;background:#0F6CBD;color:#fff;font-size:15px;' +
-          'font-weight:700;border:2px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,.35);' +
-          'cursor:pointer;pointer-events:auto;display:flex;align-items:center;justify-content:center;';
-        bubble.addEventListener('mousedown', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-        });
-        bubble.addEventListener('click', (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onOpenRef.current(c.id);
-        });
-        layer.appendChild(bubble);
+        // 要素が削除されたコメントは一覧から参照できる。別の場所に誤って付けない。
+        if (!target) {
+          layer.querySelector(`[data-comment-id="${CSS.escape(c.id)}"]`)?.remove();
+          continue;
+        }
+        let bubble = layer.querySelector<HTMLButtonElement>(`[data-comment-id="${CSS.escape(c.id)}"]`);
+        if (!bubble) {
+          bubble = doc.createElement('button');
+          bubble.type = 'button';
+          bubble.setAttribute('data-comment-id', c.id);
+          bubble.addEventListener('mousedown', (e) => { e.stopPropagation(); });
+          bubble.addEventListener('click', (e) => {
+            e.preventDefault(); e.stopPropagation(); onOpenRef.current(c.id);
+          });
+          bubble.addEventListener('focus', () => { bubble!.style.outline = '3px solid #2459c4'; });
+          bubble.addEventListener('blur', () => { bubble!.style.outline = ''; });
+          layer.appendChild(bubble);
+        }
+        const label = `${c.author}のコメント：${c.text.slice(0, 80)}`;
+        bubble.title = label;
+        bubble.setAttribute('aria-label', label);
+        const letter = (c.author || '?').slice(0, 1);
+        if (bubble.textContent !== letter) bubble.textContent = letter;
+        const rect = target.getBoundingClientRect();
+        const stack = stacks.get(c.anchorSrc!) ?? 0;
+        stacks.set(c.anchorSrc!, stack + 1);
+        const x = Math.max(0, Math.min(artboard.offsetWidth - size, (rect.right - rootRect.left) / scale - size / 2));
+        const y = Math.max(0, (rect.top - rootRect.top) / scale - size / 2) + stack * (size + 4 / scale);
+        const styles: Partial<CSSStyleDeclaration> = {
+          position: 'absolute', left: `${x}px`, top: `${y}px`, width: `${size}px`, height: `${size}px`,
+          borderRadius: '50% 50% 50% 4px', background: '#2459c4', color: '#fff', fontSize: `${13 / scale}px`,
+          fontFamily: 'system-ui, sans-serif', fontWeight: '700', border: `${2 / scale}px solid #fff`,
+          boxShadow: '0 2px 8px #0003', cursor: 'pointer', pointerEvents: 'auto', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', padding: '0px',
+        };
+        // 同じ値を再代入してMutationObserverを起こさない。フォーカス中のDOMも維持する。
+        for (const [key, value] of Object.entries(styles)) {
+          if (bubble.style[key] !== value) bubble.style[key] = value;
+        }
       }
     };
 
@@ -213,7 +239,7 @@ export function useCommentMarkers({
       const layer = getIframeDoc()?.querySelector('.gg-comment-layer');
       layer?.remove();
     };
-  }, [active, page, getIframeDoc, JSON.stringify(comments.map((c) => [c.id, c.anchorSrc, c.resolved, c.author]))]);
+  }, [active, page, getIframeDoc, JSON.stringify(comments.map((c) => [c.id, c.anchorSrc, c.resolved, c.author, c.text]))]);
 }
 
 /* ============================ 右パネル ============================ */
@@ -245,6 +271,10 @@ export function PptCommentsPanel({
   const [replyDraft, setReplyDraft] = useState('');
   const [showResolved, setShowResolved] = useState(false);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const [error, setError] = useState('');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const { width, isDragging, resizeHandleProps } = useResizablePanel({ initialWidth: 336, minWidth: 304, maxWidth: 480, direction: 'left', storageKey: 'gg-editor:comments-width' });
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const threadRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
@@ -254,7 +284,7 @@ export function PptCommentsPanel({
 
   useEffect(() => {
     if (activeThreadId) {
-      threadRefs.current[activeThreadId]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      threadRefs.current[activeThreadId]?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
     }
   }, [activeThreadId]);
 
@@ -276,20 +306,18 @@ export function PptCommentsPanel({
     async (commentId: string) => {
       setFixJobs((prev) => ({ ...prev, [commentId]: { message: '開始中…' } }));
       try {
-        const res = await fetch('/__comment-fix', {
+        const data = await io().apiFetch!('/__comment-fix', {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ page, commentId }),
         });
-        const { jobId, error } = await readApiJson<{ jobId?: string; error?: string }>(res);
+        const { jobId, error } = data as { jobId?: string; error?: string };
         if (!jobId) throw new Error(error ?? '開始できませんでした');
 
         const startedAt = Date.now();
         while (Date.now() - startedAt < 8 * 60 * 1000) {
           await new Promise((r) => setTimeout(r, 1500));
-          const st = await readApiJson<{ state: string; message?: string; error?: string }>(
-            await fetch(`/__comment-fix/status/${jobId}`),
-          );
+          const st = await io().apiFetch!(`/__comment-fix/status/${jobId}`) as { state: string; message?: string; error?: string };
           if (st.state === 'running') {
             setFixJobs((prev) => ({ ...prev, [commentId]: { message: st.message || '実行中…' } }));
             continue;
@@ -328,18 +356,16 @@ export function PptCommentsPanel({
     )) return;
     setFixAll({ running: true, message: '開始中…' });
     try {
-      const res = await fetch('/__comment-fix', {
+      const data = await io().apiFetch!('/__comment-fix', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ all: true }),
       });
-      const { jobId, error } = await readApiJson<{ jobId?: string; error?: string }>(res);
+      const { jobId, error } = data as { jobId?: string; error?: string };
       if (!jobId) throw new Error(error ?? '開始できませんでした');
       for (;;) {
         await new Promise((r) => setTimeout(r, 2000));
-        const st = await readApiJson<{ state: string; message?: string; error?: string }>(
-          await fetch(`/__comment-fix/status/${jobId}`),
-        );
+        const st = await io().apiFetch!(`/__comment-fix/status/${jobId}`) as { state: string; message?: string; error?: string };
         if (st.state === 'running') {
           setFixAll({ running: true, message: st.message || '実行中…' });
           continue;
@@ -356,18 +382,21 @@ export function PptCommentsPanel({
     }
   }, [fixAll?.running, unresolvedTotal]);
 
-  const run = useCallback(async (fn: () => Promise<unknown>) => {
-    if (busy) return;
-    setBusy(true);
+  const run = useCallback(async (fn: () => Promise<EditorDeck>): Promise<boolean> => {
+    if (busyRef.current) return false;
+    busyRef.current = true;
+    setBusy(true); setError('');
     try {
-      await fn();
-      await refreshDeck();
+      applyDeck(await fn());
+      return true;
     } catch (e) {
-      window.alert(`コメント操作に失敗しました: ${String(e).slice(0, 120)}`);
+      setError(`操作できませんでした。${e instanceof Error ? e.message : String(e)}`);
+      return false;
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
-  }, [busy]);
+  }, []);
 
   /** 選択中の要素からアンカーを拾う(選択なしならページ全体へのコメント) */
   const currentAnchor = useMemo(() => {
@@ -393,7 +422,7 @@ export function PptCommentsPanel({
         anchorSrc: currentAnchor?.src,
         anchorLabel: currentAnchor?.label,
       }),
-    ).then(() => setDraft(''));
+    ).then((ok) => { if (ok) setDraft(''); });
   };
 
   const open = comments.filter((c) => !c.resolved);
@@ -414,11 +443,13 @@ export function PptCommentsPanel({
     <div
       key={c.id}
       ref={(el) => { threadRefs.current[c.id] = el; }}
-      className="rounded-lg border p-2.5"
+      className="ed-comment-thread rounded-lg border p-4"
+      data-comment-thread={c.id}
+      aria-label={`${c.author}のコメント`}
       style={{
-        borderColor: activeThreadId === c.id ? '#0F6CBD' : pal.border,
+        borderColor: activeThreadId === c.id ? 'var(--ed-accent)' : pal.border,
         backgroundColor: pal.control,
-        opacity: c.resolved ? 0.72 : 1,
+
       }}
       onClick={() => onActiveThread(c.id)}
     >
@@ -430,7 +461,7 @@ export function PptCommentsPanel({
         </div>
         {c.resolved ? (
           <button
-            title="スレッドを再開"
+            disabled={busy} aria-label="スレッドを再開" title="スレッドを再開"
             onClick={(e) => { e.stopPropagation(); void run(() => commentAction(page, { action: 'resolve', commentId: c.id, resolved: false })); }}
             className="rounded p-1" style={{ color: pal.sub }}
           >
@@ -438,7 +469,7 @@ export function PptCommentsPanel({
           </button>
         ) : (
           <button
-            title="解決済みにする"
+            disabled={busy} aria-label="解決済みにする" title="解決済みにする"
             onClick={(e) => { e.stopPropagation(); void run(() => commentAction(page, { action: 'resolve', commentId: c.id, resolved: true })); }}
             className="rounded p-1" style={{ color: pal.sub }}
           >
@@ -446,12 +477,10 @@ export function PptCommentsPanel({
           </button>
         )}
         <button
-          title="スレッドを削除"
+          disabled={busy} aria-label="スレッドを削除" title="スレッドを削除"
           onClick={(e) => {
             e.stopPropagation();
-            if (window.confirm('このコメントスレッドを削除しますか?')) {
-              void run(() => commentAction(page, { action: 'delete', commentId: c.id }));
-            }
+            setDeleteId(c.id);
           }}
           className="rounded p-1" style={{ color: pal.sub }}
         >
@@ -460,12 +489,13 @@ export function PptCommentsPanel({
       </div>
 
       {c.anchorSrc && (
-        <div className="mt-1.5 flex items-center gap-1 text-[10px]" style={{ color: '#0F6CBD' }}>
+        <div className="mt-1.5 flex items-center gap-1 text-[10px]" style={{ color: 'var(--ed-accent)' }}>
           <MapPin className="h-3 w-3" />
           {c.anchorLabel ? `「${c.anchorLabel}」` : '要素に添付'}
         </div>
       )}
 
+      {c.resolved && <p className="mt-2 text-xs text-gray-400">解決済み</p>}
       <p className="mt-1.5 whitespace-pre-wrap text-[12.5px] leading-relaxed" style={{ color: pal.text }}>
         {c.text}
       </p>
@@ -498,7 +528,7 @@ export function PptCommentsPanel({
               }}
               title="この指摘のとおりにAIが原本(TSX)を修正します"
               className="flex items-center gap-1 rounded border px-1.5 py-1 text-[11px] transition-colors"
-              style={{ borderColor: pal.border, color: '#8B5CF6' }}
+              style={{ borderColor: pal.border, color: 'var(--ed-accent)' }}
             >
               <Sparkles className="h-3 w-3" />
               AIで修正
@@ -517,15 +547,17 @@ export function PptCommentsPanel({
         <div className="mt-2 flex items-end gap-1.5">
           <textarea
             autoFocus
+            aria-label="返信内容"
+            disabled={busy}
             value={replyDraft}
             onChange={(e) => setReplyDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
                 const t = replyDraft.trim();
                 if (t) {
                   void run(() => commentAction(page, { action: 'reply', commentId: c.id, author: author.trim() || 'ゲスト', text: t }))
-                    .then(() => { setReplyDraft(''); setReplyFor(null); });
+                    .then((ok) => { if (ok) { setReplyDraft(''); setReplyFor(null); } });
                 }
               }
             }}
@@ -535,15 +567,15 @@ export function PptCommentsPanel({
             style={{ backgroundColor: pal.chrome, borderColor: pal.border, color: pal.text }}
           />
           <button
-            title="返信を送信"
+            disabled={busy || !replyDraft.trim()} aria-label="返信を送信" title="返信を送信"
             onClick={() => {
               const t = replyDraft.trim();
               if (t) {
                 void run(() => commentAction(page, { action: 'reply', commentId: c.id, author: author.trim() || 'ゲスト', text: t }))
-                  .then(() => { setReplyDraft(''); setReplyFor(null); });
+                  .then((ok) => { if (ok) { setReplyDraft(''); setReplyFor(null); } });
               }
             }}
-            className="rounded p-1.5" style={{ color: '#0F6CBD' }}
+            className="rounded p-1.5" style={{ color: 'var(--ed-accent)' }}
           >
             <Send className="h-4 w-4" />
           </button>
@@ -553,7 +585,7 @@ export function PptCommentsPanel({
           <button
             onClick={(e) => { e.stopPropagation(); setReplyFor(c.id); setReplyDraft(''); }}
             className="mt-1.5 flex items-center gap-1 text-[11px]"
-            style={{ color: '#0F6CBD' }}
+            style={{ color: 'var(--ed-accent)' }}
           >
             <CornerUpLeft className="h-3 w-3" />
             返信
@@ -565,28 +597,33 @@ export function PptCommentsPanel({
 
   return (
     <div
-      className="flex w-[292px] shrink-0 flex-col border-l"
-      style={{ backgroundColor: PPT_PALETTES[theme].rail, borderColor: pal.border }}
+      className="relative flex shrink-0 flex-col border-l ed-comments-panel"
+      aria-label="コメント"
+      data-comments-panel
+      style={{ width, backgroundColor: "var(--ed-surface)", borderColor: pal.border }}
     >
-      <div className="flex items-center gap-2 border-b px-3 py-2" style={{ borderColor: pal.border }}>
-        <span className="text-[13px] font-medium" style={{ color: pal.text }}>コメント</span>
-        <span className="truncate text-[11px]" style={{ color: pal.sub }}>
-          {deckAll.slides[page - 1]?.title ?? `ページ ${page}`}
-        </span>
+      <div {...resizeHandleProps} />
+      {isDragging && <div className="fixed inset-0 z-50 cursor-col-resize" />}
+      <div className="ed-panel-heading" style={{ borderColor: pal.border }}>
+        <MessageSquare className="h-4 w-4" /><span style={{ color: pal.text }}>コメント</span>
+        <span className="text-xs font-normal text-gray-400">未解決 {comments.filter((c) => !c.resolved).length}</span>
+
+        <button onClick={onClose} className="ed-icon-button ml-auto" style={{ color: pal.sub }} title="コメントを閉じる" aria-label="コメントを閉じる">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="px-4">
         {unresolvedTotal > 0 && !fixAll?.running && can('apiFetch') && (
           <button
             onClick={() => void startFixAll()}
             title="全スライドの未解決コメントをAIが順に修正し、各スレッドへ対応報告を返信します"
-            className="ml-2 flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px]"
+            className="my-2 flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px]"
             style={{ borderColor: pal.border, color: pal.text }}
           >
             <Sparkles className="h-3 w-3" />
             すべてAIで修正({unresolvedTotal})
           </button>
         )}
-        <button onClick={onClose} className="ml-auto rounded p-1" style={{ color: pal.sub }} title="閉じる">
-          <X className="h-4 w-4" />
-        </button>
       </div>
       {(fixAll?.running || fixAll?.error) && (
         <div className="border-b px-3 py-1.5 text-[11px]" style={{ borderColor: pal.border, color: fixAll.error ? '#f66' : pal.sub }}>
@@ -595,15 +632,18 @@ export function PptCommentsPanel({
       )}
 
 
+      {error && <p role="alert" className="px-4 py-3 text-xs" style={{ color: "var(--ed-danger)" }}>{error} 入力内容は残っています。</p>}
+      <p className="border-b px-4 py-2 text-xs text-gray-400">{deck.slides[page - 1]?.title ?? `ページ ${page}`}</p>
       {/* 新規コメント */}
-      <div className="border-b p-2.5" style={{ borderColor: pal.border }}>
+      <div className="border-b p-4" style={{ borderColor: pal.border }}>
         <div className="flex items-center gap-1.5">
           <Avatar name={author || 'ゲ'} />
           <input
+            aria-label="投稿者の名前"
             value={author}
             onChange={(e) => saveAuthor(e.target.value)}
             placeholder="名前(記憶されます)"
-            className="h-6 flex-1 rounded border px-1.5 text-[11px] outline-none"
+            className="h-8 flex-1 rounded border px-2 text-[11px] outline-none"
             style={{ backgroundColor: pal.control, borderColor: pal.border, color: pal.text }}
           />
         </div>
@@ -612,22 +652,21 @@ export function PptCommentsPanel({
           <div
             className="mt-1.5 flex items-start gap-1.5 rounded border px-1.5 py-1 text-[10px]"
             style={{
-              color: '#0F6CBD',
-              borderColor: '#0F6CBD',
+              color: 'var(--ed-accent)',
+              borderColor: 'var(--ed-accent)',
               backgroundColor: 'rgba(15,108,189,.08)',
             }}
-            title={currentAnchor.src}
           >
             <MapPin className="mt-px h-3 w-3 shrink-0" />
             <span className="min-w-0">
               {currentAnchor.kind === 'range' ? (
                 <>
-                  選択中の<span className="font-bold">{currentAnchor.tag}</span>（「
+                  「
                   <span className="font-bold">{currentAnchor.label}</span>」を含む範囲）へのコメント
                 </>
               ) : (
                 <>
-                  選択中の<span className="font-bold">{currentAnchor.tag}</span>「
+                  選択中の「
                   <span className="font-bold">{currentAnchor.label}</span>」へのコメント
                 </>
               )}
@@ -647,10 +686,12 @@ export function PptCommentsPanel({
         <div className="mt-1.5 flex items-end gap-1.5">
           <textarea
             ref={composerRef}
+            aria-label="コメント内容"
+            disabled={busy}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
                 post();
               }
@@ -664,27 +705,30 @@ export function PptCommentsPanel({
             onClick={post}
             disabled={busy || !draft.trim()}
             title="コメントを投稿"
-            className="rounded p-1.5 disabled:opacity-40"
-            style={{ color: '#0F6CBD' }}
+            className="ed-button ed-button-primary"
           >
             <Send className="h-4 w-4" />
+            {busy ? "送信中" : "送信"}
           </button>
         </div>
+        <p className="mt-2 text-xs text-gray-400">⌘ / Ctrl＋Enter で送信</p>
       </div>
 
       {/* スレッド一覧 */}
-      <div className="flex-1 space-y-2 overflow-y-auto p-2.5">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
         {open.length === 0 && resolved.length === 0 && (
           <p className="px-1 pt-2 text-[12px]" style={{ color: pal.sub }}>
             まだコメントはありません。要素を選択して投稿すると、その要素に吹き出しが付きます。
           </p>
         )}
+        {open.length === 0 && resolved.length > 0 && <p className="py-2 text-xs text-gray-400">未解決のコメントはありません。</p>}
         {open.map((c) => renderThread(c))}
 
         {resolved.length > 0 && (
           <button
             onClick={() => setShowResolved((v) => !v)}
-            className="w-full pt-1 text-left text-[11px]"
+            aria-expanded={showResolved}
+            className="w-full rounded py-2 text-left text-xs"
             style={{ color: pal.sub }}
           >
             {showResolved ? '▾' : '▸'} 解決済み ({resolved.length})
@@ -692,6 +736,9 @@ export function PptCommentsPanel({
         )}
         {showResolved && resolved.map((c) => renderThread(c))}
       </div>
+      <ConfirmDialog open={deleteId !== null} onOpenChange={(open) => { if (!open) setDeleteId(null); }}
+        title="コメントを削除しますか？" description="このスレッドと返信を削除します。この操作は取り消せません。"
+        onConfirm={() => { if (deleteId) void run(() => commentAction(page, { action: 'delete', commentId: deleteId })); }} />
     </div>
   );
 }

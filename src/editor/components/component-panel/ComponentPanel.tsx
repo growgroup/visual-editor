@@ -198,7 +198,7 @@ export function ComponentPanel({
       {isDragging && <div className="fixed inset-0 z-50 cursor-col-resize" />}
 
       {/* Header */}
-      <div className="flex items-center justify-between p-3 border-b border-[#444444]">
+      <div className="ed-panel-heading justify-between">
         <div className="flex items-center gap-2">
           <Component className="w-4 h-4 text-gray-400" />
           <span className="text-sm font-medium text-white">コンポーネント</span>
@@ -207,7 +207,7 @@ export function ComponentPanel({
           <Button
             variant="ghost"
             size="icon"
-            className="h-6 w-6 text-gray-400 hover:text-white hover:bg-[#444444]"
+            className="h-8 w-8 text-gray-400 hover:text-white hover:bg-[#444444]"
             onClick={onClose}
             aria-label="コンポーネントパネルを閉じる"
           >
@@ -237,8 +237,9 @@ export function ComponentPanel({
               <p className="text-xs text-gray-500">
                 {searchQuery
                   ? '検索に一致するコンポーネントがありません'
-                  : 'コンポーネントがありません'}
+                  : '登録されたコンポーネントはありません'}
               </p>
+              {!searchQuery && <p className="mt-2 px-4 text-xs text-gray-400">要素を右クリックして「コンポーネントを作成」から登録できます。</p>}
             </div>
           ) : (
             visibleCategories.map((category) => (

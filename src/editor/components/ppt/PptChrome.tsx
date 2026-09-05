@@ -14,7 +14,7 @@
  * 実機に無い独自ボタンを足さない。実機にあるが未対応の機能はタブごと無効表示にする。
  */
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { forwardRef, lazy, Suspense, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { PEN_PRESETS, inkStyle, setInkPreset, setInkColor } from '../../utils/ink-style';
 import { generateElementId, updateSelectionBox } from '../../utils/dom-utils';
@@ -29,7 +29,7 @@ import {
   Boxes, Trash2, Copy, X, Save, PenTool, Loader2, ZoomIn, ZoomOut, Maximize,
   Search, Sun, Moon, ChevronDown, Plus, MousePointer2, Pencil, Play,
   Palette, Sparkles, EyeOff, ArrowUp, ArrowDown, Film,
-  MessageSquare, ChevronLeft, ChevronRight, Crop, Monitor, MonitorUp,
+  MoreHorizontal, MessageSquare, ChevronLeft, ChevronRight, Crop, Monitor, MonitorUp,
   PaintBucket, PenLine, Eraser, Highlighter, Table, Shapes, Sticker, Wand2,
   AArrowUp, AArrowDown, RemoveFormatting, Strikethrough, Superscript, Subscript,
   List, ListOrdered, IndentIncrease, IndentDecrease, AlignJustify, Baseline, RotateCw,
@@ -40,13 +40,21 @@ import {
 import { useEditorContext } from '../../EditorContext';
 import { flushAutoSave } from '../../autosave';
 import { useDeck, refreshDeck } from '../../../components/viewer/useDeck';
-import { moveSlide, deleteSlide, duplicateSlide, updateSlideMeta } from '../../../lib/deck';
+import { moveSlide, deleteSlide, duplicateSlide, updateSlideMeta, insertSlide } from '../../../lib/deck';
 import { startCleanup } from '../../../components/SaveNote';
 import { unresolvedCount } from './PptComments';
 import { enterCropMode, type CropSession } from '../../utils/crop-mode';
 import { useGoogleFonts } from '../../hooks/useGoogleFonts';
 import { DeckSlideRender } from '../../../components/DeckSlideRender';
-import { PptDesignProposals } from './PptDesignProposals';
+const PptDesignProposals = lazy(() => import('./PptDesignProposals').then((m) => ({ default: m.PptDesignProposals })));
+import * as RibbonTabs from '@radix-ui/react-tabs';
+import { Popover, PopoverTrigger, PopoverContent } from '../../../components/ui/popover';
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '../../../components/ui/dropdown-menu';
+import { useResizablePanel } from '../../hooks/useResizablePanel';
+import { ConfirmDialog } from '../shell/ConfirmDialog';
+import { can, io } from '../../../io';
+import { MIN_ZOOM, MAX_ZOOM, editorZoomApiRef } from '../../hooks/useCanvasControls';
+import { toast } from 'sonner';
 import { EditorTopBar } from '../shell/EditorTopBar';
 
 /**
@@ -59,15 +67,7 @@ import type { EditorTool } from '../../../types/editor';
 export type PptTheme = 'light' | 'dark';
 
 /** OS設定に追従した初期テーマ(切替後はlocalStorageを優先) */
-export function initialPptTheme(): PptTheme {
-  try {
-    const saved = localStorage.getItem('gg-editor:ppt-theme');
-    if (saved === 'light' || saved === 'dark') return saved;
-  } catch { /* 記憶が読めなくても続行 */ }
-  return typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches
-    ? 'dark'
-    : 'light';
-}
+export { initialEditorTheme as initialPptTheme } from '../../contexts/EditorAppearanceContext';
 
 /** FVE(FrontendVisualEditor)のスコープから借りる操作群 */
 export type PptActions = {
@@ -96,7 +96,7 @@ export type PptActions = {
 
 /* ============================ テーマ ============================ */
 
-const PPT_ACCENT = '#ED6C47'; // PowerPointのブランド橙赤(選択枠・タブ下線)
+const PPT_ACCENT = 'var(--ed-accent)'; // PowerPointのブランド橙赤(選択枠・タブ下線)
 
 type Palette = {
   chrome: string; text: string; sub: string; border: string;
@@ -106,14 +106,14 @@ type Palette = {
 
 const PALETTES: Record<PptTheme, Palette> = {
   light: {
-    chrome: '#f6f5f4', text: '#252423', sub: '#8a8886', border: '#e1dfdd',
-    hover: '#e6e4e2', activeBg: '#dedcda', control: '#ffffff', rail: '#f0efee',
-    canvas: '#e9e7e6', disabled: '#b8b6b4',
+    chrome: '#ffffff', text: '#202938', sub: '#566477', border: '#dce2ea',
+    hover: '#e8edf4', activeBg: '#eaf0ff', control: '#f3f5f8', rail: '#ffffff',
+    canvas: '#eef1f5', disabled: '#8592a3',
   },
   dark: {
-    chrome: '#282828', text: '#e8e6e3', sub: '#9d9b99', border: '#3d3b39',
-    hover: '#3a3a3a', activeBg: '#4a4a4a', control: '#333333', rail: '#222222',
-    canvas: '#3f3f3f', disabled: '#5f5d5b',
+    chrome: '#242932', text: '#f0f3f8', sub: '#b4bfce', border: '#3b4554',
+    hover: '#3c4554', activeBg: '#303e59', control: '#303744', rail: '#242932',
+    canvas: '#191d24', disabled: '#7e8ca0',
   },
 };
 
@@ -122,9 +122,7 @@ export const PPT_PALETTES = PALETTES;
 /* ============================ 小物 ============================ */
 
 /** リボンの大ボタン(アイコン上・ラベル下。実機の「新しいスライド」等の形) */
-function BigButton({
-  icon: Icon, label, onClick, disabled, active, title, caret, pal,
-}: {
+const BigButton = forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   onClick?: () => void;
@@ -133,9 +131,15 @@ function BigButton({
   title?: string;
   caret?: boolean;
   pal: Palette;
-}) {
+}>(function BigButton({
+  icon: Icon, label, onClick, disabled, active, title, caret, pal,
+  ...triggerProps
+}, ref) {
   return (
     <button
+      {...triggerProps}
+      ref={ref}
+      aria-pressed={active}
       onClick={onClick}
       disabled={disabled}
       title={title ?? label}
@@ -154,12 +158,10 @@ function BigButton({
       </span>
     </button>
   );
-}
+});
 
 /** リボンの小ボタン(正方形アイコン) */
-function SmallButton({
-  icon: Icon, onClick, disabled, active, title, pal, label, chevron,
-}: {
+const SmallButton = forwardRef<HTMLButtonElement, React.ButtonHTMLAttributes<HTMLButtonElement> & {
   icon: React.ComponentType<{ className?: string }>;
   onClick?: () => void;
   disabled?: boolean;
@@ -169,13 +171,19 @@ function SmallButton({
   /** アイコン横に出すラベル(塗りつぶし等、ドロップダウンのトリガー用) */
   label?: string;
   chevron?: boolean;
-}) {
+}>(function SmallButton({
+  icon: Icon, onClick, disabled, active, title, pal, label, chevron,
+  ...triggerProps
+}, ref) {
   return (
     <button
+      {...triggerProps}
+      ref={ref}
+      aria-pressed={active}
       onClick={onClick}
       disabled={disabled}
       title={title}
-      className={`flex h-6 items-center justify-center gap-1 rounded transition-colors ${label ? 'px-1.5' : 'w-6'}`}
+      className={`flex h-7 items-center justify-center gap-1 rounded transition-colors ${label ? 'px-1.5' : 'w-6'}`}
       style={{
         color: disabled ? pal.disabled : pal.text,
         backgroundColor: active ? pal.activeBg : undefined,
@@ -188,7 +196,7 @@ function SmallButton({
       {chevron && <ChevronDown className="h-3 w-3" />}
     </button>
   );
-}
+});
 
 /** 縦書きボタン用(Typeを90度回して代用) */
 function TypeVertical({ className }: { className?: string }) {
@@ -230,76 +238,22 @@ function Dropdown({
   align?: 'left' | 'right';
 }) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  // 閉じるのは「外側クリック」と Esc だけ。色を選ぶたびに閉じると連続調整ができない
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: Event) => {
-      const t = e.target as Node;
-      // iframe内のクリックは親ページのノードを含まないので、そのまま外側扱いになる
-      if (!ref.current?.contains(t) && !menuRef.current?.contains(t)) setOpen(false);
-    };
-    const onKey = (e: Event) => {
-      if ((e as KeyboardEvent).key === 'Escape') setOpen(false);
-    };
-    const docs = listenDocs();
-    for (const d of docs) {
-      d.addEventListener('mousedown', onDown);
-      d.addEventListener('keydown', onKey);
-    }
-    return () => {
-      for (const d of docs) {
-        d.removeEventListener('mousedown', onDown);
-        d.removeEventListener('keydown', onKey);
-      }
-    };
-  }, [open]);
-
-  const toggle = () => {
-    if (!open && ref.current) {
-      // リボン帯は overflow-x-auto でメニューがクリップされるため、
-      // body直下へポータルし fixed で出す(iframeにも隠れない)
-      const r = ref.current.getBoundingClientRect();
-      setPos({
-        left: align === 'right' ? Math.max(8, r.right - 176) : r.left,
-        top: r.bottom + 4,
-      });
-    }
-    setOpen((v) => !v);
-  };
-
+  if (content) return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent data-ppt-menu="1" align={align === 'right' ? 'end' : 'start'} className="w-auto min-w-[176px] p-2" collisionPadding={8}>
+        {content(() => setOpen(false))}
+        {(items ?? []).map((item, i) => <button key={i} disabled={item.disabled} className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-accent" onClick={() => { setOpen(false); item.onClick?.(); }}>{item.label}</button>)}
+      </PopoverContent>
+    </Popover>
+  );
   return (
-    <div ref={ref} className="relative">
-      <div onClick={toggle}>{trigger}</div>
-      {open && pos &&
-        createPortal(
-          <div
-            ref={menuRef}
-            data-ppt-menu="1"
-            className="fixed z-[10000] min-w-[176px] rounded-md border py-1 shadow-xl"
-            style={{ left: pos.left, top: pos.top, backgroundColor: pal.control, borderColor: pal.border }}
-          >
-            {content && content(() => setOpen(false))}
-            {(items ?? []).map((it, i) => (
-              <button
-                key={i}
-                disabled={it.disabled}
-                onClick={() => { setOpen(false); it.onClick?.(); }}
-                className="block w-full px-3 py-1.5 text-left text-[12px] transition-colors"
-                style={{ color: it.disabled ? pal.disabled : pal.text }}
-                onMouseEnter={(e) => { if (!it.disabled) e.currentTarget.style.backgroundColor = pal.hover; }}
-                onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = ''; }}
-              >
-                {it.label}
-              </button>
-            ))}
-          </div>,
-          document.body,
-        )}
-    </div>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
+      <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+      <DropdownMenuContent data-ppt-menu="1" align={align === 'right' ? 'end' : 'start'} collisionPadding={8}>
+        {(items ?? []).map((item, i) => <DropdownMenuItem key={i} disabled={item.disabled} onSelect={item.onClick}>{item.label}</DropdownMenuItem>)}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -411,36 +365,6 @@ export function PptTitleBar({
   actions: PptActions;
 }) {
   const pal = PALETTES[theme];
-  const { getIframeDoc } = useEditorContext();
-
-  // テーマに合わせてiframe内のキャンバス背景も塗り替える(中身はUI共通生成のため殻側から)
-  useEffect(() => {
-    let tries = 0;
-    const paint = () => {
-      const doc = getIframeDoc();
-      const container = doc?.getElementById('canvas-container');
-      if (container) {
-        container.style.backgroundColor = pal.canvas;
-        doc!.body.style.backgroundColor = pal.canvas;
-        return true;
-      }
-      return false;
-    };
-    const timer = setInterval(() => {
-      if (paint() || ++tries > 20) clearInterval(timer);
-    }, 300);
-    paint();
-    return () => {
-      clearInterval(timer);
-      const doc = getIframeDoc();
-      const container = doc?.getElementById('canvas-container');
-      if (container) {
-        container.style.backgroundColor = '#1a1a1a';
-        doc!.body.style.backgroundColor = '#1a1a1a';
-      }
-    };
-  }, [getIframeDoc, pal.canvas]);
-
   // 1段目の中身はFigma風UIと共通(EditorTopBar)。
   // 保存・共有・プレビュー・UI切替・閉じるの並びを両UIで揃えるため、
   // ここが持つのは PowerPoint 固有の操作(元に戻す/やり直し・検索・テーマ)だけ
@@ -463,14 +387,14 @@ export function PptTitleBar({
       rightExtra={
         <>
           <label
-            className="flex h-6 items-center gap-1.5 rounded-md border px-2"
+            className="flex h-8 items-center gap-2 rounded-md border px-2"
             style={{ borderColor: pal.border, backgroundColor: pal.control }}
           >
             <Search className="h-3 w-3" style={{ color: pal.sub }} />
             <input
               value={search}
               onChange={(e) => onSearch(e.target.value)}
-              placeholder="スライドを検索"
+              placeholder="スライドを検索" aria-label="スライドを検索"
               className="w-28 bg-transparent text-[11px] outline-none"
               style={{ color: pal.text }}
             />
@@ -1397,12 +1321,13 @@ export function PptRibbon({
     if (!(await flushAutoSave())) {
       if (!window.confirm('保存に失敗しました。変更を破棄して新しいスライドへ移動しますか?')) return;
     }
-    await fetch('/__deck/insert', {
-      method: 'POST',
-      body: JSON.stringify({ template: 'lib:Slide000', at: page }),
-    });
-    await refreshDeck().catch(() => undefined);
-    window.location.hash = `#/edit/${page + 1}`;
+    try {
+      await insertSlide('lib:Slide000', page);
+      await refreshDeck();
+      window.location.hash = `#/edit/${page + 1}`;
+    } catch (error) {
+      toast.error('スライドを追加できませんでした', { description: String(error) });
+    }
   };
 
   const openSlideshow = () => {
@@ -1413,11 +1338,12 @@ export function PptRibbon({
   const inputStyle = { backgroundColor: pal.control, borderColor: pal.border, color: pal.text } as const;
 
   return (
-    <div style={{ backgroundColor: pal.chrome, color: pal.text }}>
+    <RibbonTabs.Root value={tab} onValueChange={(value) => setTab(value as TabId)} className="ed-ribbon" style={{ backgroundColor: pal.chrome, color: pal.text }}>
       {/* タブ帯 */}
-      <div className="flex items-center gap-0.5 border-b px-2" style={{ borderColor: pal.border }}>
-        {TABS.map((t) => (
-          <button
+      <div className="flex items-center gap-2 border-b px-4" style={{ borderColor: pal.border }}>
+      <RibbonTabs.List aria-label="編集メニュー" className="flex min-w-0 flex-1 items-center overflow-x-auto">
+        {TABS.filter((t) => t.enabled && (t.id !== "review" || can("commentAction")) && (t.id !== "transition" || !!io().deckOps?.updateMeta) && (t.id !== "slideshow" || can("exportDeck"))).map((t) => (
+          <RibbonTabs.Trigger value={t.id}
             key={t.id}
             disabled={!t.enabled}
             onClick={() => setTab(t.id)}
@@ -1432,10 +1358,10 @@ export function PptRibbon({
                 style={{ backgroundColor: theme === 'dark' ? '#ffffff' : PPT_ACCENT }}
               />
             )}
-          </button>
+          </RibbonTabs.Trigger>
         ))}
         {selectedImage && (
-          <button
+          <RibbonTabs.Trigger value="pictureformat"
             onClick={() => setTab('pictureformat')}
             className="relative whitespace-nowrap px-2.5 py-1.5 text-[12px] transition-colors"
             style={{ color: tab === 'pictureformat' ? PPT_ACCENT : pal.sub, fontWeight: 500 }}
@@ -1445,10 +1371,10 @@ export function PptRibbon({
             {tab === 'pictureformat' && (
               <span className="absolute bottom-0 left-2 right-2 h-[2.5px] rounded-full" style={{ backgroundColor: PPT_ACCENT }} />
             )}
-          </button>
+          </RibbonTabs.Trigger>
         )}
         {hasSelection && (
-          <button
+          <RibbonTabs.Trigger value="shapeformat"
             onClick={() => setTab('shapeformat')}
             className="relative whitespace-nowrap px-2.5 py-1.5 text-[12px] transition-colors"
             style={{ color: tab === 'shapeformat' ? PPT_ACCENT : pal.sub, fontWeight: 500 }}
@@ -1458,10 +1384,12 @@ export function PptRibbon({
             {tab === 'shapeformat' && (
               <span className="absolute bottom-0 left-2 right-2 h-[2.5px] rounded-full" style={{ backgroundColor: PPT_ACCENT }} />
             )}
-          </button>
+          </RibbonTabs.Trigger>
         )}
-        <div className="ml-auto flex items-center gap-1.5 py-1">
+      </RibbonTabs.List>
+        {can("commentAction") && <div className="ml-auto flex items-center gap-1.5 py-1">
           <button
+            aria-pressed={comments.open}
             onClick={comments.toggle}
             title="コメントパネルの表示/非表示"
             className="flex items-center gap-1 rounded-md border px-2 py-1 text-[12px]"
@@ -1481,17 +1409,17 @@ export function PptRibbon({
           </button>
           {/* 共有(書き出し)は共通トップバー(EditorTopBar)に一本化した。
               ここに置くとタイトルバーと二重になる */}
-        </div>
+        </div>}
       </div>
 
       {/* リボン本体 */}
-      <div
-        className="flex h-[80px] shrink-0 items-center gap-0 overflow-x-auto overflow-y-hidden border-b px-2"
+      <RibbonTabs.Content value={tab}
+        className="flex h-[96px] shrink-0 items-center gap-0 overflow-x-auto overflow-y-hidden border-b px-2"
         style={{ borderColor: pal.border }}
       >
         {tab === 'home' && (
           <>
-            <BigButton icon={Plus} label={'新しい\nスライド'} onClick={() => void insertBlank()} title="白紙スライドをこの後ろに挿入" pal={pal} />
+            {io().deckOps?.insert && <BigButton icon={Plus} label={'新しい\nスライド'} onClick={() => void insertBlank()} title="白紙スライドをこの後ろに挿入" pal={pal} />}
             <Sep pal={pal} />
             <div className="flex flex-col justify-center gap-1 px-1">
               <div className="flex items-center gap-1">
@@ -1718,7 +1646,7 @@ export function PptRibbon({
 
         {tab === 'insert' && (
           <>
-            <BigButton icon={Plus} label={'新しい\nスライド'} onClick={() => void insertBlank()} pal={pal} />
+            {io().deckOps?.insert && <BigButton icon={Plus} label={'新しい\nスライド'} onClick={() => void insertBlank()} pal={pal} />}
             <Sep pal={pal} />
             <Dropdown
               pal={pal}
@@ -1729,7 +1657,7 @@ export function PptRibbon({
             />
             <Sep pal={pal} />
             <BigButton icon={ImageIcon} label="画像" onClick={actions.openFilePicker} pal={pal} />
-            <BigButton icon={LayoutGrid} label="メディア" onClick={actions.openMediaLibrary} title="メディアライブラリ" pal={pal} />
+            {can("apiFetch") && <BigButton icon={LayoutGrid} label="メディア" onClick={actions.openMediaLibrary} title="メディアライブラリ" pal={pal} />}
             <Sep pal={pal} />
             <Dropdown
               pal={pal}
@@ -1806,7 +1734,7 @@ export function PptRibbon({
           <>
             <BigButton icon={Palette} label={'バリア\nブル'} onClick={actions.openVariables} title="デザイントークン(CSS変数)を編集" pal={pal} />
             <Sep pal={pal} />
-            <BigButton
+            {can("notifySave") && <BigButton
               icon={Sparkles}
               label={'デザイ\nナー'}
               onClick={() => {
@@ -1816,14 +1744,14 @@ export function PptRibbon({
               }}
               title="AIで清書(TSX化)"
               pal={pal}
-            />
-            <BigButton
+            />}
+            {can("apiFetch") && <BigButton
               icon={Wand2}
               label={'デザイン\n提案'}
               onClick={() => setDesignOpen(true)}
               title="デザイン案を画像で提案し、選んだ案でスライドを書き直す"
               pal={pal}
-            />
+            />}
             <Sep pal={pal} />
             <div className="flex flex-col justify-center px-2 text-[11px]" style={{ color: pal.sub }}>
               <span>スライドのサイズ</span>
@@ -1853,7 +1781,7 @@ export function PptRibbon({
               />
             ))}
             <Sep pal={pal} />
-            <BigButton icon={Play} label={'プレ\nビュー'} onClick={openSlideshow} title="表示モードで再生して確認" pal={pal} />
+            {can("exportDeck") && <BigButton icon={Play} label={'プレ\nビュー'} onClick={openSlideshow} title="表示モードで再生して確認" pal={pal} />}
             <div className="ml-1 flex items-center px-1 text-[11px]" style={{ color: pal.sub }}>
               表示モード(スライドショー)で再生されます
             </div>
@@ -1881,7 +1809,7 @@ export function PptRibbon({
               />
             ))}
             <Sep pal={pal} />
-            <BigButton icon={Play} label={'プレ\nビュー'} onClick={openSlideshow} title="表示モードで再生して確認" pal={pal} />
+            {can("exportDeck") && <BigButton icon={Play} label={'プレ\nビュー'} onClick={openSlideshow} title="表示モードで再生して確認" pal={pal} />}
             <div className="ml-1 flex items-center px-1 text-[11px]" style={{ color: pal.sub }}>
               {hasSelection ? '文書順に少しずつ遅れて出現します' : '要素を選択してください'}
             </div>
@@ -1925,7 +1853,7 @@ export function PptRibbon({
         {tab === 'slideshow' && (
           <>
             <BigButton icon={Play} label={'最初から\n再生'} onClick={() => window.open(`${window.location.origin}${window.location.pathname}#/1?clean`, '_blank')} pal={pal} />
-            <BigButton icon={Play} label={'この\nスライドから'} onClick={openSlideshow} pal={pal} />
+            {can("exportDeck") && <BigButton icon={Play} label={'この\nスライドから'} onClick={openSlideshow} pal={pal} />}
             <Sep pal={pal} />
             <BigButton
               icon={Monitor}
@@ -2244,21 +2172,21 @@ export function PptRibbon({
 
         {tab === 'view' && (
           <>
-            <BigButton icon={ZoomIn} label="拡大" onClick={() => setZoom(Math.min(300, zoom + 10))} pal={pal} />
-            <BigButton icon={ZoomOut} label="縮小" onClick={() => setZoom(Math.max(10, zoom - 10))} pal={pal} />
-            <BigButton icon={Maximize} label={'画面に\n合わせる'} onClick={() => setZoom(fitZoom)} pal={pal} />
+            <BigButton icon={ZoomIn} label="拡大" disabled={zoom >= MAX_ZOOM} onClick={() => setZoom(Math.min(MAX_ZOOM, zoom + 10))} pal={pal} />
+            <BigButton icon={ZoomOut} label="縮小" disabled={zoom <= MIN_ZOOM} onClick={() => setZoom(Math.max(MIN_ZOOM, zoom - 10))} pal={pal} />
+            <BigButton icon={Maximize} label={'画面に\n合わせる'} onClick={() => { const api = editorZoomApiRef.current; if (api) api.fit(); else setZoom(fitZoom); }} pal={pal} />
             <Sep pal={pal} />
             <BigButton icon={theme === 'dark' ? Sun : Moon} label={theme === 'dark' ? 'ライト' : 'ダーク'} onClick={onToggleTheme} pal={pal} />
-            <BigButton icon={PenTool} label={'Figma風\nUIへ'} onClick={onSwitchUi} pal={pal} />
+            <BigButton icon={PenTool} label={'パネル\n表示'} onClick={onSwitchUi} pal={pal} />
             <Sep pal={pal} />
-            <BigButton icon={Play} label={'スライド\nショー'} onClick={openSlideshow} title={`${deckTitle ?? ''} を表示モードで開く`} pal={pal} />
+            {can("exportDeck") && <BigButton icon={Play} label={'スライド\nショー'} onClick={openSlideshow} title={`${deckTitle ?? ''} を表示モードで開く`} pal={pal} />}
           </>
         )}
-      </div>
-      {designOpen && (
+      </RibbonTabs.Content>
+      {designOpen && (<Suspense fallback={<span role="status">読み込み中…</span>}>
         <PptDesignProposals page={page} pal={pal} onClose={() => setDesignOpen(false)} />
-      )}
-    </div>
+      </Suspense>)}
+    </RibbonTabs.Root>
   );
 }
 
@@ -2267,208 +2195,91 @@ export function PptRibbon({
 export function PptThumbnails({ page, theme, search }: { page: number; theme: PptTheme; search: string }) {
   const pal = PALETTES[theme];
   const deck = useDeck();
+  const ops = io().deckOps;
   const currentRef = useRef<HTMLButtonElement>(null);
-  /** 右クリックメニュー(PowerPointと同じ操作面) */
-  const [menu, setMenu] = useState<{ page: number; x: number; y: number } | null>(null);
-  /** ドラッグ並び替えの状態 */
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dropAt, setDropAt] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    currentRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [page]);
-
-  useEffect(() => {
-    if (!menu) return;
-    const close = () => setMenu(null);
-    window.addEventListener('mousedown', close);
-    return () => window.removeEventListener('mousedown', close);
-  }, [menu]);
+  const [deletePage, setDeletePage] = useState<number | null>(null);
+  const { width, isDragging, resizeHandleProps } = useResizablePanel({ initialWidth: 224, minWidth: 192, maxWidth: 320, direction: 'right', storageKey: 'gg-editor:slides-width' });
+  const thumbWidth = width - 48;
+  useEffect(() => { currentRef.current?.scrollIntoView({ block: 'nearest' }); }, [page]);
 
   const goto = async (n: number) => {
     if (n === page) return;
-    // 未保存があれば黙って保存してから移る。保存できなかったときだけ従来の確認に落とす
     if (!(await flushAutoSave())) {
       if (!window.confirm('保存に失敗しました。変更を破棄して移動しますか?')) return;
     }
     window.location.hash = `#/edit/${n}`;
   };
-
-  /** デッキ操作の共通処理。操作後にページ番号のずれを追随する */
   const run = async (fn: () => Promise<unknown>, nextPage?: number) => {
     if (busy) return;
     setBusy(true);
     try {
+      if (!(await flushAutoSave())) throw new Error('編集中の内容を保存してから、もう一度お試しください。');
       await fn();
       await refreshDeck();
-      if (nextPage && nextPage !== page) {
-        window.location.hash = `#/edit/${nextPage}`;
-      } else {
-        // 番号は同じでも中身が別のスライドになっている(現在ページの削除や
-        // 手前の複製)。エディタに現在ページの読み直しを頼む
-        window.dispatchEvent(new CustomEvent('gg:deck-mutated'));
-      }
+      if (nextPage && nextPage !== page) window.location.hash = `#/edit/${nextPage}`;
+      else window.dispatchEvent(new CustomEvent('gg:deck-mutated'));
     } catch (e) {
-      window.alert(`操作に失敗しました: ${String(e).slice(0, 120)}`);
-    } finally {
-      setBusy(false);
-    }
+      toast.error('操作に失敗しました', { description: String(e).slice(0, 160) });
+    } finally { setBusy(false); }
   };
-
   const doMove = (from: number, to: number) => {
-    if (to < 1 || to > deck.slides.length || from === to) return;
-    // 編集中のページ自身を動かしたら追随、他ページの移動で自分の番号がずれたら補正
+    if (!ops?.move || to < 1 || to > deck.slides.length || from === to) return;
     let next = page;
     if (from === page) next = to;
     else if (from < page && to >= page) next = page - 1;
     else if (from > page && to <= page) next = page + 1;
     void run(() => moveSlide(from, to), next);
   };
-
-  const doDelete = (n: number) => {
-    if (!window.confirm(`${n}枚目「${deck.slides[n - 1]?.title ?? ''}」を削除しますか?`)) return;
-    const next = n === page ? Math.max(1, Math.min(page, deck.slides.length - 1)) : n < page ? page - 1 : page;
-    void run(() => deleteSlide(n), next);
-  };
-
-  const doDuplicate = (n: number) => {
-    const next = n < page ? page + 1 : page;
-    void run(() => duplicateSlide(n), next);
-  };
-
-  const doToggleHidden = (n: number) => {
-    const hidden = !deck.slides[n - 1]?.hidden;
-    void run(() => updateSlideMeta(n, { hidden }));
-  };
-
-  const q = search.trim();
-  const menuEntry = menu ? deck.slides[menu.page - 1] : null;
+  const q = search.trim().toLocaleLowerCase();
+  const slides = deck.slides.map((slide, i) => ({ slide, n: i + 1 })).filter(({ slide, n }) => !q || slide.title.toLocaleLowerCase().includes(q) || String(n) === q);
+  const hasMenu = !!(ops?.move || ops?.duplicate || ops?.remove || ops?.updateMeta);
 
   return (
-    <div
-      className="relative w-[176px] shrink-0 overflow-y-auto border-r py-1.5"
-      style={{ backgroundColor: pal.rail, borderColor: pal.border, opacity: busy ? 0.6 : 1 }}
-    >
-      {deck.slides.map((s, i) => {
-        const n = i + 1;
-        if (q && !(s.title ?? '').includes(q) && String(n) !== q) return null;
-        const current = n === page;
-        return (
-          <button
-            key={s.id}
-            ref={current ? currentRef : undefined}
-            draggable
-            onDragStart={(e) => {
-              setDragFrom(n);
-              e.dataTransfer.effectAllowed = 'move';
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              // カーソルが項目の上半分なら手前、下半分なら後ろへ挿す
-              const r = e.currentTarget.getBoundingClientRect();
-              setDropAt(e.clientY < r.top + r.height / 2 ? n : n + 1);
-            }}
-            onDragEnd={() => {
-              if (dragFrom !== null && dropAt !== null) {
-                const to = dropAt > dragFrom ? dropAt - 1 : dropAt;
-                doMove(dragFrom, to);
-              }
-              setDragFrom(null);
-              setDropAt(null);
-            }}
-            onClick={() => void goto(n)}
-            onContextMenu={(e) => {
-              e.preventDefault();
-              setMenu({ page: n, x: e.clientX, y: e.clientY });
-            }}
-            className="relative flex w-full items-start gap-1.5 px-2 py-1 text-left"
-            style={{ opacity: dragFrom === n ? 0.4 : 1 }}
-            title={s.title ?? `${n}枚目`}
-          >
-            {/* 挿入位置インジケータ */}
-            {dropAt === n && dragFrom !== null && (
-              <span className="absolute left-2 right-2 top-0 h-[2px] rounded-full" style={{ backgroundColor: PPT_ACCENT }} />
-            )}
-            {dropAt === n + 1 && dragFrom !== null && (
-              <span className="absolute bottom-0 left-2 right-2 h-[2px] rounded-full" style={{ backgroundColor: PPT_ACCENT }} />
-            )}
-            <span
-              className="mt-0.5 w-4 shrink-0 text-right text-[10px] tabular-nums"
-              style={{ color: current ? PPT_ACCENT : pal.sub, fontWeight: current ? 700 : 400 }}
-            >
-              {n}
-            </span>
-            <span
-              className="relative block aspect-video w-full overflow-hidden rounded-[3px] bg-white"
-              style={{
-                boxShadow: current ? `0 0 0 2px ${PPT_ACCENT}` : `0 0 0 1px ${pal.border}`,
-                opacity: s.hidden ? 0.45 : 1,
-              }}
-            >
-              {/* 枠の実効幅にぴったり合わせて縮小する。
-                  レール176 − ボタン左右padding16 − 番号列16 − 間隔6 = 138px。
-                  ここがずれると右・下に隙間が出る(レール幅を変えたら要追従) */}
-              <span
-                className="pointer-events-none absolute left-0 top-0 origin-top-left"
-                style={{ width: 1920, height: 1080, transform: `scale(${138 / 1920})` }}
-              >
-                <MemoSlideRender page={n} template={s.template} edited={s.edited} />
-              </span>
-              {unresolvedCount(s.comments) > 0 && (
-                <span
-                  className="absolute right-0.5 top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#0F6CBD] px-1 text-[9px] font-bold text-white"
-                  title={`未解決コメント ${unresolvedCount(s.comments)}件`}
-                >
-                  {unresolvedCount(s.comments)}
+    <aside data-ppt-thumbnails aria-label="スライド一覧" className="relative flex shrink-0 flex-col border-r" style={{ width, backgroundColor: pal.rail, borderColor: pal.border }}>
+      <div className="ed-panel-heading">スライド<span className="ml-auto text-xs font-normal text-gray-400">{page} / {deck.slides.length}</span></div>
+      <div className="min-h-0 flex-1 overflow-y-auto py-2">
+        {slides.length === 0 && <p className="ed-empty">{q ? '一致するスライドがありません。' : 'スライドがありません。'}</p>}
+        {slides.map(({ slide: s, n }) => <div key={s.id} className="relative px-2 py-2" style={{ opacity: dragFrom === n ? .5 : 1 }}>
+          <button ref={n === page ? currentRef : undefined} data-page-thumb={n} aria-current={n === page ? 'page' : undefined}
+            disabled={busy} draggable={!!ops?.move && !busy}
+            onDragStart={(e) => { setDragFrom(n); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(n)); }}
+            onDragOver={(e) => { if (dragFrom === null || !ops?.move) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setDropAt(e.clientY < r.top + r.height / 2 ? n : n + 1); }}
+            onDrop={(e) => { e.preventDefault(); if (dragFrom !== null && dropAt !== null) doMove(dragFrom, dropAt > dragFrom ? dropAt - 1 : dropAt); setDragFrom(null); setDropAt(null); }}
+            onDragEnd={() => { setDragFrom(null); setDropAt(null); }}
+            onClick={() => void goto(n)} className="flex w-full gap-2 rounded p-1 text-left" title={`${n}. ${s.title}`}>
+            <span className="w-4 shrink-0 text-xs tabular-nums" style={{ color: n === page ? PPT_ACCENT : pal.sub }}>{n}</span>
+            <span className="min-w-0 flex-1">
+              {can('renderContent') && <span className="relative block aspect-video overflow-hidden rounded bg-white"
+                style={{ width: thumbWidth, boxShadow: n === page ? `0 0 0 2px ${PPT_ACCENT}` : `0 0 0 1px ${pal.border}`, opacity: s.hidden ? .5 : 1 }}>
+                <span data-editor-preview className="pointer-events-none absolute left-0 top-0 origin-top-left" style={{ width: 1920, height: 1080, transform: `scale(${thumbWidth / 1920})` }}>
+                  <MemoSlideRender page={n} template={s.template} edited={s.edited} />
                 </span>
-              )}
-              {s.hidden && (
-                <span
-                  className="absolute inset-0 flex items-center justify-center"
-                  title="非表示スライド(スライドショー・書き出しから除外)"
-                >
-                  <span className="rounded bg-black/60 px-1.5 py-0.5 text-[9px] font-medium text-white">
-                    <EyeOff className="mr-0.5 inline h-2.5 w-2.5 align-[-2px]" />
-                    非表示
-                  </span>
-                </span>
-              )}
+              </span>}
+              <span className="mt-2 block truncate pr-6 text-xs" style={{ color: pal.text }}>{s.title || '無題'}{s.hidden ? '（非表示）' : ''}</span>
+              {can('commentAction') && unresolvedCount(s.comments) > 0 && <span className="mt-1 block text-xs" style={{ color: pal.sub }}>未解決 {unresolvedCount(s.comments)}件</span>}
             </span>
           </button>
-        );
-      })}
-
-      {/* 右クリックメニュー */}
-      {menu && (
-        <div
-          className="fixed z-[100] min-w-[176px] rounded-md border py-1 shadow-xl"
-          style={{ left: menu.x, top: menu.y, backgroundColor: pal.control, borderColor: pal.border }}
-          onMouseDown={(e) => e.stopPropagation()}
-        >
-          {([
-            ['上へ移動', ArrowUp, () => doMove(menu.page, menu.page - 1), menu.page <= 1],
-            ['下へ移動', ArrowDown, () => doMove(menu.page, menu.page + 1), menu.page >= deck.slides.length],
-            ['複製', Copy, () => doDuplicate(menu.page), false],
-            [menuEntry?.hidden ? '表示する' : '非表示スライドに設定', EyeOff, () => doToggleHidden(menu.page), false],
-            ['削除', Trash2, () => doDelete(menu.page), deck.slides.length <= 1],
-          ] as const).map(([label, Icon, fn, disabled], i) => (
-            <button
-              key={i}
-              disabled={disabled}
-              onClick={() => { setMenu(null); fn(); }}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-[12px]"
-              style={{ color: disabled ? pal.disabled : label === '削除' ? '#e5534b' : pal.text }}
-              onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.backgroundColor = pal.hover; }}
-              onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = ''; }}
-            >
-              <Icon className="h-3.5 w-3.5" />
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+          {dropAt !== null && dragFrom !== null && (dropAt === n || dropAt === n + 1) && <span className={`absolute inset-x-2 h-0.5 ${dropAt === n ? 'top-0' : 'bottom-0'}`} style={{ backgroundColor: PPT_ACCENT }} />}
+          {hasMenu && <DropdownMenu>
+            <DropdownMenuTrigger asChild><button className="ed-icon-button absolute bottom-1 right-2" disabled={busy} aria-label={`${n}枚目の操作`}><MoreHorizontal className="h-4 w-4" /></button></DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {ops?.move && <><DropdownMenuItem disabled={n === 1} onSelect={() => doMove(n, n - 1)}>上へ移動</DropdownMenuItem><DropdownMenuItem disabled={n === deck.slides.length} onSelect={() => doMove(n, n + 1)}>下へ移動</DropdownMenuItem></>}
+              {ops?.duplicate && <DropdownMenuItem onSelect={() => void run(() => duplicateSlide(n), n < page ? page + 1 : page)}>複製</DropdownMenuItem>}
+              {ops?.updateMeta && <DropdownMenuItem onSelect={() => void run(() => updateSlideMeta(n, { hidden: !s.hidden }))}>{s.hidden ? '表示する' : 'スライドを非表示にする'}</DropdownMenuItem>}
+              {ops?.remove && <DropdownMenuItem disabled={deck.slides.length <= 1} onSelect={() => setDeletePage(n)}>削除</DropdownMenuItem>}
+            </DropdownMenuContent>
+          </DropdownMenu>}
+        </div>)}
+      </div>
+      <div {...resizeHandleProps} />
+      {isDragging && <div className="fixed inset-0 z-50 cursor-col-resize" />}
+      <ConfirmDialog open={deletePage !== null} onOpenChange={(open) => { if (!open) setDeletePage(null); }} title="スライドを削除しますか？"
+        description={`${deletePage ?? ''}枚目「${deck.slides[(deletePage ?? 1) - 1]?.title ?? ''}」を削除します。`}
+        onConfirm={() => { if (deletePage !== null) { const next = deletePage === page ? Math.max(1, Math.min(page, deck.slides.length - 1)) : deletePage < page ? page - 1 : page; void run(() => deleteSlide(deletePage), next); } }} />
+    </aside>
   );
 }
 
@@ -2479,15 +2290,16 @@ export function PptStatusBar({ page, total, theme }: { page: number; total: numb
   const { zoom, setZoom, fitZoom } = useEditorContext();
   return (
     <div
-      className="flex h-7 items-center gap-3 border-t px-3 text-[11px]"
+      className="ed-footer"
       style={{ backgroundColor: pal.rail, borderColor: pal.border, color: pal.sub }}
     >
       <span>スライド {page} / {total}</span>
       <span className="ml-auto" />
-      <button onClick={() => setZoom(Math.max(10, zoom - 10))} className="rounded p-0.5" title="縮小" style={{ color: pal.sub }}>
+      <button disabled={zoom <= MIN_ZOOM} onClick={() => setZoom(Math.max(MIN_ZOOM, zoom - 10))} className="rounded p-0.5" title="縮小" style={{ color: pal.sub }}>
         <ZoomOut className="h-3.5 w-3.5" />
       </button>
       <input
+        aria-label="表示倍率"
         type="range"
         min={10}
         max={400}
@@ -2496,11 +2308,11 @@ export function PptStatusBar({ page, total, theme }: { page: number; total: numb
         className="w-28"
         style={{ accentColor: PPT_ACCENT }}
       />
-      <button onClick={() => setZoom(Math.min(300, zoom + 10))} className="rounded p-0.5" title="拡大" style={{ color: pal.sub }}>
+      <button disabled={zoom >= MAX_ZOOM} onClick={() => setZoom(Math.min(MAX_ZOOM, zoom + 10))} className="rounded p-0.5" title="拡大" style={{ color: pal.sub }}>
         <ZoomIn className="h-3.5 w-3.5" />
       </button>
       <span className="w-9 text-right tabular-nums">{Math.round(zoom)}%</span>
-      <button onClick={() => setZoom(fitZoom)} className="rounded p-0.5" title="画面に合わせる" style={{ color: pal.sub }}>
+      <button onClick={() => { const api = editorZoomApiRef.current; if (api) api.fit(); else setZoom(fitZoom); }} className="rounded p-0.5" title="画面に合わせる" style={{ color: pal.sub }}>
         <Maximize className="h-3.5 w-3.5" />
       </button>
     </div>

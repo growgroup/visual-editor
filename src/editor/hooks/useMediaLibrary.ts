@@ -9,6 +9,7 @@
  * 同時オープン時のリクエスト重複も in-flight promise で防ぐ。
  */
 
+import { io, notProvided } from '../../io';
 import { useCallback, useEffect, useState } from 'react';
 
 export interface MediaItem {
@@ -48,11 +49,9 @@ function normalizeItem(raw: unknown): MediaItem | null {
 }
 
 async function fetchMediaItems(): Promise<MediaItem[]> {
-  const res = await fetch('/__media');
-  if (!res.ok) {
-    throw new Error(`メディア一覧の取得に失敗しました (HTTP ${res.status})`);
-  }
-  const data = (await res.json()) as MediaResponse;
+  const fetchCatalog = io().apiFetch;
+  if (!fetchCatalog) throw notProvided('apiFetch');
+  const data = await fetchCatalog('/__media') as MediaResponse;
   const items = Array.isArray(data.items) ? data.items : [];
   return items.map(normalizeItem).filter((i): i is MediaItem => i !== null);
 }

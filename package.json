@@ -48,7 +48,9 @@
     "build": "npm run build:css",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build && npm run typecheck"
+    "prepublishOnly": "npm run build && npm run typecheck",
+    "playground": "vite --config playground/vite.config.ts",
+    "playground:build": "vite build --config playground/vite.config.ts"
   },
   "peerDependencies": {
     "react": "^18.3.1 || ^19",

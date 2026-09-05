@@ -882,15 +882,15 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
 
   // リサイズ可能なパネル
   const { width, isDragging, resizeHandleProps } = useResizablePanel({
-    initialWidth: 288, // w-72 = 18rem = 288px
-    minWidth: 240,
+    initialWidth: 304,
+    minWidth: 280,
     maxWidth: 480,
     direction: 'left', // 左端をドラッグしてリサイズ
     storageKey: 'editor-property-panel-width',
   });
 
   const [openSections, setOpenSections] = useState<PanelSections>({
-    position: true, // 位置セクション
+    position: editorMode !== "webpage", // 流し込みのページでは詳細操作として畳む
     layout: true, // レイアウトセクション
     appearance: true, // 外見セクション
     image: false, // 塗りに統合されたため非表示
@@ -1141,9 +1141,11 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
         iframeReady={iframeReady}
       >
         <div
+          data-property-panel
           className="flex-shrink-0 bg-[#2c2c2c] border-l border-[#444444] flex flex-col overflow-hidden relative"
           style={{ width: `${width}px` }}
         >
+          <div className="ed-panel-heading">要素の編集</div>
           {/* リサイズハンドル */}
           <div {...resizeHandleProps} />
 
@@ -1164,11 +1166,12 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
               </div>
             </ScrollArea>
           ) : (
-            <div className="flex-1 flex items-center justify-center p-4">
-              <div className="text-center text-gray-500 text-xs">
-                <MousePointer2 className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                <p>要素を選択してください</p>
-              </div>
+            <div className="ed-empty">
+              <MousePointer2 className="h-8 w-8" />
+              <strong>編集する要素を選択</strong>
+              <p>紙面の文字や画像をクリックすると、色・大きさ・余白を調整できます。</p>
+              <p>文字はダブルクリックで直接編集できます。</p>
+              <span className="text-xs">Shift＋クリックで複数選択</span>
             </div>
           )}
         </div>
@@ -1187,6 +1190,10 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
       className="flex-shrink-0 bg-[#2c2c2c] border-l border-[#444444] flex flex-col overflow-hidden relative"
       style={{ width: `${width}px` }}
     >
+      <div className="ed-panel-heading">
+        <span>要素の編集</span>
+        <span className="ml-auto truncate text-xs font-normal text-gray-400">{isMultiSelection ? `${selectedElementIds.length}個を選択` : selectedElement.text?.trim().slice(0, 28) || selectedElement.tagName.toLowerCase()}</span>
+      </div>
       {/* リサイズハンドル */}
       <div {...resizeHandleProps} />
 

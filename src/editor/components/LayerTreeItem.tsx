@@ -113,7 +113,7 @@ export interface LayerTreeItemProps {
   // Event handlers
   onToggleExpand: (nodeId: string) => void;
   onToggleVisibility: (nodeId: string) => void;
-  onNodeClick: (e: React.MouseEvent, nodeId: string) => void;
+  onNodeClick: (e: React.MouseEvent | React.KeyboardEvent, nodeId: string) => void;
   /** 行ホバー開始（キャンバス側をハイライトする） */
   onRowMouseEnter: (nodeId: string) => void;
   /** 行ホバー終了 */
@@ -195,9 +195,30 @@ export const LayerTreeItem = memo(function LayerTreeItem({
         <ContextMenuTrigger asChild>
           <div
             ref={nodeRef}
-            className={`flex items-center gap-1 py-0.5 px-1 rounded cursor-pointer text-xs group transition-colors ${
+            data-layer-row={node.id}
+            role="button"
+            tabIndex={0}
+            aria-label={`${label}（${node.tagName}）`}
+            aria-pressed={isSelected}
+            aria-expanded={hasChildren ? isExpanded : undefined}
+            onKeyDown={(e) => {
+              if (e.target !== e.currentTarget) return;
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault(); onNodeClick(e, node.id);
+              } else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+                e.preventDefault(); e.stopPropagation();
+                if (hasChildren && isExpanded !== (e.key === 'ArrowRight')) onToggleExpand(node.id);
+              } else if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
+                e.preventDefault(); e.stopPropagation();
+                const rows = Array.from(e.currentTarget.closest('.ed-layer-panel')?.querySelectorAll<HTMLElement>('[data-layer-row]') ?? []);
+                const index = rows.indexOf(e.currentTarget);
+                const next = e.key === 'Home' ? 0 : e.key === 'End' ? rows.length - 1 : index + (e.key === 'ArrowDown' ? 1 : -1);
+                rows[Math.max(0, Math.min(rows.length - 1, next))]?.focus();
+              }
+            }}
+            className={`flex items-center gap-1 min-h-8 py-1 px-1 rounded cursor-pointer text-xs group transition-colors ${
               isSelected
-                ? 'bg-[#0d99ff] text-white'
+                ? 'ed-layer-selected bg-[#0d99ff]/15 text-[#4fb8ff]'
                 : isHovered
                 ? // キャンバス側のホバーと連動した薄いハイライト
                   'text-gray-100 bg-[#37373d] ring-1 ring-inset ring-[#0d99ff]/50'
@@ -233,7 +254,7 @@ export const LayerTreeItem = memo(function LayerTreeItem({
           >
             {/* ドラッグハンドル */}
             <GripVertical
-              className={`w-3 h-3 opacity-0 group-hover:opacity-100 cursor-grab ${
+              className={`w-3 h-3 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 cursor-grab ${
                 isSelected ? 'text-white' : 'text-gray-500'
               }`}
             />
@@ -241,6 +262,7 @@ export const LayerTreeItem = memo(function LayerTreeItem({
             {/* 展開/折りたたみ */}
             {hasChildren ? (
               <button
+                aria-label={isExpanded ? "子要素を折り畳む" : "子要素を表示"}
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleExpand(node.id);
@@ -261,6 +283,7 @@ export const LayerTreeItem = memo(function LayerTreeItem({
 
             {/* 表示/非表示アイコン */}
             <button
+              aria-label={isHidden ? "要素を表示" : "要素を非表示"}
               onClick={(e) => {
                 e.stopPropagation();
                 onToggleVisibility(node.id);
@@ -271,7 +294,7 @@ export const LayerTreeItem = memo(function LayerTreeItem({
                   : isSelected
                   ? 'text-white'
                   : 'text-gray-400'
-              } opacity-0 group-hover:opacity-100 ${
+              } opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 ${
                 isSelected ? 'hover:bg-[#0d99ff]' : 'hover:bg-gray-600'
               }`}
             >

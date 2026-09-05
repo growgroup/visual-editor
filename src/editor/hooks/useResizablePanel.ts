@@ -24,6 +24,15 @@ export interface UseResizablePanelReturn {
   isDragging: boolean;
   /** リサイズハンドルのprops */
   resizeHandleProps: {
+    role: 'separator';
+    tabIndex: number;
+    'aria-label': string;
+    'aria-orientation': 'vertical';
+    'aria-valuemin': number;
+    'aria-valuemax': number;
+    'aria-valuenow': number;
+    onKeyDown: (e: React.KeyboardEvent) => void;
+    onDoubleClick: () => void;
     onMouseDown: (e: React.MouseEvent) => void;
     onTouchStart: (e: React.TouchEvent) => void;
     style: React.CSSProperties;
@@ -44,7 +53,8 @@ export function useResizablePanel({
   // ローカルストレージから初期値を読み込み
   const getInitialWidth = () => {
     if (storageKey && typeof window !== 'undefined') {
-      const stored = localStorage.getItem(storageKey);
+      let stored: string | null = null;
+      try { stored = localStorage.getItem(storageKey); } catch { /* 既定幅を使う */ }
       if (stored) {
         const parsed = parseInt(stored, 10);
         if (!isNaN(parsed) && parsed >= minWidth && parsed <= maxWidth) {
@@ -65,11 +75,13 @@ export function useResizablePanel({
     const clampedWidth = Math.min(maxWidth, Math.max(minWidth, newWidth));
     setWidthState(clampedWidth);
 
-    // ローカルストレージに保存
-    if (storageKey && typeof window !== 'undefined') {
-      localStorage.setItem(storageKey, String(clampedWidth));
-    }
-  }, [minWidth, maxWidth, storageKey]);
+  }, [minWidth, maxWidth]);
+
+  // ドラッグ中の同期ストレージ書込みを避け、確定時だけ幅を記憶する。
+  useEffect(() => {
+    if (isDragging || !storageKey) return;
+    try { localStorage.setItem(storageKey, String(width)); } catch { /* 表示は継続 */ }
+  }, [width, isDragging, storageKey]);
 
   // マウスダウン
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -123,8 +135,11 @@ export function useResizablePanel({
     document.addEventListener('mouseup', handleMouseUp);
     document.addEventListener('touchmove', handleTouchMove);
     document.addEventListener('touchend', handleTouchEnd);
+    document.addEventListener('touchcancel', handleTouchEnd);
 
     // カーソルスタイルを変更
+    const previousCursor = document.body.style.cursor;
+    const previousSelect = document.body.style.userSelect;
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
 
@@ -133,21 +148,35 @@ export function useResizablePanel({
       document.removeEventListener('mouseup', handleMouseUp);
       document.removeEventListener('touchmove', handleTouchMove);
       document.removeEventListener('touchend', handleTouchEnd);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+      document.removeEventListener('touchcancel', handleTouchEnd);
+      document.body.style.cursor = previousCursor;
+      document.body.style.userSelect = previousSelect;
     };
   }, [isDragging, direction, setWidth]);
 
   // リサイズハンドルのprops
-  const resizeHandleProps = {
+  const resizeHandleProps: UseResizablePanelReturn['resizeHandleProps'] = {
+    role: 'separator', tabIndex: 0,
+    'aria-label': 'パネルの幅（矢印キーで調整）',
+    'aria-orientation': 'vertical',
+    'aria-valuemin': minWidth, 'aria-valuemax': maxWidth, 'aria-valuenow': width,
+    onDoubleClick: () => setWidth(initialWidth),
+    onKeyDown: (e) => {
+      if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) return;
+      e.preventDefault(); e.stopPropagation();
+      const sign = direction === 'right' ? 1 : -1;
+      if (e.key === 'Home') setWidth(minWidth);
+      else if (e.key === 'End') setWidth(maxWidth);
+      else setWidth(width + (e.key === 'ArrowRight' ? sign : -sign) * (e.shiftKey ? 32 : 8));
+    },
     onMouseDown: handleMouseDown,
     onTouchStart: handleTouchStart,
     style: {
-      cursor: 'col-resize',
+      cursor: 'col-resize', touchAction: 'none',
     } as React.CSSProperties,
     className: `
       absolute top-0 ${direction === 'right' ? 'right-0' : 'left-0'}
-      w-1 h-full z-10
+      ed-resize-handle w-1 h-full z-10
       hover:bg-blue-500/50
       ${isDragging ? 'bg-blue-500' : 'bg-transparent'}
       transition-colors duration-150

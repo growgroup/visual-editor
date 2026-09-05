@@ -2384,6 +2384,27 @@ function FrontendVisualEditorInner({
           </div>
         </div>
       )}
+
+      {/* Webページ用の案内。
+          Webページでは「絶対配置モードに切り替える」を勧めない(版面が固定pxに固まる)ので、
+          代わりに逃げ道だけを伝える。sonner の Toaster はアプリ側に無く toast() が
+          表示されないため、既存のこの帯を流用している */}
+      {showLayoutHint && editorMode === 'webpage' && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-bottom-2 duration-300">
+          <div className="bg-black/90 text-white px-4 py-3 rounded-lg shadow-xl flex items-center gap-4">
+            <span className="text-sm">
+              並べ替える相手がありません。Cmd/Ctrl+ドラッグで自由配置、ダブルクリックで中に入れます
+            </span>
+            <button
+              onClick={() => setShowLayoutHint(false)}
+              className="text-gray-400 hover:text-white text-lg leading-none ml-1"
+              aria-label="閉じる"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

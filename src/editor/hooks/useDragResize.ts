@@ -31,6 +31,8 @@ import {
 } from '../utils/geometry';
 import {
   shouldReorder,
+  planSlideReorder,
+  resolveWebpageDrag,
   startReorder,
   computeInsertIndex,
   drawInsertIndicator,
@@ -290,7 +292,7 @@ const ROTATION_SNAP_DEG = 15;
 export function useDragResize(
   options: UseDragResizeOptions
 ): UseDragResizeReturn {
-  const { setShowLayoutHint, zoom } = useEditorContext();
+  const { setShowLayoutHint, zoom, editorMode } = useEditorContext();
 
   const {
     dragStateRef,
@@ -326,10 +328,25 @@ export function useDragResize(
   const reorderRef = useRef<ReorderSession | null>(null);
   const reorderIndexRef = useRef<number>(-1);
 
+  // 「並べ替えたいが相手がいない」ドラッグ。座標も DOM も一切書かずに空振りさせる。
+  // ここを立てずに素通りさせると convertDragTargetsToAbsolute が走って版面が崩れ、
+  // さらに mouseup が「動いた」と見なして履歴を1段積んでしまう
+  const dragBlockedRef = useRef(false);
+  // 案内はセッション中1回だけ。ドラッグのたびに帯が出ると操作の邪魔になる
+  const reorderHintShownRef = useRef(false);
+
+  // editorMode も zoom と同じ理由で ref に写す。
+  // iframe に張ったリスナーのクロージャは古い値を掴んだままになるため
+  const editorModeRef = useRef(editorMode);
+
   // zoomが変更されたらrefを更新
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
+
+  useEffect(() => {
+    editorModeRef.current = editorMode;
+  }, [editorMode]);
 
   // 最新のsetShowLayoutHintをrefに同期
   useEffect(() => {
@@ -360,6 +377,7 @@ export function useDragResize(
     dragBaseRectRef.current = null;
     reorderRef.current = null;
     reorderIndexRef.current = -1;
+    dragBlockedRef.current = false;
   }, [dragStateRef]);
 
   /**
@@ -556,9 +574,15 @@ export function useDragResize(
 
         // 位置を書けるのは「フローから外れている要素」だけ。
         // 絶対配置モードなら従来通り static → absolute へ倒して位置を持たせる。
+        //
+        // [webpage は倒さない] webpage は流し込みを保つ約束(README)。ここで倒すと
+        // 要素が流れから抜けて後続が詰め上がり、ページ高さが変わって紙面が飛ぶ。
+        // 大きさを変えるのに position は要らないので width/height だけ書く。
         const position = win?.getComputedStyle(el).position;
         const outOfFlow = isOutOfFlowPosition(position);
-        const canWritePosition = outOfFlow || layoutModeRef.current === 'absolute';
+        const canWritePosition =
+          outOfFlow ||
+          (layoutModeRef.current === 'absolute' && editorModeRef.current !== 'webpage');
 
         if (canWritePosition) {
           // すでにフロー外なら position は触らない（fixed を absolute に落とさない）
@@ -908,24 +932,50 @@ export function useDragResize(
         const targets = getDragTargets(dragState);
         const movingElements = targets.map((t) => t.element);
         const componentEdit = iframeDoc.body.classList.contains('component-edit-mode');
+        const isWebpage = editorModeRef.current === 'webpage';
 
         // Cmd/Ctrl は「並べ替えから抜けて自由に動かす」逃げ道。
         // スナップの無効化と同じキーに揃える(押している間は座標がそのまま通る)
         const wantsFreeMove = e.metaKey || e.ctrlKey;
 
-        if (
+        if (isWebpage) {
+          // ── webpage ──
+          // フロー内の要素を絶対配置へ倒すと、カラムが流れから抜けてページ高さが
+          // 潰れ、artboard が縮んで紙面が中央寄せで飛ぶ(実測 2424→679px)。
+          // README の設計原則どおり倒さず、同一親の並べ替えだけで動かす。
+          if (!componentEdit && !wantsFreeMove) {
+            const decision = resolveWebpageDrag(movingElements, iframeDoc);
+            if (decision.kind === 'reorder') {
+              reorderRef.current = startReorder(decision.plan, iframeDoc, {
+                restoreFlow: false,
+              });
+              reorderIndexRef.current = -1;
+            } else if (decision.kind !== 'free') {
+              // 並べ替える相手がいない/群がバラバラ。倒さず、動かさず、案内だけ出す
+              dragBlockedRef.current = true;
+              if (!reorderHintShownRef.current) {
+                reorderHintShownRef.current = true;
+                setShowLayoutHintRef.current(true);
+              }
+            }
+          }
+        } else if (
           !componentEdit &&
           !wantsFreeMove &&
           dragState.element &&
           shouldReorder(dragState.element, iframeDoc, movingElements.length)
         ) {
+          // ── slide ──
           // 並べ替え: 絶対配置へ倒さない。倒した瞬間にフレックスの設定が
           // 効かなくなり、右パネルのレイアウト指定が無意味になる
-          reorderRef.current = startReorder(dragState.element, iframeDoc);
-          reorderIndexRef.current = -1;
+          const plan = planSlideReorder(dragState.element, iframeDoc);
+          if (plan) {
+            reorderRef.current = startReorder(plan, iframeDoc, { restoreFlow: true });
+            reorderIndexRef.current = -1;
+          }
         }
 
-        if (!reorderRef.current) {
+        if (!reorderRef.current && !dragBlockedRef.current) {
           // in-flow の要素はここで初めて絶対配置へ変換する。
           // mousedown 時に変換すると、選んだだけで後続の兄弟が詰め上がって版面が動く。
           // コンポーネント編集中は変換しない(部品本来の並びを保つため)
@@ -939,6 +989,14 @@ export function useDragResize(
           dragBaseRectRef.current = unionOverlayRect(iframeDoc, movingElements);
           guideCandidatesRef.current = collectGuideCandidates(iframeDoc, movingElements);
         }
+      }
+
+      // ── 空振りモード ──
+      // 「並べ替えたいが相手がいない」ドラッグ。座標も DOM も書かない。
+      // hasMoved を立てないことが肝で、立てると mouseup が Tailwind 変換と
+      // SLIDE_CONTENT_CHANGED を走らせ、何も変えていないのに履歴が1段積まれる
+      if (dragBlockedRef.current) {
+        return true;
       }
 
       dragState.hasMoved = true;
@@ -1046,6 +1104,16 @@ export function useDragResize(
       // 持ち上げの見た目と線を戻すだけで元の状態に戻る
       if (reorderRef.current) {
         endReorder(reorderRef.current, doc);
+        resetDragState();
+        refreshSelectionOverlay(doc);
+        return true;
+      }
+
+      // 空振り中の取り消し: 座標も DOM も書いていないので戻すものが無い
+      if (dragBlockedRef.current) {
+        getDragTargets(dragState).forEach(({ element }) =>
+          element.classList.remove('dragging'),
+        );
         resetDragState();
         refreshSelectionOverlay(doc);
         return true;
@@ -1221,6 +1289,18 @@ export function useDragResize(
         // そのまま返す。SLIDE_CONTENT_CHANGED を送る前に必ず消す
         clearSmartGuides(iframeDoc);
         setOverlayLabel(null);
+
+        // ── 空振りの後始末 ──
+        // 何も書いていないので履歴も送らない。掴んだ見た目だけ戻す
+        if (dragBlockedRef.current) {
+          getDragTargets(dragState).forEach(({ element }) =>
+            element.classList.remove('dragging'),
+          );
+          refreshSelectionOverlay(iframeDoc);
+          sendElementInfo(dragState.element, iframeDoc);
+          resetDragState();
+          return true;
+        }
 
         // ── 並べ替えの確定 ──
         // 座標(left/top)は書いていないので Tailwind への変換は通さない。

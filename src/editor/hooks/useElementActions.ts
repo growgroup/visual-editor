@@ -15,6 +15,11 @@ import {
   hasEditableChildren,
   prepareElementDragOrigin,
 } from '../utils/dom-utils';
+import {
+  resolveWebpageDrag,
+  realChildren,
+  applyReorder,
+} from '../utils/flex-reorder';
 import { extractElementInfo } from '../utils/style-utils';
 import { applyTailwindStyles, convertInlineStylesToTailwind } from '../utils/tailwind-utils';
 import { copyElementsToFigma, isFigmaExportAvailable } from '../utils/figma-export';
@@ -150,6 +155,42 @@ export interface MoveElementResult {
   moved: number;
   /** 動かせなかった理由。null なら成功 */
   blocked: null | 'no-selection' | 'flow';
+}
+
+/**
+ * webpage モードの矢印キー = 「並べ替えを1段動かす」
+ *
+ * webpage はフロー内の要素を絶対配置へ倒さない(README の設計原則)。
+ * 倒すと版面が固定pxに固まり、後続の要素が詰め上がってページ高さが変わる。
+ * そこで矢印キーは座標ではなく **並び順** を1つ動かす。
+ * ↑/← = ひとつ前へ / ↓/→ = ひとつ後ろへ(Shift 付きでも1段。並びに10段の意味は無い)。
+ *
+ * @returns null なら「並べ替えの対象ではない」= 呼び出し側の座標移動へ落とす
+ */
+function reorderSelectionByStep(
+  elements: HTMLElement[],
+  step: -1 | 1,
+  iframeDoc: Document,
+): MoveElementResult | null {
+  const decision = resolveWebpageDrag(elements, iframeDoc);
+  // すでに絶対配置(Cmd+ドラッグで自由配置にした要素など)は従来どおり座標で動かす
+  if (decision.kind === 'free') return null;
+  // 相手がいない / 群がバラバラ。ドラッグと同じ理由で何もしない
+  if (decision.kind !== 'reorder') return { moved: 0, blocked: 'flow' };
+
+  const { elements: block, parent } = decision.plan;
+  const children = realChildren(parent);
+  const moving = new Set(block);
+  const siblings = children.filter((c) => !moving.has(c));
+  const originalIndex = children.indexOf(block[0]);
+  if (originalIndex < 0) return { moved: 0, blocked: 'flow' };
+
+  const next = originalIndex + step;
+  // 端に着いている。黙って止まるのが正しい(案内は出さない)
+  if (next < 0 || next > siblings.length) return { moved: 0, blocked: null };
+
+  const changed = applyReorder(parent, block, siblings, originalIndex, next);
+  return { moved: changed ? block.length : 0, blocked: null };
 }
 
 /**
@@ -1326,6 +1367,24 @@ export function useElementActions() {
       .filter((el): el is HTMLElement => el !== null);
     if (elements.length === 0) return { moved: 0, blocked: 'no-selection' };
 
+    // webpage はフロー内の要素を倒さない。矢印キーは並べ替えを1段動かす
+    if (editorMode === 'webpage') {
+      const step: -1 | 1 = dx < 0 || dy < 0 ? -1 : 1;
+      const reordered = reorderSelectionByStep(elements, step, iframeDoc);
+      if (reordered) {
+        if (reordered.moved > 0) {
+          notifyIframeChange();
+          refreshSelectionOverlay(iframeDoc);
+          const anchor = selectedElement
+            ? getIframeElement(iframeDoc, selectedElement.id) ?? elements[0]
+            : elements[0];
+          const info = extractElementInfo(anchor, iframeDoc);
+          if (info) setSelectedElement(info);
+        }
+        return reordered;
+      }
+    }
+
     // [モード廃止] フロー内の要素は「動かせない」で終わらせず、その要素だけを
     // 絶対配置へ変換してから動かす(ドラッグと同じ遅延変換)。
     // 以前はここで弾いていたため、矢印キーが無反応になっていた。
@@ -1350,7 +1409,7 @@ export function useElementActions() {
     if (info) setSelectedElement(info);
 
     return { moved: elements.length, blocked: null };
-  }, [selectedElement, selectedElementIds, getIframeDoc, notifyIframeChange, setSelectedElement]);
+  }, [selectedElement, selectedElementIds, getIframeDoc, notifyIframeChange, setSelectedElement, editorMode]);
 
   /**
    * 選択中の全要素の寸法を変える(キーボードリサイズ用)。

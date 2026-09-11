@@ -8,6 +8,8 @@
  * Firestore Timestamps are converted on read/write operations.
  */
 
+import type { EditorPartDef } from '../io';
+
 // =============================================================================
 // 1. Overridable Properties
 // =============================================================================
@@ -929,10 +931,30 @@ export interface EditorComponentsActions {
 }
 
 /**
+ * 部品(HTML の template)モードの操作。io.loadParts が渡されているときだけ意味を持つ。
+ * 詳細は src/editor/parts.ts。
+ */
+export interface EditorPartsActions {
+  /** io.loadParts が渡されているか。true のとき部品パネルは HTML 部品を使い、挿入は実体化になる */
+  partsMode: boolean;
+  getPartDef: (id: string) => EditorPartDef | null;
+  /** 定義を実体化した要素(まだページには入っていない)。定義が無ければ null */
+  materializePartInstance: (id: string, doc: Document) => HTMLElement | null;
+  /** 選択要素を新しい部品として保存し、その要素をその場でインスタンスにする */
+  savePartFromElement: (
+    el: HTMLElement,
+    meta: { name: string; category?: string; description?: string }
+  ) => Promise<EditorPartDef>;
+  /** インスタンスの今の姿で定義を更新する(版 +1)。インスタンスでなければ null */
+  updatePartFromElement: (el: HTMLElement) => Promise<EditorPartDef | null>;
+}
+
+/**
  * Combined context value type.
  */
 export type EditorComponentsContextValue = EditorComponentsState &
-  EditorComponentsActions;
+  EditorComponentsActions &
+  EditorPartsActions;
 
 // =============================================================================
 // Alias for backward compatibility

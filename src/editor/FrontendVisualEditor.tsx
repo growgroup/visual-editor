@@ -34,7 +34,8 @@ import { registerAutoSaveFlush } from './autosave';
 import { getCleanHtml } from './utils/html-utils';
 import { EditorAppearanceContext, useEditorTheme } from './contexts/EditorAppearanceContext';
 import { CanvasAppearance } from './components/shell/CanvasAppearance';
-import { can } from '../io';
+import { can, io } from '../io';
+import { insertIntoFlow } from './parts';
 import type { Slide } from '../types/slide';
 import {
   useEditorMessages,
@@ -287,6 +288,8 @@ function FrontendVisualEditorInner({
     componentLibrary,
     createInstance,
     getMasterComponent,
+    partsMode,
+    materializePartInstance,
   } = useEditorComponents();
 
   const { getIdToken } = useAuth();
@@ -535,6 +538,10 @@ function FrontendVisualEditorInner({
     selectedElementInstance,
     isComponentInstance,
     hasOverrides,
+    isPartInstance,
+    partLabel,
+    handleDetachPart,
+    handleUpdatePart,
     handleCreateComponent,
     handleConfirmCreateComponent,
     handleEditMasterComponent,
@@ -1092,7 +1099,35 @@ function FrontendVisualEditorInner({
           try {
             const { componentId } = JSON.parse(componentData);
             console.log('[FrontendVisualEditor] Parsed componentId:', componentId);
-            if (componentId) {
+            if (componentId && partsMode) {
+              // 部品モード: 実体化してフローへ(iframe 内の座標がそのまま来る)
+              const iframeDoc = iframeRef.current?.contentDocument;
+              const element = iframeDoc ? materializePartInstance(componentId, iframeDoc) : null;
+              if (iframeDoc && element) {
+                if (editorMode === 'webpage') {
+                  insertIntoFlow(iframeDoc, element, x || 0, y || 0);
+                } else {
+                  element.style.position = 'absolute';
+                  element.style.left = `${x || 100}px`;
+                  element.style.top = `${y || 100}px`;
+                  findInsertionParent(iframeDoc).appendChild(element);
+                }
+                if (!element.getAttribute('data-element-id')) {
+                  element.setAttribute('data-editable', 'true');
+                  element.setAttribute('data-element-id', `el-${Date.now()}-part`);
+                }
+                notifyIframeChange(true);
+                const { extractElementInfo } = await import('./utils/style-utils');
+                const elementInfo = extractElementInfo(element, iframeDoc);
+                if (elementInfo) {
+                  setSelectedElement(elementInfo);
+                  setSelectedElementIds([element.getAttribute('data-element-id')!]);
+                  element.classList.add('selected');
+                }
+              } else {
+                console.error('[FrontendVisualEditor] 部品が見つかりません:', componentId);
+              }
+            } else if (componentId) {
               // インスタンスを作成
               const instance = createInstance(componentId, undefined, contentId);
               console.log('[FrontendVisualEditor] Created instance:', instance);
@@ -1145,7 +1180,7 @@ function FrontendVisualEditorInner({
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [uploadFromFile, contentId, createInstance, getMasterComponent, iframeRef, notifyIframeChange, setSelectedElement, setSelectedElementIds]);
+  }, [uploadFromFile, contentId, createInstance, getMasterComponent, iframeRef, notifyIframeChange, setSelectedElement, setSelectedElementIds, partsMode, materializePartInstance, editorMode]);
 
   // ドラッグ&ドロップハンドラ
   const handleDragEnter = useCallback((e: React.DragEvent) => {
@@ -1220,6 +1255,38 @@ function FrontendVisualEditorInner({
               const dropScale = zoom || 1;
               x = (e.clientX - iframeRect.left) / dropScale;
               y = (e.clientY - iframeRect.top) / dropScale;
+            }
+
+            // 部品モード: 定義を実体化してそのまま置く(JSON のインスタンスは作らない)。
+            // webpage はフローに差し込み、slide は従来どおり絶対配置
+            if (partsMode) {
+              const element = materializePartInstance(componentId, iframeDoc);
+              if (!element) {
+                console.error('[FrontendVisualEditor] 部品が見つかりません:', componentId);
+                return;
+              }
+              if (editorMode === 'webpage') {
+                insertIntoFlow(iframeDoc, element, e.clientX - iframeRect.left, e.clientY - iframeRect.top);
+              } else {
+                element.style.position = 'absolute';
+                element.style.left = `${x}px`;
+                element.style.top = `${y}px`;
+                (slideRoot ?? iframeDoc.body).appendChild(element);
+              }
+              // MutationObserver が id を付けるのは非同期なので、選択できるよう先に付ける
+              if (!element.getAttribute('data-element-id')) {
+                element.setAttribute('data-editable', 'true');
+                element.setAttribute('data-element-id', `el-${Date.now()}-part`);
+              }
+              notifyIframeChange(true);
+              const { extractElementInfo } = await import('./utils/style-utils');
+              const elementInfo = extractElementInfo(element, iframeDoc);
+              if (elementInfo) {
+                setSelectedElement(elementInfo);
+                setSelectedElementIds([element.getAttribute('data-element-id')!]);
+                element.classList.add('selected');
+              }
+              return;
             }
 
             // インスタンスを作成（バリアントIDが指定されていれば使用）
@@ -1299,7 +1366,7 @@ function FrontendVisualEditorInner({
         }
       }
     }
-  }, [containerRef, uploadFromFiles, createInstance, getMasterComponent, setSelectedElement, contentId, pushHistory, iframeRef, zoom]);
+  }, [containerRef, uploadFromFiles, createInstance, getMasterComponent, setSelectedElement, contentId, pushHistory, iframeRef, zoom, partsMode, materializePartInstance, editorMode, notifyIframeChange, setSelectedElementIds]);
 
   // クリップボードからのペースト処理（画像、HTML、Excel、Word、SVG）
   // 同じpasteイベントを二度処理しないための記録。
@@ -2153,6 +2220,11 @@ function FrontendVisualEditorInner({
         hasStyleInClipboard={hasStyleInClipboard()}
         isComponentInstance={isComponentInstance}
         hasOverrides={hasOverrides}
+        partsMode={partsMode}
+        isPartInstance={isPartInstance}
+        partLabel={partLabel}
+        onDetachPart={handleDetachPart}
+        onUpdatePart={can('savePart') ? handleUpdatePart : undefined}
         onCopy={selectedElement ? copyElements : undefined}
         onCut={selectedElement ? cutElements : undefined}
         onPaste={pasteElements}
@@ -2320,7 +2392,7 @@ function FrontendVisualEditorInner({
       <Dialog open={createComponentDialogOpen} onOpenChange={setCreateComponentDialogOpen}>
         <DialogContent className="bg-[#2c2c2c] border-[#444444] text-white">
           <DialogHeader>
-            <DialogTitle>コンポーネントを作成</DialogTitle>
+            <DialogTitle>{partsMode ? '部品として保存' : 'コンポーネントを作成'}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
@@ -2492,9 +2564,11 @@ export function FrontendVisualEditor({
   const [initialVariables, setInitialVariables] = useState<CSSVariableDefinition[]>([]);
   const [isVariablesLoaded, setIsVariablesLoaded] = useState(false);
 
-  // CSS変数をロード（webpageモード・slideモード両対応）
+  // CSS変数をロード（webpageモード・slideモード両対応）。
+  // 利用側が io.loadVariables を渡していればそれ(ファイル等)から、無ければブラウザ内(localStorage)から
   useEffect(() => {
-    if (!effectiveParentId) {
+    const fromIo = io().loadVariables;
+    if (!effectiveParentId && !fromIo) {
       setIsVariablesLoaded(true);
       return;
     }
@@ -2503,9 +2577,11 @@ export function FrontendVisualEditor({
       try {
         // editorModeに応じてスコープを決定
         const scope: CSSVariableScope = editorMode === 'webpage' ? 'website' : 'presentation';
-        const variables = await getCSSVariablesList(effectiveParentId, scope);
+        const variables = fromIo
+          ? await fromIo()
+          : await getCSSVariablesList(effectiveParentId!, scope);
         setInitialVariables(variables);
-        console.log(`[FrontendVisualEditor] Loaded CSS variables (${scope}):`, variables.length);
+        console.log(`[FrontendVisualEditor] Loaded CSS variables (${fromIo ? 'io' : scope}):`, variables.length);
       } catch (error) {
         console.error('[FrontendVisualEditor] Failed to load CSS variables:', error);
       } finally {
@@ -2518,6 +2594,12 @@ export function FrontendVisualEditor({
 
   // CSS変数を保存するコールバック
   const handleSaveVariables = useCallback(async (variables: CSSVariableDefinition[]) => {
+    const toIo = io().saveVariables;
+    if (toIo) {
+      await toIo(variables);
+      console.log('[FrontendVisualEditor] Saved CSS variables (io):', variables.length);
+      return;
+    }
     if (!effectiveParentId) {
       throw new Error('Parent ID is required to save CSS variables');
     }
@@ -2529,6 +2611,8 @@ export function FrontendVisualEditor({
 
   // CSS変数をロードするコールバック
   const handleLoadVariables = useCallback(async (resourceId: string) => {
+    const fromIo = io().loadVariables;
+    if (fromIo) return fromIo();
     // editorModeに応じてスコープを決定
     const scope: CSSVariableScope = editorMode === 'webpage' ? 'website' : 'presentation';
     return getCSSVariablesList(resourceId, scope);

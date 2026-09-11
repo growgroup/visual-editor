@@ -4,6 +4,7 @@ import { htmlElementToComponentElement } from '../contexts/EditorComponentsConte
 import { renderComponentElement } from '../utils/component-renderer';
 import { propagateMasterChanges } from '../utils/component-sync';
 import { buildDomTree } from '../utils/dom-utils';
+import { applyLockInside, detachPart, partInfoOf, unlockPartDescendants } from '../parts';
 import { toast } from 'sonner';
 import type { MasterComponent, ComponentInstance } from '../../types/editor-components';
 
@@ -37,6 +38,10 @@ interface UseComponentEditModeReturn {
   selectedElementInstance: ComponentInstance | null;
   isComponentInstance: boolean;
   hasOverrides: boolean;
+  /** 選択要素が部品(data-part)のインスタンスか */
+  isPartInstance: boolean;
+  /** 「名前 vN」。インスタンスでなければ空 */
+  partLabel: string;
   // Handlers
   handleCreateComponent: () => void;
   handleConfirmCreateComponent: () => Promise<void>;
@@ -49,6 +54,10 @@ interface UseComponentEditModeReturn {
   handleDetachInstance: () => void;
   handleResetOverrides: () => Promise<void>;
   handlePushOverridesToMain: () => void;
+  /** 部品から切り離す(出自の記録を外して普通の HTML にする) */
+  handleDetachPart: () => void;
+  /** インスタンスの今の姿で定義を更新する(版 +1) */
+  handleUpdatePart: () => Promise<void>;
 }
 
 /**
@@ -86,6 +95,10 @@ export function useComponentEditMode({
     deleteMasterComponent,
     pendingNavigationTarget,
     clearNavigationRequest,
+    partsMode,
+    getPartDef,
+    savePartFromElement,
+    updatePartFromElement,
   } = useEditorComponents();
 
   // コンポーネントパネル状態
@@ -128,6 +141,20 @@ export function useComponentEditMode({
     return selectedElementInstance.overrides.length > 0;
   }, [selectedElementInstance]);
 
+  // 部品(data-part)のインスタンスか。状態は持たず、その時点の DOM の属性で決める
+  const selectedPart = useMemo(() => {
+    if (!selectedElement?.id) return null;
+    const doc = getIframeDoc();
+    const el = doc?.querySelector(`[data-element-id="${selectedElement.id}"]`);
+    return partInfoOf(el);
+  }, [selectedElement, getIframeDoc]);
+  const isPartInstance = !!selectedPart;
+  const partLabel = useMemo(() => {
+    if (!selectedPart) return '';
+    const def = getPartDef(selectedPart.id);
+    return `${def?.name || selectedPart.id} v${selectedPart.version}`;
+  }, [selectedPart, getPartDef]);
+
   // Create component from selected element
   const handleCreateComponent = useCallback(() => {
     if (!selectedElement?.id || !iframeRef.current) return;
@@ -148,6 +175,29 @@ export function useComponentEditMode({
 
     const element = iframeDoc.querySelector(`[data-element-id="${selectedElement.id}"]`) as HTMLElement;
     if (!element) return;
+
+    // 部品モード: 選択要素を HTML の定義として利用側へ保存し、その場でインスタンスにする
+    if (partsMode) {
+      try {
+        const def = await savePartFromElement(element, {
+          name: newComponentName.trim(),
+          category: newComponentCategory || undefined,
+        });
+        applyLockInside(element);
+        notifyIframeChange(true);
+        setCreateComponentDialogOpen(false);
+        setNewComponentName('');
+        setNewComponentCategory('');
+        closeContextMenu();
+        toast.success(`部品「${def.name ?? def.id}」として保存しました`, {
+          description: `parts/${def.id}.html。スロット(data-slot)の外は編集できなくなります(切り離すと戻ります)`,
+        });
+      } catch (error) {
+        console.error('Failed to save part:', error);
+        toast.error('部品の保存に失敗しました');
+      }
+      return;
+    }
 
     try {
       // Debug: Log the original element
@@ -243,7 +293,7 @@ export function useComponentEditMode({
       console.error('Failed to create component:', error);
       toast.error('コンポーネントの作成に失敗しました');
     }
-  }, [selectedElement?.id, iframeRef, newComponentName, newComponentCategory, createMasterComponent, createInstance, contentId, notifyIframeChange, closeContextMenu, setSelectedElement, setSelectedElementIds]);
+  }, [selectedElement?.id, iframeRef, newComponentName, newComponentCategory, createMasterComponent, createInstance, contentId, notifyIframeChange, closeContextMenu, setSelectedElement, setSelectedElementIds, partsMode, savePartFromElement]);
 
   // Open master component editor
   const handleEditMasterComponent = useCallback((masterId: string) => {
@@ -617,6 +667,46 @@ export function useComponentEditMode({
     toast.info('この機能は現在開発中です');
   }, [selectedElementInstance, closeContextMenu]);
 
+  // 部品から切り離す: 出自の記録(data-part)だけ外し、ロックされていた子孫を編集できるようにする
+  const handleDetachPart = useCallback(() => {
+    if (!selectedElement?.id) return;
+    const doc = getIframeDoc();
+    const el = doc?.querySelector(`[data-element-id="${selectedElement.id}"]`) as HTMLElement | null;
+    if (!doc || !el || !partInfoOf(el)) return;
+    detachPart(el);
+    unlockPartDescendants(el);
+    notifyIframeChange(true);
+    // 部品バッジを消すため、選択情報を作り直す
+    void import('../utils/style-utils').then(({ extractElementInfo }) => {
+      const info = extractElementInfo(el, doc);
+      if (info) setSelectedElement(info);
+    });
+    closeContextMenu();
+    toast.success('部品から切り離しました', {
+      description: 'この要素は普通の HTML になり、parts:sync の対象から外れます',
+    });
+  }, [selectedElement?.id, getIframeDoc, notifyIframeChange, setSelectedElement, closeContextMenu]);
+
+  // インスタンスの今の姿で定義を更新する(版 +1)。他ページへは利用側の parts:sync で反映する
+  const handleUpdatePart = useCallback(async () => {
+    if (!selectedElement?.id) return;
+    const doc = getIframeDoc();
+    const el = doc?.querySelector(`[data-element-id="${selectedElement.id}"]`) as HTMLElement | null;
+    if (!el) return;
+    try {
+      const def = await updatePartFromElement(el);
+      if (!def) return;
+      notifyIframeChange(true);
+      closeContextMenu();
+      toast.success(`部品「${def.name ?? def.id}」を v${def.version} に更新しました`, {
+        description: '他のページのインスタンスへは parts:sync で反映します',
+      });
+    } catch (error) {
+      console.error('Failed to update part:', error);
+      toast.error('部品の更新に失敗しました');
+    }
+  }, [selectedElement?.id, getIframeDoc, updatePartFromElement, notifyIframeChange, closeContextMenu]);
+
   return {
     // Panel state
     isComponentPanelOpen,
@@ -642,6 +732,8 @@ export function useComponentEditMode({
     selectedElementInstance,
     isComponentInstance,
     hasOverrides,
+    isPartInstance,
+    partLabel,
     // Handlers
     handleCreateComponent,
     handleConfirmCreateComponent,
@@ -654,5 +746,7 @@ export function useComponentEditMode({
     handleDetachInstance,
     handleResetOverrides,
     handlePushOverridesToMain,
+    handleDetachPart,
+    handleUpdatePart,
   };
 }

@@ -4,12 +4,37 @@ import { Toaster, toast } from 'sonner';
 import { VisualEditor, setEditorIO, type EditorDeck, type EditorIO } from '../src/index';
 import { applyDeck } from '../src/components/viewer/useDeck';
 import { webpage, slides } from './samples';
+import { partsLibrary, partsPage, createPartsStore } from './parts-samples';
 import '../dist/editor.css';
 import './playground.css';
 
-const mode = new URLSearchParams(location.search).get('mode') === 'slide' ? 'slide' : 'webpage';
-const minimal = new URLSearchParams(location.search).has('minimal');
-const sampleHtml = mode === 'webpage' ? [webpage] : slides;
+const params = new URLSearchParams(location.search);
+// ?mode=parts … webpage モード + 部品(loadParts/savePart)と CSS 変数(loadVariables/saveVariables)のメモリ実装
+const parts = params.get('mode') === 'parts';
+const mode = params.get('mode') === 'slide' ? 'slide' : 'webpage';
+const minimal = params.has('minimal');
+const sampleHtml = parts ? [partsPage] : mode === 'webpage' ? [webpage] : slides;
+const partsStore = createPartsStore();
+const partsIo: EditorIO = {
+  loadParts: async () => ({
+    categories: partsLibrary.categories,
+    parts: Array.from(partsStore.parts.values()).map((p) => structuredClone(p)),
+  }),
+  savePart: async (part) => {
+    partsStore.parts.set(part.id, structuredClone(part));
+    partsStore.log.push({ op: 'savePart', id: part.id, at: new Date().toISOString() });
+    return part;
+  },
+  deletePart: async (id) => {
+    partsStore.parts.delete(id);
+    partsStore.log.push({ op: 'deletePart', id, at: new Date().toISOString() });
+  },
+  loadVariables: async () => structuredClone(partsStore.variables),
+  saveVariables: async (variables) => {
+    partsStore.variables = structuredClone(variables);
+    partsStore.log.push({ op: 'saveVariables', at: new Date().toISOString() });
+  },
+};
 let deck: EditorDeck = { version: 1, title: 'リデザインの動作確認', slides: sampleHtml.map((_, i) => ({ id: String(i + 1), title: mode === 'webpage' ? 'トップページ' : ['伝わる体験を、いっしょにつくる。', '私たちの進め方'][i], template: 'sample', edited: false, comments: [] })) };
 const documents = new Map(deck.slides.map((entry, i) => [entry.id, sampleHtml[i]]));
 const saveLog: { html: string; auto: boolean; id: string }[] = [];
@@ -44,12 +69,13 @@ const adapter: EditorIO = {
       insert: async (_template: string, at: number) => { const item = { id: uid(), title: '新しいスライド', template: 'sample', edited: false }; documents.set(item.id, slides[1]); deck.slides.splice(Math.max(0, at), 0, item); return commit(); },
     },
   } : {}),
+  ...(parts ? partsIo : {}),
 };
 setEditorIO(minimal ? {} : adapter);
 applyDeck(minimal ? { version: 0, title: '', slides: [] } : clone());
 
 // ローカル検証用。公開APIや配布物には含まれない。
-Object.assign(window, { editorPlayground: { saveLog, failure, documents, deck: () => clone() } });
+Object.assign(window, { editorPlayground: { saveLog, failure, documents, deck: () => clone(), parts: partsStore } });
 
 function Playground() {
   const [page, setPage] = useState(1);
@@ -69,7 +95,8 @@ function Playground() {
   return <div className="pg-layout">
     <aside className="pg-rail">
       <strong>Visual Editor</strong><span className="pg-caption">リデザインの動作確認</span>
-      <nav><a href="?mode=webpage" aria-current={mode === 'webpage' ? 'page' : undefined}>構成ラフ</a><a href="?mode=slide" aria-current={mode === 'slide' ? 'page' : undefined}>スライド</a></nav>
+      <nav><a href="?mode=webpage" aria-current={mode === 'webpage' && !parts ? 'page' : undefined}>構成ラフ</a><a href="?mode=slide" aria-current={mode === 'slide' ? 'page' : undefined}>スライド</a><a href="?mode=parts" aria-current={parts ? 'page' : undefined}>部品</a></nav>
+      {parts && <div className="pg-card"><strong>部品モード</strong><p>左パネルの部品をドロップ → 実体化(data-part)。CTA 帯はスロット(見出し・説明)だけ編集できます。右クリックで「部品として保存」「切り離す」。</p><p>保存先はメモリ(window.editorPlayground.parts)。</p></div>}
       <div className="pg-card"><strong>確認すること</strong><p>文字をダブルクリックして編集。要素を選んでコメントを追加できます。</p><p>上部の「…」からライト／ダークを切り替えられます。</p></div>
       <div className="pg-card"><strong>メモリ上に保存</strong><p>保存 {saves} 回</p><p>再読み込みすると編集とコメントは初期状態に戻ります。</p></div>
       <label><input type="checkbox" onChange={(e) => { failure.save = e.target.checked; }} />保存を失敗させる</label>

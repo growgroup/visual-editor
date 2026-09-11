@@ -21,6 +21,8 @@ import {
 } from "react";
 import { useEditorComponents } from "../EditorContext";
 import { InstanceOverrideSection } from "./property-panel/InstanceOverrideSection";
+import { Component as PartIcon } from "lucide-react";
+import { detachPart, partInfoOf, unlockPartDescendants } from "../parts";
 import { Button } from "../../components/ui/button";
 import { Input } from "../../components/ui/input";
 import { Label } from "../../components/ui/label";
@@ -813,6 +815,7 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
     getIframeDoc,
     notifyIframeChange,
     iframeReady,
+    setSelectedElement,
   } = useEditorContext();
   const {
     updateElementStyle,
@@ -833,6 +836,8 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
     resetAllOverrides,
     detachInstance,
     navigateToMasterComponent,
+    getPartDef,
+    updatePartFromElement,
   } = useEditorComponents();
 
   // Check if selected element is a component instance
@@ -840,6 +845,39 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
     if (!selectedElement?.id) return null;
     return getInstanceByDomId(selectedElement.id);
   }, [selectedElement?.id, getInstanceByDomId]);
+
+  // 部品(data-part)のインスタンスか(DOM の属性で判定)
+  const selectedPart = useMemo(() => {
+    if (!selectedElement?.id) return null;
+    const doc = getIframeDoc();
+    return partInfoOf(doc?.querySelector(`[data-element-id="${selectedElement.id}"]`));
+  }, [selectedElement, getIframeDoc]);
+  const selectedPartLabel = useMemo(() => {
+    if (!selectedPart) return "";
+    const def = getPartDef(selectedPart.id);
+    return `${def?.name || selectedPart.id} v${selectedPart.version}`;
+  }, [selectedPart, getPartDef]);
+  const handleUpdatePartFromPanel = useCallback(async () => {
+    if (!selectedElement?.id) return;
+    const doc = getIframeDoc();
+    const el = doc?.querySelector(`[data-element-id="${selectedElement.id}"]`) as HTMLElement | null;
+    if (!el) return;
+    const def = await updatePartFromElement(el);
+    if (def) notifyIframeChange(true);
+  }, [selectedElement?.id, getIframeDoc, updatePartFromElement, notifyIframeChange]);
+  const handleDetachPartFromPanel = useCallback(() => {
+    if (!selectedElement?.id) return;
+    const doc = getIframeDoc();
+    const el = doc?.querySelector(`[data-element-id="${selectedElement.id}"]`) as HTMLElement | null;
+    if (!doc || !el || !partInfoOf(el)) return;
+    detachPart(el);
+    unlockPartDescendants(el);
+    notifyIframeChange(true);
+    void import("../utils/style-utils").then(({ extractElementInfo }) => {
+      const info = extractElementInfo(el, doc);
+      if (info) setSelectedElement(info);
+    });
+  }, [selectedElement?.id, getIframeDoc, notifyIframeChange, setSelectedElement]);
 
   const selectedMaster = useMemo(() => {
     if (!selectedInstance) return null;
@@ -1245,6 +1283,37 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
               onTranslate={handleGroupTranslate}
               onScale={handleGroupScale}
             />
+          )}
+
+          {/* 部品(data-part)のインスタンス */}
+          {selectedPart && (
+            <div className="space-y-2 rounded border border-[#444444] bg-[#2a2a2a] p-2 text-xs text-gray-300">
+              <div className="flex items-center gap-2">
+                <PartIcon className="h-3.5 w-3.5 text-purple-400" />
+                <span className="truncate font-medium">部品: {selectedPartLabel}</span>
+              </div>
+              <p className="text-[10px] leading-snug text-gray-500">
+                スロット(data-slot)の中だけ編集できます。定義を変えたあとの他ページへの反映は parts:sync。
+              </p>
+              <div className="flex gap-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={() => void handleUpdatePartFromPanel()}
+                >
+                  この姿で更新
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 px-2 text-[10px]"
+                  onClick={handleDetachPartFromPanel}
+                >
+                  切り離す
+                </Button>
+              </div>
+            </div>
           )}
 
           {/* コンポーネントインスタンスセクション */}

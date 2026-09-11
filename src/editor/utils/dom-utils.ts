@@ -919,9 +919,10 @@ function buildDomTreeInternal(iframeDoc: Document, rootElement?: Element): DOMTr
         const className = classNameStr.split(' ')
           .filter(c => c && !c.startsWith('selected') && !c.startsWith('dragging') && !c.startsWith('editing'))[0] || '';
 
-        // コンポーネントインスタンス情報を取得
-        const componentInstanceId = htmlChild.getAttribute('data-component-instance') || undefined;
-        const masterComponentId = htmlChild.getAttribute('data-component-master') || undefined;
+        // コンポーネントインスタンス情報を取得(HTML 部品の data-part も同じ印として扱う)
+        const partId = htmlChild.getAttribute('data-part') || undefined;
+        const componentInstanceId = htmlChild.getAttribute('data-component-instance') || partId;
+        const masterComponentId = htmlChild.getAttribute('data-component-master') || partId;
 
         result.push({
           id: elementId,

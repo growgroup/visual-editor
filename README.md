@@ -10,8 +10,8 @@ HTML をブラウザ上で直接編集するビジュアルエディタ（React 
 - Figma からの貼り付け（クリップボード経由）
 - 画像の差し替え・アップロード
 - コメント（返信・解決つき）。要素を選んで投稿すると、その要素に紐づいて吹き出しが出る
-- CSS 変数（デザイントークン）の一覧と編集
-- 再利用できるコンポーネントの登録と差し込み
+- CSS 変数（デザイントークン）の一覧と編集。保存先は io で差し替えられる（例: Tailwind v4 の `@theme`）
+- 再利用できる部品の登録と差し込み。部品は HTML の `<template data-part-def>`（利用側のファイル）を正本にできる
 
 ## インストール
 
@@ -96,10 +96,67 @@ const VisualEditor = dynamic(
 | `exportDeck` | 書き出し UI を出さない |
 | `renderContent` | 一覧のサムネイルを描かない |
 | `notifySave` | 保存結果を通知しない |
+| `loadParts` / `savePart` / `deletePart` | 部品パネルはブラウザ内(localStorage)の JSON コンポーネントを使う（0.1 系と同じ） |
+| `loadVariables` / `saveVariables` | CSS 変数はブラウザ内(localStorage)に持つ（0.1 系と同じ） |
 
 ```ts
 import type { EditorIO } from "@growgroup/visual-editor";
 ```
+
+### 部品 — HTML の `<template>` を正本にする（0.2）
+
+`loadParts` を渡すと、部品パネルは利用側の **HTML ファイル**を読みます。1 部品 1 ファイルで、
+中身はルート要素 1 つ。編集してよい範囲に `data-slot` を付けます。
+
+```html
+<!-- parts/ContactBand.html -->
+<template data-part-def="ContactBand" data-part-v="1"
+          data-part-name="お問合せ帯" data-part-category="block">
+  <section class="…">
+    <h2 data-slot="heading">お問い合わせ</h2>
+    <div data-slot="body"><p>お気軽にご相談ください。</p></div>
+    <a class="…">お問合せフォームへ</a>
+  </section>
+</template>
+```
+
+ページに挿すときは**実体化**します。定義の複製がページに残り、ルートに `data-part` `data-part-v` が付きます。
+ページはそれ単体で描画できる完全な HTML で、読むときに部品を解決することはありません。
+
+```html
+<section data-part="ContactBand" data-part-v="1" class="…">
+  <h2 data-slot="heading">採用に関するお問い合わせ</h2>
+  …
+</section>
+```
+
+- インスタンスの中で編集できるのは `data-slot` の中だけ（スロットの外は選択できない）。ルートは選択でき、動かす・消す・並べ替えられる
+- 右クリック「部品として保存」… 選択要素を定義にして `savePart` へ。スロットは推定して付ける（h1–h6→`heading`、p→`body`、a→`link`、img→`image` …）
+- 右クリック「この姿で部品を更新」… インスタンスの今の姿で定義を版 +1 にして `savePart` へ。**他ページのインスタンスは書き換えない**（利用側のスクリプトが `data-part-v` を見て同期する。スロットの中身は保つ、それ以外は差し替える、が規則）
+- 右クリック「部品から切り離す」… `data-part` を外して普通の HTML にする
+
+```ts
+import { setEditorIO, parsePartTemplate, serializePartTemplate } from "@growgroup/visual-editor";
+
+setEditorIO({
+  loadParts: async () => {
+    const files = await fetch("/api/parts").then((r) => r.json()); // [{ name, source }]
+    return {
+      categories: [{ id: "block", name: "ブロック" }],
+      parts: files.map((f) => parsePartTemplate(f.source)).filter(Boolean),
+    };
+  },
+  savePart: async (part) => {
+    await fetch(`/api/parts/${part.id}`, { method: "PUT", body: serializePartTemplate(part) });
+  },
+  loadVariables: async () => fetch("/api/variables").then((r) => r.json()),
+  saveVariables: async (variables) => {
+    await fetch("/api/variables", { method: "PUT", body: JSON.stringify(variables) });
+  },
+});
+```
+
+`loadParts` を渡さない利用側では何も変わりません。`data-part` を持たない HTML にはスロットのロックも効きません。
 
 ### editorMode で挙動が変わる
 

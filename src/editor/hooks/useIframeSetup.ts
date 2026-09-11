@@ -10,6 +10,7 @@ import { useCallback, useRef, useEffect } from 'react';
 import { useEditorContext } from '../EditorContext';
 import { buildDomTree, isInlineElement } from '../utils/dom-utils';
 import { EDITOR_IFRAME_STYLES } from '../constants';
+import { isLockedInsidePart } from '../parts';
 
 interface UseIframeSetupReturn {
   /**
@@ -110,6 +111,15 @@ export function useIframeSetup(): UseIframeSetupReturn {
       if (element.classList.contains('rotation-handle')) return;
       // selection-boxの子孫要素をすべてスキップ（念のため）
       if (element.closest('.selection-box')) return;
+
+      // 部品のインスタンス(data-part)の中で、スロット(data-slot)の外にある要素は編集対象にしない。
+      // ルート自身とスロットの中は通常どおり(src/editor/parts.ts)。
+      // 保存 HTML には data-editable が残らないので、古い保存物には効かない = 既存の挙動は変わらない
+      if (isLockedInsidePart(element)) {
+        element.removeAttribute('data-editable');
+        element.removeAttribute('data-element-id');
+        return;
+      }
 
       // 既にIDがある場合はスキップ
       if (!element.getAttribute('data-element-id')) {

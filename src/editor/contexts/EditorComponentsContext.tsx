@@ -43,6 +43,76 @@ import {
   deleteComponentInstance,
   getPageComponentInstances,
 } from '../../lib/firebase/editor-components';
+import { io } from '../../io';
+import type { EditorPartDef, EditorPartsLibrary } from '../../io';
+import {
+  materializePart,
+  partDefFromElement,
+  partInfoOf,
+  stampAsInstance,
+  stripEditorAttrs,
+  toPartId,
+} from '../parts';
+
+// ============================================================
+// Parts (HTML template) helpers
+// ============================================================
+
+/** 分類の無い部品が入る既定のカテゴリ */
+const DEFAULT_PART_CATEGORY = 'parts';
+
+/**
+ * 部品の定義(HTML)を、既存のパネル・ドラッグ経路が読める MasterComponent に写す。
+ * id は部品 id をそのまま使う(ドロップ時の componentId がそのまま部品 id になる)。
+ */
+function masterFromPartDef(part: EditorPartDef, parser: DOMParser, websiteId: string): MasterComponent | null {
+  const doc = parser.parseFromString(`<!doctype html><body>${part.html}</body>`, 'text/html');
+  const root = doc.body.firstElementChild as HTMLElement | null;
+  if (!root) return null;
+  const rootElement = htmlElementToComponentElement(root);
+  const now = new Date().toISOString();
+  const variant: ComponentVariant = { id: 'default', name: 'Default', rootElement, isDefault: true };
+  return {
+    id: part.id,
+    name: part.name || part.id,
+    description: part.description,
+    categoryId: part.category || DEFAULT_PART_CATEGORY,
+    tags: [],
+    variants: [variant],
+    defaultVariantId: 'default',
+    exposedProperties: [],
+    createdAt: now,
+    updatedAt: now,
+    websiteId,
+    version: part.version,
+  };
+}
+
+/** 部品の分類をパネルのカテゴリにする。宣言された順 → 宣言に無い分類の順 */
+function categoriesFromParts(
+  lib: EditorPartsLibrary,
+  masters: Map<string, MasterComponent>,
+): ComponentLibraryCategory[] {
+  const ids = new Map<string, string[]>();
+  for (const m of masters.values()) {
+    if (!ids.has(m.categoryId)) ids.set(m.categoryId, []);
+    ids.get(m.categoryId)!.push(m.id);
+  }
+  const cats: ComponentLibraryCategory[] = (lib.categories ?? []).map((c, i) => ({
+    id: c.id,
+    name: c.name,
+    description: c.description,
+    componentIds: ids.get(c.id) ?? [],
+    order: i + 1,
+  }));
+  const known = new Set(cats.map((c) => c.id));
+  let order = cats.length;
+  for (const [id, componentIds] of ids) {
+    if (known.has(id)) continue;
+    cats.push({ id, name: id === DEFAULT_PART_CATEGORY ? '部品' : id, componentIds, order: ++order });
+  }
+  return cats;
+}
 
 // ============================================================
 // Context Creation
@@ -424,6 +494,10 @@ export function EditorComponentsProvider({
   const [error, setError] = useState<string | null>(null);
   const [pendingNavigationTarget, setPendingNavigationTarget] = useState<string | null>(null);
 
+  // 部品(HTML template)モード。io.loadParts が渡されていれば、JSON コンポーネントではなく部品を使う
+  const partsMode = typeof io().loadParts === 'function';
+  const [partDefs, setPartDefs] = useState<Map<string, EditorPartDef>>(new Map());
+
   // ============================================================
   // Navigation
   // ============================================================
@@ -508,6 +582,30 @@ export function EditorComponentsProvider({
         `[EditorComponentsContext] Loading components for website: ${targetWebsiteId}`
       );
 
+      // 部品モード: 利用側の loadParts から HTML の定義を読む(localStorage は見ない)
+      const loadParts = io().loadParts;
+      if (loadParts) {
+        const lib = await loadParts();
+        const parser = new DOMParser();
+        const defs = new Map<string, EditorPartDef>();
+        const componentsMap = new Map<string, MasterComponent>();
+        for (const part of lib.parts) {
+          const master = masterFromPartDef(part, parser, targetWebsiteId);
+          if (!master) {
+            console.warn(`[EditorComponentsContext] 部品 ${part.id} の HTML にルート要素がありません`);
+            continue;
+          }
+          defs.set(part.id, part);
+          componentsMap.set(master.id, master);
+        }
+        setPartDefs(defs);
+        setMasterComponents(componentsMap);
+        setComponentLibrary(categoriesFromParts(lib, componentsMap));
+        setComponentInstances(new Map());
+        console.log(`[EditorComponentsContext] Loaded ${defs.size} parts`);
+        return;
+      }
+
       // Load master components from Firestore
       const components = await getAllMasterComponents(targetWebsiteId);
       console.log(`[EditorComponentsContext] Loaded ${components.length} components`);
@@ -550,22 +648,25 @@ export function EditorComponentsProvider({
   // Initialize on mount or when websiteId changes
   const loadedWebsiteIdRef = useRef<string | null>(null);
   useEffect(() => {
+    // 部品モードは websiteId が無くても読む(部品の置き場は利用側が知っている)
+    const key = websiteId || (partsMode ? '__parts__' : '');
     // Only load if websiteId exists and is different from the last loaded one
-    if (websiteId && websiteId !== loadedWebsiteIdRef.current) {
-      loadedWebsiteIdRef.current = websiteId;
-      loadComponents(websiteId);
-    } else if (!websiteId) {
+    if (key && key !== loadedWebsiteIdRef.current) {
+      loadedWebsiteIdRef.current = key;
+      loadComponents(key);
+    } else if (!key) {
       // Reset to default categories if no websiteId
       setComponentLibrary(defaultCategories);
       setMasterComponents(new Map());
       loadedWebsiteIdRef.current = null;
     }
-  }, [websiteId, loadComponents, defaultCategories]);
+  }, [websiteId, partsMode, loadComponents, defaultCategories]);
 
   // Load instances when pageId changes
   const loadedPageIdRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!websiteId || !pageId) {
+    // 部品モードではインスタンスを別に持たない(ページの HTML そのものがインスタンス)
+    if (partsMode || !websiteId || !pageId) {
       setComponentInstances(new Map());
       loadedPageIdRef.current = null;
       return;
@@ -597,7 +698,7 @@ export function EditorComponentsProvider({
     };
 
     loadInstances();
-  }, [websiteId, pageId]);
+  }, [websiteId, pageId, partsMode]);
 
   // ============================================================
   // Master Component Operations
@@ -650,7 +751,7 @@ export function EditorComponentsProvider({
       );
 
       // Save to Firestore asynchronously
-      if (websiteId) {
+      if (websiteId && !partsMode) {
         saveToFirestore(websiteId, masterComponent).catch((err) => {
           console.error('[EditorComponentsContext] Failed to save component to Firestore:', err);
           setError('Failed to save component');
@@ -662,7 +763,116 @@ export function EditorComponentsProvider({
       );
       return masterComponent;
     },
-    [websiteId]
+    [websiteId, partsMode]
+  );
+
+  // ============================================================
+  // Parts (HTML template) Operations
+  // ============================================================
+
+  const getPartDef = useCallback(
+    (id: string): EditorPartDef | null => partDefs.get(id) ?? null,
+    [partDefs]
+  );
+
+  const materializePartInstance = useCallback(
+    (id: string, doc: Document): HTMLElement | null => {
+      const def = partDefs.get(id);
+      return def ? materializePart(def, doc) : null;
+    },
+    [partDefs]
+  );
+
+  /** 定義を状態に入れる(新規・更新の両方)。パネルの分類も揃える */
+  const upsertPartDef = useCallback((def: EditorPartDef) => {
+    const master = masterFromPartDef(def, new DOMParser(), websiteId || '');
+    if (!master) return;
+    setPartDefs((prev) => {
+      const next = new Map(prev);
+      next.set(def.id, def);
+      return next;
+    });
+    setMasterComponents((prev) => {
+      const next = new Map(prev);
+      next.set(master.id, master);
+      return next;
+    });
+    setComponentLibrary((prev) => {
+      const categoryId = master.categoryId;
+      const cleared = prev.map((cat) => ({
+        ...cat,
+        componentIds: cat.componentIds.filter((cid) => cid !== master.id),
+      }));
+      const found = cleared.find((cat) => cat.id === categoryId);
+      if (found) {
+        return cleared.map((cat) =>
+          cat.id === categoryId ? { ...cat, componentIds: [...cat.componentIds, master.id] } : cat
+        );
+      }
+      return [
+        ...cleared,
+        {
+          id: categoryId,
+          name: categoryId === DEFAULT_PART_CATEGORY ? '部品' : categoryId,
+          componentIds: [master.id],
+          order: cleared.length + 1,
+        },
+      ];
+    });
+  }, [websiteId]);
+
+  const savePartFromElement = useCallback(
+    async (
+      el: HTMLElement,
+      meta: { name: string; category?: string; description?: string }
+    ): Promise<EditorPartDef> => {
+      const save = io().savePart;
+      let id = toPartId(meta.name);
+      // 同名の部品があれば番号を足す(既存の定義を黙って上書きしない)
+      if (partDefs.has(id)) {
+        let n = 2;
+        while (partDefs.has(`${id}-${n}`)) n++;
+        id = `${id}-${n}`;
+      }
+      const def = partDefFromElement(
+        el,
+        {
+          id,
+          name: meta.name,
+          category: meta.category || DEFAULT_PART_CATEGORY,
+          description: meta.description,
+          version: 1,
+        },
+        { inferSlots: true },
+      );
+      const saved = (save ? await save(def) : undefined) ?? def;
+      upsertPartDef(saved);
+      stampAsInstance(el, saved, el.ownerDocument);
+      return saved;
+    },
+    [partDefs, upsertPartDef]
+  );
+
+  const updatePartFromElement = useCallback(
+    async (el: HTMLElement): Promise<EditorPartDef | null> => {
+      const info = partInfoOf(el);
+      if (!info) return null;
+      const current = partDefs.get(info.id);
+      if (!current) return null;
+      const next = partDefFromElement(el, {
+        id: current.id,
+        name: current.name,
+        category: current.category,
+        description: current.description,
+        version: current.version + 1,
+      });
+      const save = io().savePart;
+      const saved = (save ? await save(next) : undefined) ?? next;
+      upsertPartDef(saved);
+      el.setAttribute('data-part-v', String(saved.version));
+      return saved;
+    },
+    [partDefs, upsertPartDef]
   );
 
   const updateMasterComponent = useCallback(
@@ -687,7 +897,7 @@ export function EditorComponentsProvider({
         next.set(id, updatedComponent);
 
         // Save to Firestore asynchronously
-        if (websiteId) {
+        if (websiteId && !partsMode) {
           updateMasterComponentInFirestore(websiteId, id, updates).catch((err) => {
             console.error('[EditorComponentsContext] Failed to update component in Firestore:', err);
             setError('Failed to save component changes');
@@ -696,8 +906,38 @@ export function EditorComponentsProvider({
 
         return next;
       });
+
+      // 部品モード: 名前・説明・分類・(エディタで直した)構造を定義に写して利用側へ保存する
+      if (partsMode) {
+        const current = partDefs.get(id);
+        if (current) {
+          let html = current.html;
+          const rootElement = updates.variants?.[0]?.rootElement;
+          if (rootElement) {
+            const rendered = componentElementToHtml(rootElement, document);
+            stripEditorAttrs(rendered);
+            html = rendered.outerHTML;
+          }
+          const next: EditorPartDef = {
+            ...current,
+            name: updates.name ?? current.name,
+            description: updates.description ?? current.description,
+            category: updates.categoryId ?? current.category,
+            html,
+          };
+          setPartDefs((prev) => {
+            const m = new Map(prev);
+            m.set(id, next);
+            return m;
+          });
+          io().savePart?.(next).catch((err) => {
+            console.error('[EditorComponentsContext] 部品の保存に失敗:', err);
+            setError('部品の保存に失敗しました');
+          });
+        }
+      }
     },
-    [websiteId]
+    [websiteId, partsMode, partDefs]
   );
 
   const deleteMasterComponent = useCallback((id: string) => {
@@ -727,14 +967,24 @@ export function EditorComponentsProvider({
     });
 
     // Delete from Firestore asynchronously
-    if (websiteId) {
+    if (websiteId && !partsMode) {
       deleteFromFirestore(websiteId, id).catch((err) => {
         console.error('[EditorComponentsContext] Failed to delete component from Firestore:', err);
       });
     }
+    if (partsMode) {
+      setPartDefs((prev) => {
+        const next = new Map(prev);
+        next.delete(id);
+        return next;
+      });
+      io().deletePart?.(id).catch((err) => {
+        console.error('[EditorComponentsContext] 部品の削除に失敗:', err);
+      });
+    }
 
     console.log(`[EditorComponentsContext] Deleted master component: ${id}`);
-  }, [websiteId]);
+  }, [websiteId, partsMode]);
 
   const getMasterComponent = useCallback(
     (id: string): MasterComponent | null => {
@@ -798,8 +1048,8 @@ export function EditorComponentsProvider({
         return next;
       });
 
-      // Save to Firestore asynchronously
-      if (websiteId && effectivePageId) {
+      // Save to Firestore asynchronously(部品モードではインスタンスを別に持たない)
+      if (websiteId && effectivePageId && !partsMode) {
         saveComponentInstance(websiteId, effectivePageId, instance).catch((err) => {
           console.error('[EditorComponentsContext] Failed to save instance to Firestore:', err);
           setError('Failed to save component instance');
@@ -811,7 +1061,7 @@ export function EditorComponentsProvider({
       );
       return instance;
     },
-    [masterComponents, websiteId, pageId]
+    [masterComponents, websiteId, pageId, partsMode]
   );
 
   const updateInstance = useCallback(
@@ -1280,6 +1530,13 @@ export function EditorComponentsProvider({
       resolveInstance,
       navigateToMasterComponent,
       clearNavigationRequest,
+
+      // Parts
+      partsMode,
+      getPartDef,
+      materializePartInstance,
+      savePartFromElement,
+      updatePartFromElement,
     }),
     [
       masterComponents,
@@ -1307,6 +1564,11 @@ export function EditorComponentsProvider({
       resolveInstance,
       navigateToMasterComponent,
       clearNavigationRequest,
+      partsMode,
+      getPartDef,
+      materializePartInstance,
+      savePartFromElement,
+      updatePartFromElement,
     ]
   );
 

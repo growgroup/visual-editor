@@ -57,6 +57,12 @@ export interface ContextMenuProps {
   // コンポーネント状態
   isComponentInstance?: boolean;
   hasOverrides?: boolean;
+  // 部品(HTML template)状態
+  /** io.loadParts が渡されている(「コンポーネントを作成」が「部品として保存」になる) */
+  partsMode?: boolean;
+  isPartInstance?: boolean;
+  /** 「名前 vN」 */
+  partLabel?: string;
   // アクション
   /** 画像の変更(選択が<img>のときのみ渡される) */
   onReplaceImageFromFile?: () => void;
@@ -94,6 +100,9 @@ export interface ContextMenuProps {
   onDetachInstance?: () => void;
   onResetOverrides?: () => void;
   onPushOverridesToMain?: () => void;
+  // 部品操作
+  onDetachPart?: () => void;
+  onUpdatePart?: () => void;
 }
 
 interface MenuItemProps {
@@ -146,6 +155,11 @@ export function EditorContextMenu({
   hasStyleInClipboard,
   isComponentInstance,
   hasOverrides,
+  partsMode,
+  isPartInstance,
+  partLabel,
+  onDetachPart,
+  onUpdatePart,
   onCopy,
   onCut,
   onPaste,
@@ -416,11 +430,33 @@ export function EditorContextMenu({
       {hasSelection && selectionCount === 1 && (
         <>
           <MenuDivider />
-          {/* 通常要素の場合: コンポーネント作成 */}
-          {!isComponentInstance && (
+          {/* 部品(data-part)のインスタンス: 更新・切り離し */}
+          {isPartInstance && (
+            <>
+              <MenuItem
+                icon={<Component className="w-3.5 h-3.5 text-purple-400" />}
+                label={`部品: ${partLabel ?? ''}`}
+                disabled
+              />
+              {onUpdatePart && (
+                <MenuItem
+                  icon={<ArrowUpFromLine className="w-3.5 h-3.5" />}
+                  label="この姿で部品を更新"
+                  onClick={() => handleAction(onUpdatePart)}
+                />
+              )}
+              <MenuItem
+                icon={<Unlink className="w-3.5 h-3.5" />}
+                label="部品から切り離す"
+                onClick={() => handleAction(onDetachPart)}
+              />
+            </>
+          )}
+          {/* 通常要素の場合: コンポーネント作成(部品モードでは「部品として保存」) */}
+          {!isComponentInstance && !isPartInstance && (
             <MenuItem
               icon={<Component className="w-3.5 h-3.5 text-purple-400" />}
-              label="コンポーネントを作成"
+              label={partsMode ? '部品として保存' : 'コンポーネントを作成'}
               onClick={() => handleAction(onCreateComponent)}
             />
           )}

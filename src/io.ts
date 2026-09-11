@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { CSSVariableDefinition } from "./types/css-variables";
 
 /**
  * エディタと「置き場」のあいだの唯一の境界。
@@ -63,6 +64,43 @@ export type ExportFormat = "pdf" | "pdf-lite" | "pptx" | "pptx-edit";
 
 export type UploadResult = { url: string; width?: number; height?: number };
 
+/**
+ * 部品(パーツ)の定義。利用側では 1 部品 1 ファイル(`parts/<id>.html`)の
+ *
+ *   <template data-part-def="ContactBand" data-part-v="1"
+ *             data-part-name="お問合せ帯" data-part-category="block" data-part-desc="…">
+ *     <section …>…<h2 data-slot="heading">…</h2>…</section>
+ *   </template>
+ *
+ * を想定している。`html` は template の中身(ルート要素 1 つ)。
+ * 文字列と `<template>` の相互変換は `parsePartTemplate` / `serializePartTemplate`(src/editor/parts.ts)。
+ *
+ * ページに挿すときは**実体化**する: 定義を複製してルートに `data-part` `data-part-v` を付けた
+ * 完全な HTML がページに残る。エディタは `data-slot` の中だけを編集対象にし、
+ * 定義を変えたあとの一括反映は利用側のスクリプト(parts:sync)が行う。
+ */
+export type EditorPartDef = {
+  /** 識別子。`data-part` の値になる(ファイル名にも使うので英数字と - _ だけ) */
+  id: string;
+  /** 表示名。無ければ id */
+  name?: string;
+  /** パネルの分類。無ければ "parts" */
+  category?: string;
+  description?: string;
+  /** 定義の版。実体化したインスタンスに `data-part-v` として写る */
+  version: number;
+  /** ルート要素 1 つの HTML */
+  html: string;
+};
+
+export type EditorPartCategory = { id: string; name: string; description?: string };
+
+export type EditorPartsLibrary = {
+  parts: EditorPartDef[];
+  /** 無ければ parts の category から作る */
+  categories?: EditorPartCategory[];
+};
+
 export type EditorIO = {
   /** 一覧とコメントを取る。無ければ空の一覧として振る舞う */
   loadDeck?: () => Promise<EditorDeck>;
@@ -104,6 +142,22 @@ export type EditorIO = {
 
   /** 保存結果の通知。無ければ何もしない */
   notifySave?: (info: { page: number }) => void;
+
+  /**
+   * 部品(HTML の template)の一覧。渡すと部品パネルはこれを使い、
+   * ブラウザ内(localStorage)の JSON コンポーネントは読まない。
+   * 挿入は実体化(完全な HTML をページに残す)になる
+   */
+  loadParts?: () => Promise<EditorPartsLibrary>;
+  /** 部品を作る・更新する(「部品として保存」「部品を更新」)。無ければそれらの操作を出さない */
+  savePart?: (part: EditorPartDef) => Promise<EditorPartDef | void>;
+  /** 部品を消す。無ければ削除を出さない */
+  deletePart?: (id: string) => Promise<void>;
+
+  /** CSS 変数(デザイントークン)の読み込み。無ければブラウザ内(localStorage)に持つ */
+  loadVariables?: () => Promise<CSSVariableDefinition[]>;
+  /** CSS 変数の保存。無ければブラウザ内(localStorage)に持つ */
+  saveVariables?: (variables: CSSVariableDefinition[]) => Promise<void>;
 };
 
 let current: EditorIO = {};

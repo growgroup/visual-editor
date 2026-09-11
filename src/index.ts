@@ -52,4 +52,29 @@ export type {
   CommentAction,
   ExportFormat,
   UploadResult,
+  EditorPartDef,
+  EditorPartCategory,
+  EditorPartsLibrary,
 } from "./io";
+export type { CSSVariableDefinition, CSSVariableCategory } from "./types/css-variables";
+
+/**
+ * 部品(HTML の `<template data-part-def>`)のユーティリティ。
+ * 利用側が parts/*.html を読み書きする・スクリプトで同期する(parts:sync)ときに使う。
+ * DOM だけに依存する(Node では linkedom 等の Document を渡す)。
+ */
+export {
+  PART_ATTR,
+  PART_VERSION_ATTR,
+  SLOT_ATTR,
+  PART_DEF_ATTR,
+  parsePartTemplate,
+  serializePartTemplate,
+  materializePart,
+  inferSlots,
+  partDefFromElement,
+  partInfoOf,
+  isPartRoot,
+  isLockedInsidePart,
+  toPartId,
+} from "./editor/parts";

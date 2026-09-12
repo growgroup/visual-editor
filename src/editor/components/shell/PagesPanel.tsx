@@ -16,6 +16,7 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useDeck } from '../../../components/viewer/useDeck';
 import { DeckSlideRender } from '../../../components/DeckSlideRender';
 import { flushAutoSave } from '../../autosave';
+import { useMultiPageCanvasOptional } from '../../contexts/MultiPageCanvasContext';
 
 /**
  * スライド描画はメモ化する。パネル幅の変更や他ページの選択で親が再レンダーしても、
@@ -28,6 +29,7 @@ const ROW_CHROME_PX = 8 + 8 + 16 + 6;
 
 export function PagesPanel({ page, height = '33vh' }: { page: number; height?: string }) {
   const deck = useDeck();
+  const canvas = useMultiPageCanvasOptional();
   const rootRef = useRef<HTMLDivElement>(null);
   const currentRef = useRef<HTMLButtonElement>(null);
   /**
@@ -55,6 +57,12 @@ export function PagesPanel({ page, height = '33vh' }: { page: number; height?: s
   /** ページ切替。未保存があれば黙って保存してから移る(失敗したときだけ確認する) */
   const goto = async (n: number) => {
     if (n === page) return;
+    // マルチフレームのキャンバスでは画面を移らず、そのフレームへ編集を移して画面に寄せる
+    if (canvas) {
+      const id = canvas.pages[n - 1]?.id ?? String(n);
+      if (await canvas.activatePage(id, { reveal: true })) canvas.zoomToPage(id, { animate: true });
+      return;
+    }
     if (!(await flushAutoSave())) {
       if (!window.confirm('保存に失敗しました。変更を破棄して移動しますか?')) return;
     }

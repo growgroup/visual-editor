@@ -60,6 +60,7 @@ import {
   useEditorArtboard,
   type ContentListItem,
   type ArtboardState,
+  type ContentChangeHandler,
 } from './contexts/EditorArtboardContext';
 import {
   EditorUIStateProvider,
@@ -134,7 +135,7 @@ interface EditorContextValue {
   // コンテンツリスト（他コンテンツへのナビゲーション用）
   contentList: ContentListItem[];
   currentContentId: string | null;
-  onContentChange: ((contentId: string) => void) | null;
+  onContentChange: ContentChangeHandler | null;
 
   /** @deprecated Use contentList instead */
   slides: ContentListItem[];
@@ -263,7 +264,7 @@ interface EditorProviderProps {
   artboardWidth?: number;
   contentList?: ContentListItem[];
   currentContentId?: string;
-  onContentChange?: (contentId: string) => void;
+  onContentChange?: ContentChangeHandler;
   initialLayoutMode?: 'absolute' | 'auto';
   /** CSS変数の初期値 */
   initialVariables?: CSSVariableDefinition[];
@@ -275,6 +276,8 @@ interface EditorProviderProps {
   websiteId?: string;
   /** マルチページ無限キャンバスモードを有効にする (default: false) */
   enableMultiPageCanvas?: boolean;
+  /** キャンバスの表示位置(倍率・スクロール)を記憶するキー */
+  canvasStorageKey?: string | null;
   /** @deprecated Use contentList instead */
   slides?: ContentListItem[];
   /** @deprecated Use currentContentId instead */
@@ -529,6 +532,7 @@ export function EditorProvider({
   websiteId,
   // Multi-page canvas
   enableMultiPageCanvas = false,
+  canvasStorageKey,
   // deprecated props
   slides,
   currentSlideId,
@@ -555,7 +559,7 @@ export function EditorProvider({
                       currentSlideId={currentSlideId}
                       onSlideChange={onSlideChange}
                     >
-                      <ConditionalMultiPageProvider enabled={enableMultiPageCanvas}>
+                      <ConditionalMultiPageProvider enabled={enableMultiPageCanvas} storageKey={canvasStorageKey}>
                         <EditorUIStateProviderWrapper>
                           <EditorVariablesProviderWrapper
                             initialVariables={initialVariables}

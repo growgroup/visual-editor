@@ -171,8 +171,12 @@ export function useGoogleFonts() {
 
       const response = await fetch(apiUrl);
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch Google Fonts');
+      // 利用側に /api/google-fonts が無い(404 や SPA の index.html が返る)のは普通のこと。
+      // エラーにせず、同梱の人気フォント一覧で静かに済ませる
+      const contentType = response.headers.get('content-type') || '';
+      if (!response.ok || !contentType.includes('json')) {
+        setFonts([...SYSTEM_FONTS, ...POPULAR_GOOGLE_FONTS]);
+        return;
       }
 
       const data = await response.json();

@@ -76,10 +76,12 @@ export function useCoordinateTransform(): UseCoordinateTransformReturn {
       const iframeRect = iframe?.getBoundingClientRect();
       if (!iframeRect) return { x: clientX, y: clientY };
 
-      // iframeがフルスクリーンなので、オフセットを加えるだけ
+      // iframe 要素が外側の transform で縮んでいる(マルチフレーム)ときは実測の倍率で掛ける。
+      // 単独表示では iframe は等倍なので 1
+      const outerScale = iframeRect.width / (iframe!.clientWidth || iframeRect.width) || 1;
       return {
-        x: iframeRect.left + clientX,
-        y: iframeRect.top + clientY,
+        x: iframeRect.left + clientX * outerScale,
+        y: iframeRect.top + clientY * outerScale,
       };
     },
     [iframeRef]
@@ -94,9 +96,10 @@ export function useCoordinateTransform(): UseCoordinateTransformReturn {
       const iframeRect = iframe?.getBoundingClientRect();
       if (!iframeRect) return { x: windowX, y: windowY };
 
+      const outerScale = iframeRect.width / (iframe!.clientWidth || iframeRect.width) || 1;
       return {
-        x: windowX - iframeRect.left,
-        y: windowY - iframeRect.top,
+        x: (windowX - iframeRect.left) / outerScale,
+        y: (windowY - iframeRect.top) / outerScale,
       };
     },
     [iframeRef]
@@ -154,10 +157,10 @@ export function useCoordinateTransform(): UseCoordinateTransformReturn {
         toWindow: (clientX: number, clientY: number): Point => {
           const iframeRect = iframe?.getBoundingClientRect();
           if (!iframeRect) return { x: clientX, y: clientY };
-
+          const outerScale = iframeRect.width / (iframe!.clientWidth || iframeRect.width) || 1;
           return {
-            x: iframeRect.left + clientX,
-            y: iframeRect.top + clientY,
+            x: iframeRect.left + clientX * outerScale,
+            y: iframeRect.top + clientY * outerScale,
           };
         },
 

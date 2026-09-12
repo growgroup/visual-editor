@@ -229,6 +229,9 @@ export function isInlineElement(element: HTMLElement, computedStyle?: CSSStyleDe
  * 適用ロジックの二重実装を作らない。
  */
 export function applyCanvasZoomDom(iframeDoc: Document, zoomPct: number): void {
+  // 埋め込み(マルチフレームのキャンバス内)では倍率は外側の CSS transform が持つ。
+  // iframe の中は常に等倍で、スクロール領域も作らない
+  if (iframeDoc.body?.dataset.embedded === '1') return;
   const wrapper = iframeDoc.getElementById('artboard-wrapper');
   const scrollArea = iframeDoc.getElementById('canvas-scroll-area');
   const container = iframeDoc.getElementById('canvas-container');
@@ -1105,7 +1108,10 @@ const RADIUS_MIN_INSET_SCREEN = 14;
  * refreshSelectionOverlay を呼んでいる）。
  */
 export function applyOverlayScale(iframeDoc: Document): number {
-  const scale = getArtboardScale(iframeDoc) || 1;
+  // 埋め込み(マルチフレームのキャンバス)では iframe の外側にも倍率が掛かる。
+  // 画面上で 1px にするには内側 × 外側の倍率で割る(EditorCanvas が data-outer-zoom に書く)
+  const outerZoom = Number(iframeDoc.documentElement?.dataset.outerZoom) || 1;
+  const scale = (getArtboardScale(iframeDoc) || 1) * outerZoom;
   const overlayScale = 1 / scale;
   const root = iframeDoc.documentElement;
   if (!root) return overlayScale;

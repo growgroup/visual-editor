@@ -43,7 +43,7 @@ interface UseMarqueeSelectionOptions {
  * Figma と同じく交差判定にする。
  * ※ dom-utils は他の修正項目と共有しているため、ここにローカル実装を置く。
  */
-function findElementsIntersectingMarquee(
+export function findElementsIntersectingMarquee(
   iframeDoc: Document,
   marquee: { left: number; top: number; right: number; bottom: number }
 ): HTMLElement[] {
@@ -80,7 +80,7 @@ function findElementsIntersectingMarquee(
  * ※ dom-utils の collapseToParentIfAllChildrenSelected は
  *   「全ての子が選択されたときだけ親に畳む」別のルールなので使わない。
  */
-function collapseToTopMost(elements: HTMLElement[]): HTMLElement[] {
+export function collapseToTopMost(elements: HTMLElement[]): HTMLElement[] {
   return elements.filter(
     (el) => !elements.some((other) => other !== el && other.contains(el))
   );

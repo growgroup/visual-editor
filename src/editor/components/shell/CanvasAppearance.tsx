@@ -8,8 +8,10 @@ import type { PptTheme } from '../ppt/PptChrome';
 export function CanvasAppearance({ theme }: { theme: PptTheme }) {
   const { iframeReady, getIframeDoc } = useEditorContext();
   useEffect(() => {
+    // 読み込み中(iframeReady=false)は body がまだ無いことがある。準備できてから塗る
+    if (!iframeReady) return;
     const doc = getIframeDoc();
-    if (!doc) return;
+    if (!doc?.body) return;
     const color = theme === 'dark' ? '#191d24' : '#eef1f5';
     doc.body.style.backgroundColor = color;
     const container = doc.getElementById('canvas-container');

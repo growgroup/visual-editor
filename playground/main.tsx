@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Toaster, toast } from 'sonner';
 import { VisualEditor, setEditorIO, type EditorDeck, type EditorIO } from '../src/index';
 import { applyDeck } from '../src/components/viewer/useDeck';
-import { webpage, slides } from './samples';
+import { webpage, slides, webpagePages } from './samples';
 import { partsLibrary, partsPage, createPartsStore } from './parts-samples';
 import '../dist/editor.css';
 import './playground.css';
@@ -13,7 +13,9 @@ const params = new URLSearchParams(location.search);
 const parts = params.get('mode') === 'parts';
 const mode = params.get('mode') === 'slide' ? 'slide' : 'webpage';
 const minimal = params.has('minimal');
-const sampleHtml = parts ? [partsPage] : mode === 'webpage' ? [webpage] : slides;
+// ?canvas … Figma 風のマルチフレームキャンバス(全ページを 1 枚のキャンバスに並べる)
+const canvasMode = params.has('canvas');
+const sampleHtml = parts ? [partsPage] : mode === 'webpage' ? (canvasMode ? webpagePages.map((p) => p.html) : [webpage]) : canvasMode ? [...slides, ...slides, ...slides] : slides;
 const partsStore = createPartsStore();
 const partsIo: EditorIO = {
   loadParts: async () => ({
@@ -35,7 +37,7 @@ const partsIo: EditorIO = {
     partsStore.log.push({ op: 'saveVariables', at: new Date().toISOString() });
   },
 };
-let deck: EditorDeck = { version: 1, title: 'リデザインの動作確認', slides: sampleHtml.map((_, i) => ({ id: String(i + 1), title: mode === 'webpage' ? 'トップページ' : ['伝わる体験を、いっしょにつくる。', '私たちの進め方'][i], template: 'sample', edited: false, comments: [] })) };
+let deck: EditorDeck = { version: 1, title: 'リデザインの動作確認', slides: sampleHtml.map((_, i) => ({ id: String(i + 1), title: mode === 'webpage' ? (canvasMode ? webpagePages[i].title : 'トップページ') : ['伝わる体験を、いっしょにつくる。', '私たちの進め方'][i % 2] + (canvasMode && i >= 2 ? `（${i + 1}）` : ''), template: 'sample', edited: false, comments: [] })) };
 const documents = new Map(deck.slides.map((entry, i) => [entry.id, sampleHtml[i]]));
 const saveLog: { html: string; auto: boolean; id: string }[] = [];
 const failure = { save: false, comment: false };
@@ -45,6 +47,8 @@ const entry = (page: number) => { const value = deck.slides[page - 1]; if (!valu
 const uid = () => crypto.randomUUID();
 const adapter: EditorIO = {
   loadDeck: async () => clone(),
+  // キャンバスでは隣のページの本文をここから読む(保存したものが返る)
+  ...(canvasMode ? { loadContent: async (id: string) => { await new Promise((r) => setTimeout(r, 120)); return documents.get(id) ?? ''; } } : {}),
   commentAction: async (page, action) => {
     if (failure.comment) throw new Error('送信失敗の確認用です。失敗設定を解除して再送信してください。');
     const target = entry(page);
@@ -86,7 +90,10 @@ function Playground() {
   useEffect(() => {
     const showPage = () => {
       const n = Math.max(1, Math.min(deck.slides.length, Number(location.hash.match(/edit\/(\d+)/)?.[1]) || 1));
-      const item = entry(n); setPage(n); setOpened({ id: item.id, html: documents.get(item.id)! }); setRevision((v) => v + 1);
+      const item = entry(n); setPage(n);
+      // キャンバスではエディタを作り直さない(ページ切替はエディタの中で起きる)
+      if (canvasMode) return;
+      setOpened({ id: item.id, html: documents.get(item.id)! }); setRevision((v) => v + 1);
     };
     window.addEventListener('hashchange', showPage);
     window.addEventListener('gg:deck-mutated', showPage);
@@ -95,7 +102,8 @@ function Playground() {
   return <div className="pg-layout">
     <aside className="pg-rail">
       <strong>Visual Editor</strong><span className="pg-caption">リデザインの動作確認</span>
-      <nav><a href="?mode=webpage" aria-current={mode === 'webpage' && !parts ? 'page' : undefined}>構成ラフ</a><a href="?mode=slide" aria-current={mode === 'slide' ? 'page' : undefined}>スライド</a><a href="?mode=parts" aria-current={parts ? 'page' : undefined}>部品</a></nav>
+      <nav><a href="?mode=webpage" aria-current={mode === 'webpage' && !parts && !canvasMode ? 'page' : undefined}>構成ラフ</a><a href="?mode=slide" aria-current={mode === 'slide' && !canvasMode ? 'page' : undefined}>スライド</a><a href="?mode=parts" aria-current={parts ? 'page' : undefined}>部品</a><a href="?mode=webpage&canvas" aria-current={mode === 'webpage' && canvasMode ? 'page' : undefined}>キャンバス(構成ラフ)</a><a href="?mode=slide&canvas" aria-current={mode === 'slide' && canvasMode ? 'page' : undefined}>キャンバス(スライド)</a></nav>
+      {canvasMode && <div className="pg-card"><strong>マルチフレームのキャンバス</strong><p>全ページが並びます。クリックしたページが編集対象。ホイールで移動、⌘+ホイールで拡大縮小、Space+ドラッグで移動。⇧1 全体 / ⇧2 このページ / ⇧R 定規。</p></div>}
       {parts && <div className="pg-card"><strong>部品モード</strong><p>左パネルの部品をドロップ → 実体化(data-part)。CTA 帯はスロット(見出し・説明)だけ編集できます。右クリックで「部品として保存」「切り離す」。</p><p>保存先はメモリ(window.editorPlayground.parts)。</p></div>}
       <div className="pg-card"><strong>確認すること</strong><p>文字をダブルクリックして編集。要素を選んでコメントを追加できます。</p><p>上部の「…」からライト／ダークを切り替えられます。</p></div>
       <div className="pg-card"><strong>メモリ上に保存</strong><p>保存 {saves} 回</p><p>再読み込みすると編集とコメントは初期状態に戻ります。</p></div>
@@ -106,12 +114,16 @@ function Playground() {
     </aside>
     <div className="pg-editor">
       {closed ? <button className="pg-reopen" onClick={() => setClosed(false)}>エディタを開く</button> : <VisualEditor
-        key={`${opened.id}:${revision}`} html={opened.html} editorMode={mode} artboardWidth={mode === 'webpage' ? 1820 : undefined}
+        key={canvasMode ? 'canvas' : `${opened.id}:${revision}`} html={opened.html} editorMode={mode} artboardWidth={mode === 'webpage' ? 1820 : undefined}
         contentId={String(page)} contentList={deck.slides.map((item, i) => ({ id: String(i + 1), title: item.title, order: i + 1 }))}
+        enableMultiPageCanvas={canvasMode}
+        canvasStorageKey={canvasMode ? `playground-${mode}` : undefined}
+        onContentChange={(id) => { window.location.hash = `#/edit/${id}`; }}
         onSave={async (html, options) => {
           if (failure.save) throw new Error('保存失敗の確認用です。');
-          documents.set(opened.id, html); saveLog.push({ html, auto: options?.auto === true, id: opened.id }); setSaves(saveLog.length);
-          const item = deck.slides.find((s) => s.id === opened.id); if (item) item.edited = true;
+          const targetId = options?.contentId ?? opened.id;
+          documents.set(targetId, html); saveLog.push({ html, auto: options?.auto === true, id: targetId }); setSaves(saveLog.length);
+          const item = deck.slides.find((s) => s.id === targetId); if (item) item.edited = true;
           if (!options?.auto) toast.success('メモリ上に保存しました');
         }}
         onClose={() => setClosed(true)}

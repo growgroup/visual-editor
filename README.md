@@ -77,6 +77,42 @@ const VisualEditor = dynamic(
 
 追加設定は不要です。
 
+### マルチフレームのキャンバス(Figma 風、0.3.0)
+
+`enableMultiPageCanvas` を渡すと、`contentList` の全ページを 1 枚のキャンバスにフレームとして並べ、
+クリックしたページを編集できます。生きているエディタは 1 つだけで、他のページは見るだけの紙面です。
+
+```tsx
+setEditorIO({
+  // 隣のページの本文。id は contentList の id
+  loadContent: async (id) => fetch(`/api/pages/${id}`).then((r) => r.text()),
+  // 見るだけの紙面(編集していないページ)に足すスタイル。本文がブラウザ版 Tailwind(script)に
+  // 頼っている場合だけ要る(紙面は script を動かさない)。本文に CSS が入っていれば不要
+  previewStyles: () => [{ href: "/src/index.css" }],
+});
+
+<VisualEditor
+  html={firstPageHtml}
+  editorMode="webpage"
+  contentId="1"
+  contentList={[{ id: "1", title: "トップ", order: 1 }, { id: "2", title: "会社案内", order: 2 }]}
+  enableMultiPageCanvas
+  canvasStorageKey="site-a"                 // 見えている範囲を記憶するキー
+  onContentChange={(id) => setCurrent(id)}  // 編集中のページが変わった(URL 等を追う)
+  onSave={async (html, { auto, contentId } = {}) => save(contentId, html)}
+  onClose={() => history.back()}
+/>
+```
+
+- ページを移るときは、未保存の変更を先に保存してから移る(入口がフレームのクリックでも `contentId` プロップの変更でも同じ)
+- 複数選択はキャンバスの余白からドラッグ(マーキー)。ページの中に空白が無くても、余白から引けば帯がまたいだ要素が選ばれる
+- 仕組みと確認したことは `docs/multi-frame-canvas-2026-09.md`
+
+`onSave` には `contentId` が付くので、どのページの本文かはそれで見分けてください。
+`contentId` プロップを変えると、エディタがそのページへ移ります。
+操作(⌘+ホイールで拡大縮小、Space+ドラッグで移動、⇧1 全体、⇧2 編集中のページ、⇧R 定規)と仕組みは
+[docs/multi-frame-canvas-2026-09.md](docs/multi-frame-canvas-2026-09.md)。
+
 ## 設計
 
 ### io — 保存先との唯一の境界

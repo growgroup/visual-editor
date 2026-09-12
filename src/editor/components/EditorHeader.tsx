@@ -28,6 +28,7 @@ import { useEditorContext } from "../EditorContext";
 import { ConfirmDialog } from "./shell/ConfirmDialog";
 import { EditorTopBar } from "./shell/EditorTopBar";
 import { MIN_ZOOM, MAX_ZOOM, editorZoomApiRef } from "../hooks/useCanvasControls";
+import { useMultiPageCanvasOptional, useCanvasViewStateOptional, MIN_ZOOM as CANVAS_MIN_ZOOM, MAX_ZOOM as CANVAS_MAX_ZOOM } from "../contexts/MultiPageCanvasContext";
 import { generateEditableHtml } from "../utils/html-utils";
 import { useDeck } from "../../components/viewer/useDeck";
 import { unresolvedCount } from "./ppt/PptComments";
@@ -99,8 +100,8 @@ export function EditorHeader({
   const {
     iframeRef,
     originalHtml,
-    zoom,
-    setZoom,
+    zoom: singleZoom,
+    setZoom: setSingleZoom,
     fitZoom,
     setSelectedElement,
     setSelectedElementIds,
@@ -117,6 +118,17 @@ export function EditorHeader({
   } = useEditorContext();
 
   const [resetOpen, setResetOpen] = useState(false);
+
+  // マルチフレームのキャンバスでは倍率はキャンバス全体のもの。表示も操作もそちらへ向ける
+  const canvas = useMultiPageCanvasOptional();
+  const canvasView = useCanvasViewStateOptional();
+  const zoom = canvas && canvasView ? canvasView.canvasZoom * 100 : singleZoom;
+  const minZoom = canvas ? CANVAS_MIN_ZOOM * 100 : MIN_ZOOM;
+  const maxZoom = canvas ? CANVAS_MAX_ZOOM * 100 : MAX_ZOOM;
+  const setZoom = (value: number) => {
+    if (canvas) canvas.zoomTo(value / 100, { animate: true });
+    else setSingleZoom(value);
+  };
 
   // 保存・共有・プレビュー・閉じるは共通トップバー(EditorTopBar)が持つ。
   // ここに実装を残すと、PowerPoint風UIと2本の保存経路ができてしまう
@@ -245,12 +257,12 @@ export function EditorHeader({
   // 以前は上限200%/下限25%で止めていたが、キャンバス側(useCanvasControls)の
   // 実際の可動域は 10〜400%。ボタンだけ手前で止まるため、ホイールで250%まで
   // 拡大したあとに「＋を押しても何も起きない」状態が生まれていた。
-  const clampZoom = (v: number) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, v));
-  const canZoomIn = zoom < MAX_ZOOM - 0.01;
-  const canZoomOut = zoom > MIN_ZOOM + 0.01;
+  const clampZoom = (v: number) => Math.max(minZoom, Math.min(maxZoom, v));
+  const canZoomIn = zoom < maxZoom - 0.01;
+  const canZoomOut = zoom > minZoom + 0.01;
 
-  const handleZoomIn = () => setZoom(clampZoom(Math.floor(zoom / 10) * 10 + 10));
-  const handleZoomOut = () => setZoom(clampZoom(Math.ceil(zoom / 10) * 10 - 10));
+  const handleZoomIn = () => (canvas ? canvas.zoomIn() : setZoom(clampZoom(Math.floor(zoom / 10) * 10 + 10)));
+  const handleZoomOut = () => (canvas ? canvas.zoomOut() : setZoom(clampZoom(Math.ceil(zoom / 10) * 10 - 10)));
   // 全体表示/100% はキャンバス側(useCanvasControls)の実装に委ねる。
   // Cmd+0 / Cmd+1 と同じ関数を呼ぶことで、「ヘッダーから押したときだけ
   // 固定点の扱いが違う」というズレを作らない。未登録時は従来どおり値を入れる。
@@ -333,7 +345,7 @@ export function EditorHeader({
             data-zoom-out
             onClick={handleZoomOut}
             disabled={!canZoomOut}
-            title={canZoomOut ? "縮小" : `これ以上縮小できません（下限 ${MIN_ZOOM}%）`}
+            title={canZoomOut ? "縮小" : `これ以上縮小できません（下限 ${minZoom}%）`}
             className="h-8 w-8 text-gray-400 hover:text-white hover:bg-[#444444] disabled:opacity-30"
           >
             <ZoomOut className="h-4 w-4" />
@@ -361,8 +373,8 @@ export function EditorHeader({
                   ref={zoomInputRef}
                   data-zoom-input
                   type="number"
-                  min={MIN_ZOOM}
-                  max={MAX_ZOOM}
+                  min={minZoom}
+                  max={maxZoom}
                   value={zoomInput}
                   onChange={(e) => setZoomInput(e.target.value)}
                   onKeyDown={(e) => {
@@ -373,7 +385,7 @@ export function EditorHeader({
                     if (e.key === "Escape") setZoomMenuOpen(false);
                   }}
                   className="h-7 w-full rounded border border-[#4a4a4a] bg-[#1e1e1e] px-2 text-xs tabular-nums text-white outline-none focus:border-[#0d99ff]"
-                  aria-label={`表示倍率(%) ${MIN_ZOOM}〜${MAX_ZOOM}`}
+                  aria-label={`表示倍率(%) ${minZoom}〜${maxZoom}`}
                 />
                 <span className="text-xs text-gray-500">%</span>
                 <Button
@@ -403,6 +415,16 @@ export function EditorHeader({
                 100%
                 <span className="text-[10px] text-gray-500">⌘1</span>
               </DropdownMenuItem>
+              {canvas && (
+                <DropdownMenuItem
+                  data-zoom-preset="page"
+                  onClick={() => { const id = canvas.viewStore.get().activePageId; if (id) canvas.zoomToPage(id, { animate: true }); }}
+                  className="cursor-pointer justify-between text-gray-300 hover:bg-[#444444] hover:text-white"
+                >
+                  編集中のページに合わせる
+                  <span className="text-[10px] text-gray-500">⇧2</span>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 data-zoom-preset="50"
                 onClick={() => setZoom(50)}
@@ -417,6 +439,19 @@ export function EditorHeader({
               >
                 200%
               </DropdownMenuItem>
+              {canvas && (
+                <>
+                  <DropdownMenuSeparator className="bg-[#444444]" />
+                  <DropdownMenuItem
+                    data-zoom-rulers
+                    onClick={canvas.toggleRulers}
+                    className="cursor-pointer justify-between text-gray-300 hover:bg-[#444444] hover:text-white"
+                  >
+                    <span className="flex items-center gap-2"><Ruler className="h-3.5 w-3.5" />定規{canvas.rulersVisible ? "を隠す" : "を表示"}</span>
+                    <span className="text-[10px] text-gray-500">⇧R</span>
+                  </DropdownMenuItem>
+                </>
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
           <Button
@@ -425,7 +460,7 @@ export function EditorHeader({
             data-zoom-in
             onClick={handleZoomIn}
             disabled={!canZoomIn}
-            title={canZoomIn ? "拡大" : `これ以上拡大できません（上限 ${MAX_ZOOM}%）`}
+            title={canZoomIn ? "拡大" : `これ以上拡大できません（上限 ${maxZoom}%）`}
             className="h-8 w-8 text-gray-400 hover:text-white hover:bg-[#444444] disabled:opacity-30"
           >
             <ZoomIn className="h-4 w-4" />

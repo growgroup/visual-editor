@@ -456,6 +456,7 @@ export function useDrawingMode() {
       if (e.key === 'Escape') window.postMessage({ type: 'TOOL_FINISHED' }, '*');
     };
 
+    if (!iframeDoc.body) return;
     const prevCursor = iframeDoc.body.style.cursor;
     iframeDoc.body.style.cursor = 'crosshair';
     iframeDoc.addEventListener('mousedown', down, true);

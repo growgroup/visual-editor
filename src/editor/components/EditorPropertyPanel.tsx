@@ -370,6 +370,8 @@ function LiveGeometryProvider({
     // ドラッグ/リサイズは style を、確定時の Tailwind 変換は class を書き換える。
     // 親のリフローで矩形が変わる場合もあるので artboard 全体を subtree で監視する。
     const target = doc.getElementById("artboard") || doc.body;
+    // 読み込み中の文書(body 無し)には付けない。準備できたら iframeReady で張り直る
+    if (!target) return;
     const observer = new MutationObserver(schedule);
     observer.observe(target, {
       attributes: true,

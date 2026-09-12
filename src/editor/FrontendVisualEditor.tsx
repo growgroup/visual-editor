@@ -30,7 +30,7 @@ import { PptFormatPane } from './components/ppt/PptFormatPane';
 import { createAuthApi } from '../lib/api/auth-fetch';
 import { useAuth } from '../components/auth/AuthProvider';
 import { findSlideRoot, findInsertionParent } from './utils/slide-root';
-import { registerAutoSaveFlush } from './autosave';
+import { registerAutoSaveFlush, flushAutoSave, beginContentSwitch, endContentSwitch, isContentSwitching } from './autosave';
 import { getCleanHtml } from './utils/html-utils';
 import { EditorAppearanceContext, useEditorTheme } from './contexts/EditorAppearanceContext';
 import { CanvasAppearance } from './components/shell/CanvasAppearance';
@@ -69,6 +69,7 @@ import { BreakpointGuides } from './components/BreakpointGuides';
 import type { ContextMenuPosition } from './components';
 import { EditorToolbar } from './EditorToolbar';
 import { MultiPageCanvasView } from './components/multi-page';
+import { useMultiPageCanvasOptional } from './contexts/MultiPageCanvasContext';
 import { convertToAbsolutePositioning, buildDomTree, getArtboardContent, canUngroup, updateSelectionBox } from './utils/dom-utils';
 import { extractElementInfo } from './utils/style-utils';
 import { findTableCell, insertRow, insertColumn, deleteRow, deleteColumn } from './utils/table-edit';
@@ -138,10 +139,22 @@ export interface FrontendVisualEditorProps {
    * 保存。options.auto は自動保存(ユーザーが押したのではない)を示す。
    * 保存結果のトーストは手動保存のときだけ出したいので、呼び出し側で見分けられるようにする
    */
-  onSave: (html: string, options?: { auto?: boolean }) => Promise<void>;
+  onSave: (html: string, options?: { auto?: boolean; contentId?: string }) => Promise<void>;
   onClose: () => void;
-  /** マルチページ無限キャンバスモードを有効にする (default: false) */
+  /**
+   * Figma 風のマルチフレームキャンバス(全ページを 1 枚のキャンバスに並べ、クリックしたページを編集する)。
+   * ページの本文は contentList[].thumbnailHtml か io.loadContent(id) から読む。
+   * 保存は onSave(html, { contentId }) で「どのページか」が付いて呼ばれる (default: false)
+   */
   enableMultiPageCanvas?: boolean;
+  /**
+   * 編集するページが変わったときの通知(キャンバスのクリック・左パネルのページ一覧)。
+   * 利用側が URL や「いま編集中のページ」を追うために使う。逆に contentId プロップを
+   * 変えると、エディタ側がそのページへ移る
+   */
+  onContentChange?: (contentId: string) => void;
+  /** キャンバスの表示位置(倍率・スクロール)を記憶するキー。省略時は parentId */
+  canvasStorageKey?: string;
   /** 外部から渡すコンテンツリスト（指定時はAPI取得をスキップ） */
   contentList?: ContentListItem[];
   /**
@@ -186,6 +199,7 @@ function FrontendVisualEditorInner({
     activeTool,
     setActiveTool,
     originalHtml,
+    sourceHtml,
     // [自動保存] 変更検知と、保存できた分の基準の付け替えに使う
     html,
     hasChanges,
@@ -716,6 +730,9 @@ function FrontendVisualEditorInner({
    * 特に onSave はページ番号を閉じ込めているため、保存の開始時点の値で
    * 内容とページ番号を揃える必要がある(古い内容を新しいページへ書かないため)
    */
+  const multiPageCanvas = useMultiPageCanvasOptional();
+  const multiPageCanvasRef = useRef(multiPageCanvas);
+  multiPageCanvasRef.current = multiPageCanvas;
   const saveStateRef = useRef({ html, hasChanges, canUndo, contentId });
   useEffect(() => {
     saveStateRef.current = { html, hasChanges, canUndo, contentId };
@@ -731,17 +748,10 @@ function FrontendVisualEditorInner({
     const baseline = saveStateRef.current.html;
     const savingContentId = saveStateRef.current.contentId;
 
+    // 保存先は常に利用側の onSave。マルチフレームのキャンバスでは
+    // 「どのページの本文か」を contentId で付けて渡す(利用側が保存先を選べる)
     const task = (async () => {
-      if (isMultiPageCanvas && parentId && contentId) {
-        const api = await createAuthApi(getIdToken);
-        await api.patch(`/api/websites/${parentId}/pages/${contentId}`, {
-          html: htmlToSave,
-          layoutMode,
-        });
-        toast.success('ページを保存しました');
-        return;
-      }
-      await onSave(htmlToSave, options);
+      await onSave(htmlToSave, { ...options, contentId: savingContentId ?? undefined });
     })();
     saveInFlightRef.current = task.then(
       () => undefined,
@@ -755,6 +765,8 @@ function FrontendVisualEditorInner({
         savedPayloadRef.current = htmlToSave;
         setOriginalHtml(baseline);
       }
+      // キャンバスの「見るだけの紙面」も保存後の姿にする(離れたあとも最新が見える)
+      if (savingContentId) multiPageCanvasRef.current?.setPageHtml(savingContentId, htmlToSave);
       setAutoSaveFailed(false);
     } catch (e) {
       setAutoSaveFailed(true);
@@ -763,7 +775,7 @@ function FrontendVisualEditorInner({
       saveInFlightRef.current = null;
       setSaving(false);
     }
-  }, [isMultiPageCanvas, parentId, contentId, getIdToken, layoutMode, onSave, setOriginalHtml, setSaving]);
+  }, [onSave, setOriginalHtml, setSaving]);
 
   /**
    * 未保存の変更があれば保存する。戻り値は「保存できたか」。
@@ -775,6 +787,9 @@ function FrontendVisualEditorInner({
    */
   const saveIfDirty = useCallback(async (): Promise<boolean> => {
     const state = saveStateRef.current;
+    // ページ切替の途中(履歴の本文がまだ前のページ)は保存しない。
+    // ここで送ると前のページの本文を次のページへ書いてしまう
+    if (isContentSwitching()) return true;
     if (!state.hasChanges || !state.canUndo) return true;
     const iframeDoc = getIframeDoc();
     const payload = iframeDoc ? getCleanHtml(iframeDoc) : state.html;
@@ -840,6 +855,18 @@ function FrontendVisualEditorInner({
   useEffect(() => {
     savedPayloadRef.current = null;
   }, [contentId]);
+
+  // マルチフレームのキャンバス: フレーム名の「未保存」印と、見るだけの紙面の本文を同期する
+  const isDirtyForCanvas = hasChanges && canUndo;
+  useEffect(() => {
+    if (!multiPageCanvas || !contentId) return;
+    multiPageCanvas.updatePageFrame(contentId, { isDirty: isDirtyForCanvas });
+  }, [multiPageCanvas, contentId, isDirtyForCanvas]);
+  useEffect(() => {
+    if (!multiPageCanvas || !contentId) return;
+    multiPageCanvas.setPageHtml(contentId, sourceHtml);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceHtml]);
 
   /** 保存しきれていない状態でタブを閉じられたときだけ、ブラウザ既定の離脱警告を出す */
   useEffect(() => {
@@ -915,11 +942,13 @@ function FrontendVisualEditorInner({
         if (element) {
           const rect = element.getBoundingClientRect();
           const iframeRect = iframe.getBoundingClientRect();
-          
+          // iframe が外側の transform で縮んでいる(マルチフレーム)ときは実測の倍率で掛ける
+          const outerScale = iframeRect.width / (iframe.clientWidth || iframeRect.width) || 1;
+
           // ポップオーバーを要素の右側に表示
           setAiPromptPosition({
-            x: iframeRect.left + rect.right + 10,
-            y: iframeRect.top + rect.top,
+            x: iframeRect.left + rect.right * outerScale + 10,
+            y: iframeRect.top + rect.top * outerScale,
           });
           return;
         }
@@ -1243,18 +1272,23 @@ function FrontendVisualEditorInner({
             // 縮小表示されている。画面座標をそのまま使うとスライド左上を原点にできないので、
             // スライドのルート要素の実測矩形を基準に、スライド内座標へ換算する。
             const iframeRect = iframeRef.current.getBoundingClientRect();
+            // 親の座標 → iframe の座標。iframe が外側の transform で縮んでいる
+            // (マルチフレーム)ときは実測の倍率で割る。単独表示では 1
+            const outerScale = iframeRect.width / (iframeRef.current.clientWidth || iframeRect.width) || 1;
+            const frameX = (e.clientX - iframeRect.left) / outerScale;
+            const frameY = (e.clientY - iframeRect.top) / outerScale;
             const slideRoot = findSlideRoot(iframeDoc);
             let x: number;
             let y: number;
             if (slideRoot) {
               const rootRect = slideRoot.getBoundingClientRect();
               const rootScale = rootRect.width / (slideRoot.offsetWidth || rootRect.width) || 1;
-              x = (e.clientX - iframeRect.left - rootRect.left) / rootScale;
-              y = (e.clientY - iframeRect.top - rootRect.top) / rootScale;
+              x = (frameX - rootRect.left) / rootScale;
+              y = (frameY - rootRect.top) / rootScale;
             } else {
-              const dropScale = zoom || 1;
-              x = (e.clientX - iframeRect.left) / dropScale;
-              y = (e.clientY - iframeRect.top) / dropScale;
+              const dropScale = (zoom || 100) / 100;
+              x = frameX / dropScale;
+              y = frameY / dropScale;
             }
 
             // 部品モード: 定義を実体化してそのまま置く(JSON のインスタンスは作らない)。
@@ -1266,7 +1300,7 @@ function FrontendVisualEditorInner({
                 return;
               }
               if (editorMode === 'webpage') {
-                insertIntoFlow(iframeDoc, element, e.clientX - iframeRect.left, e.clientY - iframeRect.top);
+                insertIntoFlow(iframeDoc, element, frameX, frameY);
               } else {
                 element.style.position = 'absolute';
                 element.style.left = `${x}px`;
@@ -2000,7 +2034,8 @@ function FrontendVisualEditorInner({
             }),
           page: Number(currentContentId ?? contentId) || 1,
         }}
-        onSwitchUi={() => switchUi('ppt')}
+        /* マルチフレームのキャンバスは Figma 風の殻だけ(PowerPoint 風には切り替えない) */
+        onSwitchUi={isMultiPageCanvas ? undefined : () => switchUi('ppt')}
         onSave={effectiveSave}
         onSaveSettings={handleSaveCurrentSettings}
         onClose={handleClose}
@@ -2026,8 +2061,6 @@ function FrontendVisualEditorInner({
             上下2段=ページ切替+レイヤー(Figma風。キャンバス編集中はページの並びがキャンバス側にあるので出さない) */}
         {isPpt ? (
           <PptThumbnails page={Number(currentContentId ?? contentId) || 1} theme={pptTheme} search={pptSearch} />
-        ) : isMultiPageCanvas ? (
-          <EditorLayerPanel />
         ) : (
           <div className={layersOpen && !isComponentPanelOpen ? "flex min-h-0" : "hidden"}>
             <LeftPanel page={Number(currentContentId ?? contentId) || 1} pagesSlot={pagesPanel} />
@@ -2170,7 +2203,7 @@ function FrontendVisualEditorInner({
             コメントを開いている間はプロパティ(詳細編集)を引っ込め、閉じると戻る。
             2つ並ぶと「いまどちらを操作しているのか」が分からなくなるため */}
         {!isPpt && !pptCommentsOpen && (editorMode === 'slide' || selectedElement || selectedElementIds.length > 0 || activeTool === 'scale') && <EditorPropertyPanel />}
-        {!isMultiPageCanvas && can('commentAction') && (
+        {can('commentAction') && (
           <PptCommentMarkers
             page={Number(currentContentId ?? contentId) || 1}
             onOpenThread={(id) => {
@@ -2182,7 +2215,7 @@ function FrontendVisualEditorInner({
         {isPpt && pptFormatPaneOpen && (
           <PptFormatPane theme={pptTheme} onClose={() => setPptFormatPaneOpen(false)} />
         )}
-        {!isMultiPageCanvas && can('commentAction') && (pptCommentsOpen || commentsMounted) && (
+        {can('commentAction') && (pptCommentsOpen || commentsMounted) && (
           <div className={pptCommentsOpen ? 'flex min-h-0' : 'hidden'}>
           <PptCommentsPanel
             page={Number(currentContentId ?? contentId) || 1}
@@ -2199,7 +2232,7 @@ function FrontendVisualEditorInner({
       {/* ノート欄(トークスクリプト)。PowerPoint風・Figma風の両方に出す。
           Figma風はダーク配色で固定(スキンと馴染む) */}
       {/* ノート欄は発表原稿。Webページには無い概念なので出さない */}
-      {!isMultiPageCanvas && editorMode !== 'webpage' && can('apiFetch') && (
+      {editorMode !== 'webpage' && can('apiFetch') && (
         <PptNotes page={Number(currentContentId ?? contentId) || 1} theme={pptTheme} />
       )}
 
@@ -2542,6 +2575,8 @@ export function FrontendVisualEditor({
   contentList: externalContentList,
   pagesPanel,
   headerExtra,
+  onContentChange: onContentChangeProp,
+  canvasStorageKey,
 }: FrontendVisualEditorProps) {
   const { getIdToken } = useAuth();
   const [contentList, setContentList] = useState<ContentListItem[]>(externalContentList || []);
@@ -2680,45 +2715,109 @@ export function FrontendVisualEditor({
     fetchContentList();
   }, [effectiveParentId, effectiveContentId, getIdToken, editorMode]);
 
-  // コンテンツ変更ハンドラ（editorModeに応じてAPIを切り替え）
-  const handleContentChange = useCallback(async (newContentId: string) => {
-    if (!effectiveParentId || newContentId === currentContentId) return;
+  // 利用側への通知は最新の閉包で(切替の非同期処理の途中で props が変わっても取り違えない)
+  const onContentChangeRef = useRef(onContentChangeProp);
+  onContentChangeRef.current = onContentChangeProp;
+  const currentContentIdRef = useRef(currentContentId);
+  currentContentIdRef.current = currentContentId;
 
-    // キャンバスモード時はisLoadingをスキップ（EditorProviderのアンマウントを防止）
+  /**
+   * 編集するページを移す。本文の取り方は順に:
+   *   1. io.loadContent(id)            … 利用側が持つ読み込み(最新が取れる)
+   *   2. contentList[].thumbnailHtml    … 一覧に本文を同梱している場合
+   *   3. parentId の API(gg-manager)    … 従来の経路
+   * どれも無ければ移れない(黙って何もしない)。
+   *
+   * 入口はフレームのクリック(activatePage)と、利用側の contentId プロップの変更の 2 つ。
+   * どちらから来ても **ここで** 未保存の変更を保存してから移る(入口ごとに保存を
+   * 書くと、片方に漏れて 2 秒以内の編集が消える)。
+   * マルチフレームのキャンバスでは isLoading にしない(EditorProvider を外すと
+   * 生きているエディタが消えて、キャンバスごと作り直しになる)。
+   * 戻り値は移れたか(キャンバスの activatePage がリングの戻しに使う)
+   */
+  const switchSeqRef = useRef(0);
+  const handleContentChange = useCallback(async (newContentId: string): Promise<boolean> => {
+    if (newContentId === currentContentIdRef.current) return true;
+    const listItem = contentList.find((c) => c.id === newContentId);
+    const loader = io().loadContent;
+    const canUseApi = !!effectiveParentId && !loader && listItem?.thumbnailHtml == null;
+    if (!loader && listItem?.thumbnailHtml == null && !effectiveParentId) {
+      console.warn('[FrontendVisualEditor] ページを移れません: io.loadContent か contentList[].thumbnailHtml か parentId が必要です');
+      return false;
+    }
+    // 連続して呼ばれたら最後の 1 つだけを通す(前の読み込み結果で上書きしない)
+    const seq = ++switchSeqRef.current;
+    const superseded = () => seq !== switchSeqRef.current;
+
+    // 未保存の変更は黙って保存してから移る(失敗したときだけ確認する)。
+    // 保存の可否を見るのは切替を印す前(印した後は保存が見送られる)
+    if (!(await flushAutoSave())) {
+      if (superseded()) return false;
+      if (!window.confirm('保存に失敗しました。変更を破棄して移動しますか?')) {
+        // 利用側の「編集中のページ」を今のページへ戻す(プロップ経由で来たとき用)
+        const stay = currentContentIdRef.current;
+        if (stay) onContentChangeRef.current?.(stay);
+        return false;
+      }
+    }
+    if (superseded()) return false;
+
     if (!enableMultiPageCanvas) {
       setIsLoading(true);
     }
+    // ここから iframe の初期化が終わるまで自動保存を止める(前ページの本文を次ページへ書かない)
+    beginContentSwitch();
+    let handedOver = false;
     try {
-      // 新しいコンテンツのHTMLを取得
-      const api = await createAuthApi(getIdToken);
-
-      if (editorMode === 'webpage') {
-        // Webページモード
-        const data = await api.get(`/api/websites/${effectiveParentId}/pages/${newContentId}`);
-        const newHtml = data.page?.content?.html || '';
-        const newLayoutMode = data.page?.layoutMode || 'auto';
-
-        setCurrentHtml(newHtml);
-        setCurrentLayoutMode(newLayoutMode);
-        setCurrentContentId(newContentId);
+      let newHtml = '';
+      let newLayoutMode: 'absolute' | 'auto' = 'auto';
+      if (loader) {
+        newHtml = (await loader(newContentId)) ?? '';
+      } else if (!canUseApi) {
+        newHtml = listItem?.thumbnailHtml ?? '';
       } else {
-        // スライドモード（デフォルト）
-        const data = await api.get(`/api/presentations/${effectiveParentId}/slides/${newContentId}`);
-        const newHtml = data.slide?.generatedHtml || data.slide?.content?.html || '';
-        const newLayoutMode = data.slide?.layoutMode || 'auto';
-
-        setCurrentHtml(newHtml);
-        setCurrentLayoutMode(newLayoutMode);
-        setCurrentContentId(newContentId);
+        const api = await createAuthApi(getIdToken);
+        if (editorMode === 'webpage') {
+          const data = await api.get(`/api/websites/${effectiveParentId}/pages/${newContentId}`);
+          newHtml = data.page?.content?.html || '';
+          newLayoutMode = data.page?.layoutMode || 'auto';
+        } else {
+          const data = await api.get(`/api/presentations/${effectiveParentId}/slides/${newContentId}`);
+          newHtml = data.slide?.generatedHtml || data.slide?.content?.html || '';
+          newLayoutMode = data.slide?.layoutMode || 'auto';
+        }
       }
+      if (superseded()) return false;
+
+      setCurrentHtml(newHtml);
+      setCurrentLayoutMode(newLayoutMode);
+      setCurrentContentId(newContentId);
+      currentContentIdRef.current = newContentId;
+      // 以後の endContentSwitch は EditorCanvas(iframe の初期化後)が呼ぶ
+      handedOver = true;
+      onContentChangeRef.current?.(newContentId);
+      return true;
     } catch (error) {
       console.error('Failed to fetch content:', error);
+      toast.error('ページを読み込めませんでした');
+      return false;
     } finally {
+      // 本文を差し替えなかった(失敗・追い越された)なら、自分で印を外す
+      if (!handedOver) endContentSwitch();
       if (!enableMultiPageCanvas) {
         setIsLoading(false);
       }
     }
-  }, [effectiveParentId, currentContentId, getIdToken, editorMode, enableMultiPageCanvas]);
+  }, [effectiveParentId, getIdToken, editorMode, enableMultiPageCanvas, contentList]);
+
+  // 利用側が contentId プロップを変えたら、そのページへ移る(キャンバスのときだけ。
+  // 単独表示は従来どおり利用側が key で作り直す)
+  useEffect(() => {
+    if (!enableMultiPageCanvas || !effectiveContentId) return;
+    if (effectiveContentId === currentContentIdRef.current) return;
+    void handleContentChange(effectiveContentId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enableMultiPageCanvas, effectiveContentId]);
 
   useEffect(() => {
     if (html) {
@@ -2763,6 +2862,7 @@ export function FrontendVisualEditor({
       onLoadVariables={handleLoadVariables}
       websiteId={effectiveParentId}
       enableMultiPageCanvas={enableMultiPageCanvas}
+      canvasStorageKey={canvasStorageKey ?? effectiveParentId ?? null}
     >
       <FrontendVisualEditorInner
         onSave={onSave}

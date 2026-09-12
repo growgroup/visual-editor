@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, CornerUpLeft, Loader2, MapPin, RotateCcw, Send, MessageSquare, Sparkles, Trash2, X } from 'lucide-react';
 import { useEditorContext } from '../../EditorContext';
+import { useCanvasViewStateOptional } from '../../contexts/MultiPageCanvasContext';
 import { useDeck, applyDeck } from '../../../components/viewer/useDeck';
 import { commentAction, type SlideComment } from '../../../lib/deck';
 import { can, io, type EditorDeck } from '../../../io';
@@ -159,6 +160,8 @@ export function useCommentMarkers({
   const comments = deck.slides[page - 1]?.comments ?? [];
   const onOpenRef = useRef(onOpenThread);
   onOpenRef.current = onOpenThread;
+  // マルチフレームのキャンバスでは iframe の外側にも倍率が掛かる。ピンは画面上で同じ大きさに保つ
+  const outerZoom = useCanvasViewStateOptional()?.canvasZoom ?? 1;
 
   useEffect(() => {
     if (!active) return;
@@ -183,7 +186,8 @@ export function useCommentMarkers({
         if (!wanted.has(button.dataset.commentId!)) button.remove();
       });
       const rootRect = artboard.getBoundingClientRect();
-      const scale = rootRect.width / artboard.offsetWidth || 1;
+      const innerScale = rootRect.width / artboard.offsetWidth || 1;
+      const scale = innerScale * outerZoom;
       const size = 32 / scale;
       const stacks = new Map<string, number>();
       for (const c of anchored) {
@@ -214,8 +218,8 @@ export function useCommentMarkers({
         const rect = target.getBoundingClientRect();
         const stack = stacks.get(c.anchorSrc!) ?? 0;
         stacks.set(c.anchorSrc!, stack + 1);
-        const x = Math.max(0, Math.min(artboard.offsetWidth - size, (rect.right - rootRect.left) / scale - size / 2));
-        const y = Math.max(0, (rect.top - rootRect.top) / scale - size / 2) + stack * (size + 4 / scale);
+        const x = Math.max(0, Math.min(artboard.offsetWidth - size, (rect.right - rootRect.left) / innerScale - size / 2));
+        const y = Math.max(0, (rect.top - rootRect.top) / innerScale - size / 2) + stack * (size + 4 / scale);
         const styles: Partial<CSSStyleDeclaration> = {
           position: 'absolute', left: `${x}px`, top: `${y}px`, width: `${size}px`, height: `${size}px`,
           borderRadius: '50% 50% 50% 4px', background: '#2459c4', color: '#fff', fontSize: `${13 / scale}px`,
@@ -240,7 +244,7 @@ export function useCommentMarkers({
       const layer = getIframeDoc()?.querySelector('.gg-comment-layer');
       layer?.remove();
     };
-  }, [active, page, getIframeDoc, JSON.stringify(comments.map((c) => [c.id, c.anchorSrc, c.resolved, c.author, c.text]))]);
+  }, [active, page, getIframeDoc, outerZoom, JSON.stringify(comments.map((c) => [c.id, c.anchorSrc, c.resolved, c.author, c.text]))]);
 }
 
 /* ============================ 右パネル ============================ */

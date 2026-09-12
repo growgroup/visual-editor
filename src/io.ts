@@ -77,7 +77,7 @@ export type UploadResult = { url: string; width?: number; height?: number };
  *
  * ページに挿すときは**実体化**する: 定義を複製してルートに `data-part` `data-part-v` を付けた
  * 完全な HTML がページに残る。エディタは `data-slot` の中だけを編集対象にし、
- * 定義を変えたあとの一括反映は利用側のスクリプト(parts:sync)が行う。
+ * 定義を変えたあとの他ページへの反映は利用側(savePart の実装)が行う。
  */
 export type EditorPartDef = {
   /** 識別子。`data-part` の値になる(ファイル名にも使うので英数字と - _ だけ) */

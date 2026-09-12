@@ -683,11 +683,11 @@ export function useComponentEditMode({
     });
     closeContextMenu();
     toast.success('部品から切り離しました', {
-      description: 'この要素は普通の HTML になり、parts:sync の対象から外れます',
+      description: 'この要素は普通の HTML になり、部品の更新の対象から外れます',
     });
   }, [selectedElement?.id, getIframeDoc, notifyIframeChange, setSelectedElement, closeContextMenu]);
 
-  // インスタンスの今の姿で定義を更新する(版 +1)。他ページへは利用側の parts:sync で反映する
+  // インスタンスの今の姿で定義を更新する(版 +1)。他ページへの反映は利用側(io.savePart の実装)が行う
   const handleUpdatePart = useCallback(async () => {
     if (!selectedElement?.id) return;
     const doc = getIframeDoc();
@@ -698,9 +698,7 @@ export function useComponentEditMode({
       if (!def) return;
       notifyIframeChange(true);
       closeContextMenu();
-      toast.success(`部品「${def.name ?? def.id}」を v${def.version} に更新しました`, {
-        description: '他のページのインスタンスへは parts:sync で反映します',
-      });
+      toast.success(`部品「${def.name ?? def.id}」を v${def.version} に更新しました`);
     } catch (error) {
       console.error('Failed to update part:', error);
       toast.error('部品の更新に失敗しました');

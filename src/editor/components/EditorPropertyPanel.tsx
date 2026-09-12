@@ -1293,7 +1293,7 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                 <span className="truncate font-medium">部品: {selectedPartLabel}</span>
               </div>
               <p className="text-[10px] leading-snug text-gray-500">
-                スロット(data-slot)の中だけ編集できます。定義を変えたあとの他ページへの反映は parts:sync。
+                スロット(data-slot)の中だけ編集できます。「この姿で部品を更新」で定義が変わり、他ページへの反映は利用側(savePart)が行います。
               </p>
               <div className="flex gap-1">
                 <Button

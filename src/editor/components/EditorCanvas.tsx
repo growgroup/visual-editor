@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useMemo, useRef, useState } from "react";
+import { useEffect, useCallback, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { useEditorContext } from "../EditorContext";
 import { useCanvasControls } from "../hooks/useCanvasControls";
 import { useElementActions } from "../hooks/useElementActions";
@@ -887,7 +887,9 @@ export function EditorCanvas() {
   // 依存に iframeHtml(=originalHtml由来)を含めることで、ページ切替(サムネイル/URL)で
   // コンテンツが差し替わったときに**iframeだけ**を作り直す。殻(ヘッダー・パネル・
   // サムネイル)は残るので、切替のたびに画面全体がリロードされたようには見えない
-  useEffect(() => {
+  // useLayoutEffect なのは、setIframeReady(false)(エディタを隠す)を、枠が新しいページへ移る
+  // 描画と同じフレームに載せるため。useEffect だと 1 フレームだけ前のページの姿が新しい枠に見える
+  useLayoutEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
 

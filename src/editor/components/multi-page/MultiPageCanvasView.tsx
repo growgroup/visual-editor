@@ -246,6 +246,7 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
   // 行の隙間(画面上)に名前が収まらない倍率では名前を出さない。出すと下の行の名前が
   // 上の行のフレームに被り、フレームのクリックを奪う(150 枚の全体表示で実測)
   const labelsVisible = FRAME_GAP[canvas.editorMode].y * canvasZoom >= LABEL_HEIGHT + 6;
+  // data-interacting はズーム・パン中の印(CSS・検証用のフック。中では willChange に使う)
   const layerTransform = `translate(${canvasOffset.x}px, ${canvasOffset.y}px) scale(${canvasZoom})`;
   const overlayTransform = `translate(${canvasOffset.x}px, ${canvasOffset.y}px)`;
 

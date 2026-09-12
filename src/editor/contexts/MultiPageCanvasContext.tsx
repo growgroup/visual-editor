@@ -750,7 +750,8 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     const holders = slotHoldersRef.current;
     const queue = slotQueueRef.current;
     if (holders.size >= PREVIEW_PARALLEL || queue.length === 0) return;
-    const indexOf = (id: string) => pagesRef.current.find((p) => p.id === id)?.index ?? 0;
+    const indexById = new Map(pagesRef.current.map((p) => [p.id, p.index] as const));
+    const indexOf = (id: string) => indexById.get(id) ?? 0;
     const activeId = viewStore.get().activePageId;
     const activeIndex = activeId ? indexOf(activeId) : 0;
     queue.sort((a, b) => Math.abs(indexOf(a.id) - activeIndex) - Math.abs(indexOf(b.id) - activeIndex));

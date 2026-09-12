@@ -18,6 +18,11 @@
  * ドラッグ中にポインタが iframe の上へ入ると、mousemove / mouseup は iframe の文書へ
  * 届き、親の window には来ない(実測)。押した瞬間から離すまで、エディタの層を
  * pointer-events: none にして、親が最後まで受ける(armed)
+ *
+ * [途中で Space を押しても取り残さない]
+ * mousemove / mouseup の購読は enabled に関係なく張っておく(enabled は押し始めだけに効く)。
+ * 押している途中で Space(パン)を押して enabled が切れても、離したときに必ず畳める。
+ * Escape とウィンドウの blur でも畳む(ボタンを離したことが分からないため)
  */
 
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
@@ -61,6 +66,10 @@ export function useCanvasMarquee(containerRef: RefObject<HTMLDivElement | null>,
   const { enabled } = options;
   const { setSelectedElementIds } = useEditorContext();
   const canvas = useMultiPageCanvasOptional();
+  // Context の値はズーム・パン中(markInteracting)に変わる。effect の依存に入れると
+  // ドラッグの最中に張り直されて状態が畳まれる(実測)ので ref で持つ
+  const canvasRef = useRef(canvas);
+  canvasRef.current = canvas;
   const [rect, setRect] = useState<CanvasMarqueeRect | null>(null);
   const [armed, setArmed] = useState(false);
   const startRef = useRef<{ x: number; y: number; additive: boolean } | null>(null);
@@ -108,8 +117,14 @@ export function useCanvasMarquee(containerRef: RefObject<HTMLDivElement | null>,
     [enabled, isBlankTarget, containerRef, editorIframe],
   );
 
+  const cancel = useCallback(() => {
+    startRef.current = null;
+    activeRef.current = false;
+    setRect(null);
+    setArmed(false);
+  }, []);
+
   useEffect(() => {
-    if (!enabled) return;
     const onMove = (e: MouseEvent) => {
       const start = startRef.current;
       const container = containerRef.current;
@@ -120,7 +135,7 @@ export function useCanvasMarquee(containerRef: RefObject<HTMLDivElement | null>,
       if (!activeRef.current) {
         if (Math.abs(x - start.x) < MARQUEE_DRAG_THRESHOLD && Math.abs(y - start.y) < MARQUEE_DRAG_THRESHOLD) return;
         activeRef.current = true;
-        canvas?.markInteracting();
+        canvasRef.current?.markInteracting();
       }
       setRect({ left: Math.min(start.x, x), top: Math.min(start.y, y), width: Math.abs(x - start.x), height: Math.abs(y - start.y) });
     };
@@ -161,13 +176,21 @@ export function useCanvasMarquee(containerRef: RefObject<HTMLDivElement | null>,
         window.postMessage({ type: 'ELEMENT_DESELECTED' }, '*');
       }
     };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && startRef.current) cancel();
+    };
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', finish);
+    window.addEventListener('blur', cancel);
+    window.addEventListener('keydown', onKeyDown);
     return () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', finish);
+      window.removeEventListener('blur', cancel);
+      window.removeEventListener('keydown', onKeyDown);
+      cancel();
     };
-  }, [enabled, containerRef, editorIframe, canvas]);
+  }, [containerRef, editorIframe, cancel]);
 
   return { marqueeRect: rect, marqueeArmed: armed, onMouseDown };
 }

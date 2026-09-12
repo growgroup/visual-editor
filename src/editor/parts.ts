@@ -148,15 +148,21 @@ export function stripEditorAttrs(root: Element): void {
 /** スロットを推定して付ける対象(文字や画像を持ちうる要素) */
 const SLOT_TAGS: Record<string, string> = {
   h1: 'heading', h2: 'heading', h3: 'heading', h4: 'heading', h5: 'heading', h6: 'heading',
-  p: 'body', li: 'item', a: 'link', button: 'button', img: 'image',
-  figcaption: 'caption', blockquote: 'quote', dt: 'term', dd: 'desc',
-  td: 'cell', th: 'cell', label: 'label', span: 'text', time: 'time', small: 'note',
+  p: 'body', a: 'link', button: 'button', img: 'image',
+  figcaption: 'caption', blockquote: 'quote', label: 'label', span: 'text', time: 'time', small: 'note',
 };
 
+/** タグだけの骨格(「同じ形の兄弟」の判定用。文字と属性は見ない) */
+const tagSkeleton = (el: Element): string =>
+  `${el.tagName.toLowerCase()}${el.children.length ? `(${Array.from(el.children).map(tagSkeleton).join(',')})` : ''}`;
+
 /**
- * スロットの推定。既に `data-slot` があるものはそのまま。
- * 文書順に見て、祖先が既にスロットなら付けない(入れ子のスロットを作らない)。
- * span は文字だけを直接持つときだけ。svg の中は見ない。
+ * スロットの推定。既に `data-slot` があるものはそのまま。祖先が既にスロットなら付けない(入れ子のスロットを作らない)。
+ *
+ * 1. 繰り返し(ul/ol・dl・table、同じ形の子が 2 つ以上並ぶ器)は**器ごと 1 つのスロット**(list / items)。
+ *    カードが 3 枚か 4 枚かはページの内容であって部品の構造ではないので、項目ごとにスロットを切らない
+ *    (切ると、定義より多い項目が sync で捨てられる)。ルート自身が繰り返しの器ならルートがスロットになる
+ * 2. 残りはタグで(見出し→heading、段落→body、リンク→link …)。span は文字だけを直接持つときだけ。svg の中は見ない
  * 戻り値は付けた数。
  */
 export function inferSlots(root: Element): number {
@@ -172,12 +178,32 @@ export function inferSlots(root: Element): number {
     const base = v.replace(/-\d+$/, '');
     if (base) used.set(base, Math.max(used.get(base) ?? 0, 1));
   }
-  const candidates = Array.from(root.querySelectorAll('*'));
-  for (const el of candidates) {
-    if (el.closest('svg')) continue;
-    if (el.hasAttribute(SLOT_ATTR)) continue;
-    const ancestorSlot = el.parentElement?.closest(`[${SLOT_ATTR}]`);
-    if (ancestorSlot && root.contains(ancestorSlot)) continue;
+  const inSlot = (el: Element) => {
+    const a = el.parentElement?.closest(`[${SLOT_ATTR}]`);
+    return !!(a && root.contains(a));
+  };
+  const skip = (el: Element) => !!el.closest('svg') || el.hasAttribute(SLOT_ATTR) || inSlot(el);
+  const isRepeatContainer = (el: Element) => {
+    const kids = Array.from(el.children);
+    const tag = el.tagName.toLowerCase();
+    if ((tag === 'ul' || tag === 'ol') && kids.some((k) => k.tagName.toLowerCase() === 'li')) return 'list';
+    if (tag === 'dl' || tag === 'table') return 'list';
+    if (kids.length >= 2 && kids.every((k) => tagSkeleton(k) === tagSkeleton(kids[0]))) return 'items';
+    return null;
+  };
+  // 1. 繰り返しの器(ルート自身も含む。文書順なので外側が先に決まり、中の器は祖先がスロットになって飛ばされる)
+  for (const el of [root, ...Array.from(root.querySelectorAll('*'))]) {
+    if (el !== root && skip(el)) continue;
+    if (el === root && el.hasAttribute(SLOT_ATTR)) continue;
+    const kind = isRepeatContainer(el);
+    if (!kind) continue;
+    el.setAttribute(SLOT_ATTR, nameFor(kind));
+    count++;
+  }
+  if (root.hasAttribute(SLOT_ATTR)) return count;
+  // 2. 残りはタグで
+  for (const el of Array.from(root.querySelectorAll('*'))) {
+    if (skip(el)) continue;
     const tag = el.tagName.toLowerCase();
     const base = SLOT_TAGS[tag];
     if (!base) continue;

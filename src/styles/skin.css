@@ -303,6 +303,7 @@
 .gg-editor-ui .ed-frame-label-loading { width: 9px; height: 9px; border: 1.5px solid var(--ed-line-strong); border-top-color: var(--ed-accent); border-radius: 50%; animation: ed-spin 0.8s linear infinite; flex-shrink: 0; }
 @keyframes ed-spin { to { transform: rotate(360deg); } }
 .gg-editor-ui .ed-frame-ring { position: absolute; left: 0; top: 0; pointer-events: none; border-radius: 1px; }
+.gg-editor-ui .ed-canvas-marquee { position: absolute; z-index: 20; pointer-events: none; border: 1px solid var(--ed-accent); background: color-mix(in srgb, var(--ed-accent) 12%, transparent); }
 .gg-editor-ui .ed-frame-ring-active { box-shadow: 0 0 0 1.5px var(--ed-accent-strong); }
 .gg-editor-ui .ed-frame-ring-hover { box-shadow: 0 0 0 1px var(--ed-accent-strong); opacity: 0.55; }
 .gg-editor-ui .ed-frame-skeleton { position: absolute; inset: 0; padding: 6% 8%; display: flex; flex-direction: column; gap: 3%; background: #fff; }

@@ -21,6 +21,7 @@
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useMultiPageCanvasOptional, MIN_ZOOM, MAX_ZOOM } from '../contexts/MultiPageCanvasContext';
+import { isSpaceActivatedControl } from './useCanvasControls';
 
 /** iframe 側が転送してくるメッセージ */
 export type EmbeddedCanvasMessage =
@@ -90,11 +91,11 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
     const applyWheel = (deltaX: number, deltaY: number, clientX: number, clientY: number, zoomGesture: boolean, shiftKey: boolean) => {
       c().markInteracting();
       if (zoomGesture) {
-        const { canvasZoom } = c().viewState;
+        const { canvasZoom } = c().viewStore.get();
         c().zoomAt(canvasZoom * wheelFactor(deltaY), toContainerPoint(clientX, clientY));
         return;
       }
-      const { canvasOffset } = c().viewState;
+      const { canvasOffset } = c().viewStore.get();
       // Shift + 縦ホイール = 横パン(マウス向け。トラックパッドは deltaX が来る)
       const dx = shiftKey && deltaX === 0 ? deltaY : deltaX;
       const dy = shiftKey && deltaX === 0 ? 0 : deltaY;
@@ -105,7 +106,7 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
       if (!previousDistance || !currentDistance) return;
       c().markInteracting();
       const factor = Math.max(1 / MAX_STEP, Math.min(MAX_STEP, currentDistance / previousDistance));
-      c().zoomAt(c().viewState.canvasZoom * factor, toContainerPoint(clientX, clientY));
+      c().zoomAt(c().viewStore.get().canvasZoom * factor, toContainerPoint(clientX, clientY));
     };
 
     const startPan = (clientX: number, clientY: number) => {
@@ -128,7 +129,7 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
     };
 
     // ---- キー
-    const stepZoom = (dir: 1 | -1) => c().zoomTo(c().viewState.canvasZoom * (dir > 0 ? KEY_STEP : 1 / KEY_STEP), { animate: true });
+    const stepZoom = (dir: 1 | -1) => c().zoomTo(c().viewStore.get().canvasZoom * (dir > 0 ? KEY_STEP : 1 / KEY_STEP), { animate: true });
     const handleKey = (kind: 'down' | 'up', key: string, code: string, mods: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }, preventDefault: () => void, typing: boolean) => {
       if (code === 'Space') {
         if (typing) return;
@@ -154,7 +155,7 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
         if (key === '0' || code === 'Digit0') { preventDefault(); c().zoomToActual(); return; }
         if (key === '1' || code === 'Digit1') { preventDefault(); c().zoomToFit({ animate: true }); return; }
         if (key === '2' || code === 'Digit2') {
-          const id = c().viewState.activePageId;
+          const id = c().viewStore.get().activePageId;
           if (id) { preventDefault(); c().zoomToPage(id, { animate: true }); }
           return;
         }
@@ -162,11 +163,16 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
       }
     };
 
+    // ボタンにフォーカスがあるときの Space はそのボタンのもの(キーボードだけで操作している人が押せなくなる)
+    const spaceBelongsToControl = (e: KeyboardEvent) =>
+      e.code === 'Space' && (isSpaceActivatedControl(e.target) || isSpaceActivatedControl(document.activeElement));
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (spaceBelongsToControl(e)) return;
       if (e.repeat && e.code === 'Space') { if (!isTypingTarget(e.target)) e.preventDefault(); return; }
       handleKey('down', e.key, e.code, e, () => e.preventDefault(), isTypingTarget(e.target));
     };
     const handleKeyUp = (e: KeyboardEvent) => {
+      if (spaceBelongsToControl(e) && !spaceRef.current) return;
       handleKey('up', e.key, e.code, e, () => e.preventDefault(), isTypingTarget(e.target));
     };
     // ウィンドウのフォーカスが外れたら Space を離したことにする(押しっぱなし状態が残らない)
@@ -191,7 +197,7 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
       const dx = e.clientX - lastPanPosRef.current.x;
       const dy = e.clientY - lastPanPosRef.current.y;
       lastPanPosRef.current = { x: e.clientX, y: e.clientY };
-      const { canvasOffset } = c().viewState;
+      const { canvasOffset } = c().viewStore.get();
       c().setCanvasOffset({ x: canvasOffset.x + dx, y: canvasOffset.y + dy });
       c().markInteracting();
     };
@@ -232,7 +238,7 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
       if (e.touches.length === 1) lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       else if (e.touches.length === 2) {
         e.preventDefault();
-        pinchStart = { distance: distance(e.touches[0], e.touches[1]), zoom: c().viewState.canvasZoom };
+        pinchStart = { distance: distance(e.touches[0], e.touches[1]), zoom: c().viewStore.get().canvasZoom };
         lastTouch = null;
       }
     };
@@ -241,7 +247,7 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
         const dx = e.touches[0].clientX - lastTouch.x;
         const dy = e.touches[0].clientY - lastTouch.y;
         lastTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-        const { canvasOffset } = c().viewState;
+        const { canvasOffset } = c().viewStore.get();
         c().setCanvasOffset({ x: canvasOffset.x + dx, y: canvasOffset.y + dy });
         c().markInteracting();
       } else if (e.touches.length === 2 && pinchStart) {

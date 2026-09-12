@@ -152,6 +152,15 @@ export type EditorIO = {
   loadContent?: (id: string) => Promise<string>;
 
   /**
+   * 見るだけの紙面(マルチフレームのキャンバスで、編集していないページ)に足すスタイル。
+   * 紙面は script を動かさない(sandbox)ので、本文が Tailwind のブラウザ版 JIT に
+   * 頼っている利用側は、コンパイル済み CSS の URL か CSS 文字列をここで渡す
+   * (提案書のテンプレートは自分のページの stylesheet を渡す)。
+   * 本文に CSS が入っている利用側(構成ラフ)は不要
+   */
+  previewStyles?: () => PreviewStyle[] | Promise<PreviewStyle[]>;
+
+  /**
    * 部品(HTML の template)の一覧。渡すと部品パネルはこれを使い、
    * ブラウザ内(localStorage)の JSON コンポーネントは読まない。
    * 挿入は実体化(完全な HTML をページに残す)になる
@@ -194,3 +203,6 @@ export function notProvided(what: string): Error {
 }
 
 export const EMPTY_DECK: EditorDeck = { version: 0, title: "", slides: [] };
+
+/** 見るだけの紙面(マルチフレームのキャンバス)に足すスタイル(URL か CSS 文字列)。io.previewStyles が返す */
+export type PreviewStyle = { href: string } | { css: string };

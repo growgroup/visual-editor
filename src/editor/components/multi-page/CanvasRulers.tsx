@@ -7,7 +7,7 @@
  */
 
 import { memo, useEffect, useRef } from 'react';
-import { RULER_SIZE, useMultiPageCanvas } from '../../contexts/MultiPageCanvasContext';
+import { RULER_SIZE, useMultiPageCanvas, useCanvasViewState } from '../../contexts/MultiPageCanvasContext';
 
 /** 目盛りの候補(紙面の px)。画面上で 60px 以上離れる最小のものを選ぶ */
 const STEPS = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
@@ -22,7 +22,8 @@ function readVar(el: HTMLElement, name: string, fallback: string): string {
 }
 
 export const CanvasRulers = memo(function CanvasRulers({ theme }: { theme: 'light' | 'dark' }) {
-  const { viewState, pages } = useMultiPageCanvas();
+  const { pages } = useMultiPageCanvas();
+  const viewState = useCanvasViewState();
   const topRef = useRef<HTMLCanvasElement>(null);
   const leftRef = useRef<HTMLCanvasElement>(null);
   const { canvasOffset, canvasZoom, activePageId } = viewState;

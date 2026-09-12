@@ -60,6 +60,7 @@ import {
   useEditorArtboard,
   type ContentListItem,
   type ArtboardState,
+  type ContentChangeHandler,
 } from './contexts/EditorArtboardContext';
 import {
   EditorUIStateProvider,
@@ -134,7 +135,7 @@ interface EditorContextValue {
   // コンテンツリスト（他コンテンツへのナビゲーション用）
   contentList: ContentListItem[];
   currentContentId: string | null;
-  onContentChange: ((contentId: string) => void) | null;
+  onContentChange: ContentChangeHandler | null;
 
   /** @deprecated Use contentList instead */
   slides: ContentListItem[];
@@ -263,7 +264,7 @@ interface EditorProviderProps {
   artboardWidth?: number;
   contentList?: ContentListItem[];
   currentContentId?: string;
-  onContentChange?: (contentId: string) => void;
+  onContentChange?: ContentChangeHandler;
   initialLayoutMode?: 'absolute' | 'auto';
   /** CSS変数の初期値 */
   initialVariables?: CSSVariableDefinition[];

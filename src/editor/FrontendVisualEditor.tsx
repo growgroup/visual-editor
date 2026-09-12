@@ -30,7 +30,7 @@ import { PptFormatPane } from './components/ppt/PptFormatPane';
 import { createAuthApi } from '../lib/api/auth-fetch';
 import { useAuth } from '../components/auth/AuthProvider';
 import { findSlideRoot, findInsertionParent } from './utils/slide-root';
-import { registerAutoSaveFlush, beginContentSwitch, isContentSwitching } from './autosave';
+import { registerAutoSaveFlush, flushAutoSave, beginContentSwitch, endContentSwitch, isContentSwitching } from './autosave';
 import { getCleanHtml } from './utils/html-utils';
 import { EditorAppearanceContext, useEditorTheme } from './contexts/EditorAppearanceContext';
 import { CanvasAppearance } from './components/shell/CanvasAppearance';
@@ -2727,24 +2727,47 @@ export function FrontendVisualEditor({
    *   2. contentList[].thumbnailHtml    … 一覧に本文を同梱している場合
    *   3. parentId の API(gg-manager)    … 従来の経路
    * どれも無ければ移れない(黙って何もしない)。
+   *
+   * 入口はフレームのクリック(activatePage)と、利用側の contentId プロップの変更の 2 つ。
+   * どちらから来ても **ここで** 未保存の変更を保存してから移る(入口ごとに保存を
+   * 書くと、片方に漏れて 2 秒以内の編集が消える)。
    * マルチフレームのキャンバスでは isLoading にしない(EditorProvider を外すと
-   * 生きているエディタが消えて、キャンバスごと作り直しになる)
+   * 生きているエディタが消えて、キャンバスごと作り直しになる)。
+   * 戻り値は移れたか(キャンバスの activatePage がリングの戻しに使う)
    */
-  const handleContentChange = useCallback(async (newContentId: string) => {
-    if (newContentId === currentContentIdRef.current) return;
+  const switchSeqRef = useRef(0);
+  const handleContentChange = useCallback(async (newContentId: string): Promise<boolean> => {
+    if (newContentId === currentContentIdRef.current) return true;
     const listItem = contentList.find((c) => c.id === newContentId);
     const loader = io().loadContent;
     const canUseApi = !!effectiveParentId && !loader && listItem?.thumbnailHtml == null;
     if (!loader && listItem?.thumbnailHtml == null && !effectiveParentId) {
       console.warn('[FrontendVisualEditor] ページを移れません: io.loadContent か contentList[].thumbnailHtml か parentId が必要です');
-      return;
+      return false;
     }
+    // 連続して呼ばれたら最後の 1 つだけを通す(前の読み込み結果で上書きしない)
+    const seq = ++switchSeqRef.current;
+    const superseded = () => seq !== switchSeqRef.current;
+
+    // 未保存の変更は黙って保存してから移る(失敗したときだけ確認する)。
+    // 保存の可否を見るのは切替を印す前(印した後は保存が見送られる)
+    if (!(await flushAutoSave())) {
+      if (superseded()) return false;
+      if (!window.confirm('保存に失敗しました。変更を破棄して移動しますか?')) {
+        // 利用側の「編集中のページ」を今のページへ戻す(プロップ経由で来たとき用)
+        const stay = currentContentIdRef.current;
+        if (stay) onContentChangeRef.current?.(stay);
+        return false;
+      }
+    }
+    if (superseded()) return false;
 
     if (!enableMultiPageCanvas) {
       setIsLoading(true);
     }
     // ここから iframe の初期化が終わるまで自動保存を止める(前ページの本文を次ページへ書かない)
     beginContentSwitch();
+    let handedOver = false;
     try {
       let newHtml = '';
       let newLayoutMode: 'absolute' | 'auto' = 'auto';
@@ -2764,16 +2787,23 @@ export function FrontendVisualEditor({
           newLayoutMode = data.slide?.layoutMode || 'auto';
         }
       }
+      if (superseded()) return false;
 
       setCurrentHtml(newHtml);
       setCurrentLayoutMode(newLayoutMode);
       setCurrentContentId(newContentId);
       currentContentIdRef.current = newContentId;
+      // 以後の endContentSwitch は EditorCanvas(iframe の初期化後)が呼ぶ
+      handedOver = true;
       onContentChangeRef.current?.(newContentId);
+      return true;
     } catch (error) {
       console.error('Failed to fetch content:', error);
       toast.error('ページを読み込めませんでした');
+      return false;
     } finally {
+      // 本文を差し替えなかった(失敗・追い越された)なら、自分で印を外す
+      if (!handedOver) endContentSwitch();
       if (!enableMultiPageCanvas) {
         setIsLoading(false);
       }

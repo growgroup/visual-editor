@@ -17,6 +17,12 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import type { DOMTreeNode } from '../types';
 
+/**
+ * ページ切替の通知。戻り値に false(または false に解決する Promise)を返すと
+ * 「移れなかった」として扱う(マルチフレームのキャンバスが activatePage の結果に使う)
+ */
+export type ContentChangeHandler = (contentId: string) => void | boolean | Promise<boolean | void>;
+
 // コンテンツリスト用の軽量型（スライド、ページ、コンポーネント等で共用）
 export interface ContentListItem {
   id: string;
@@ -48,7 +54,7 @@ export interface EditorArtboardContextValue {
   // コンテンツリスト
   contentList: ContentListItem[];
   currentContentId: string | null;
-  onContentChange: ((contentId: string) => void) | null;
+  onContentChange: ContentChangeHandler | null;
 
   // Deprecated aliases
   /** @deprecated Use contentList instead */
@@ -72,7 +78,7 @@ export function useEditorArtboard(): EditorArtboardContextValue {
 interface EditorArtboardProviderProps {
   contentList?: ContentListItem[];
   currentContentId?: string;
-  onContentChange?: (contentId: string) => void;
+  onContentChange?: ContentChangeHandler;
   // 状態同期用のコールバック（ファサードで設定）
   onArtboardSwitch?: (
     newId: string,

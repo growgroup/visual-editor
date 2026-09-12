@@ -86,6 +86,9 @@ const VisualEditor = dynamic(
 setEditorIO({
   // 隣のページの本文。id は contentList の id
   loadContent: async (id) => fetch(`/api/pages/${id}`).then((r) => r.text()),
+  // 見るだけの紙面(編集していないページ)に足すスタイル。本文がブラウザ版 Tailwind(script)に
+  // 頼っている場合だけ要る(紙面は script を動かさない)。本文に CSS が入っていれば不要
+  previewStyles: () => [{ href: "/src/index.css" }],
 });
 
 <VisualEditor
@@ -100,6 +103,10 @@ setEditorIO({
   onClose={() => history.back()}
 />
 ```
+
+- ページを移るときは、未保存の変更を先に保存してから移る(入口がフレームのクリックでも `contentId` プロップの変更でも同じ)
+- 複数選択はキャンバスの余白からドラッグ(マーキー)。ページの中に空白が無くても、余白から引けば帯がまたいだ要素が選ばれる
+- 仕組みと確認したことは `docs/multi-frame-canvas-2026-09.md`
 
 `onSave` には `contentId` が付くので、どのページの本文かはそれで見分けてください。
 `contentId` プロップを変えると、エディタがそのページへ移ります。

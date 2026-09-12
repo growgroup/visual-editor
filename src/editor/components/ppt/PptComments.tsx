@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, CornerUpLeft, Loader2, MapPin, RotateCcw, Send, MessageSquare, Sparkles, Trash2, X } from 'lucide-react';
 import { useEditorContext } from '../../EditorContext';
-import { useMultiPageCanvasOptional } from '../../contexts/MultiPageCanvasContext';
+import { useCanvasViewStateOptional } from '../../contexts/MultiPageCanvasContext';
 import { useDeck, applyDeck } from '../../../components/viewer/useDeck';
 import { commentAction, type SlideComment } from '../../../lib/deck';
 import { can, io, type EditorDeck } from '../../../io';
@@ -161,7 +161,7 @@ export function useCommentMarkers({
   const onOpenRef = useRef(onOpenThread);
   onOpenRef.current = onOpenThread;
   // マルチフレームのキャンバスでは iframe の外側にも倍率が掛かる。ピンは画面上で同じ大きさに保つ
-  const outerZoom = useMultiPageCanvasOptional()?.viewState.canvasZoom ?? 1;
+  const outerZoom = useCanvasViewStateOptional()?.canvasZoom ?? 1;
 
   useEffect(() => {
     if (!active) return;

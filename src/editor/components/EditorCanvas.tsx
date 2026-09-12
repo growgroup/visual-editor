@@ -124,7 +124,12 @@ export function EditorCanvas() {
     setShowLayoutHint,
     viewportWidth,
     setIframeReady,
+    currentContentId,
   } = useEditorContext();
+  // 高さの報告先は「本文が載っているページ」(利用側の currentContentId)。
+  // クリックしただけでまだ本文が来ていないページへ、前のページの高さを書かない
+  const currentContentIdRef = useRef(currentContentId);
+  currentContentIdRef.current = currentContentId;
 
   // マルチページモード判定
   const multiPageCanvas = useMultiPageCanvasOptional();
@@ -315,7 +320,7 @@ export function EditorCanvas() {
       setContentHeight(frameHeight);
       contentHeightRef.current = frameHeight;
       const mpc = multiPageCanvasRef.current;
-      const activeId = mpc?.viewState.activePageId;
+      const activeId = currentContentIdRef.current;
       if (mpc && activeId) mpc.setPageHeight(activeId, frameHeight, "editor");
       return;
     }
@@ -844,7 +849,7 @@ export function EditorCanvas() {
       if (isInMultiPageModeRef.current) {
         const mpc = multiPageCanvasRef.current;
         if (mpc) {
-          iframeDoc.documentElement.dataset.outerZoom = String(mpc.viewState.canvasZoom);
+          iframeDoc.documentElement.dataset.outerZoom = String(mpc.viewStore.get().canvasZoom);
         }
       }
       const artboardEl = iframeDoc.getElementById("artboard");
@@ -887,6 +892,10 @@ export function EditorCanvas() {
     if (!iframe) return;
 
     iframe.addEventListener("load", handleIframeLoad);
+    // 新しい本文を読み込む間は「準備できていない」に戻す。
+    // マルチフレームのキャンバスはこれを見て、前のページの姿が新しい枠に
+    // 見えないようエディタを隠す(読み込みが済むまで見るだけの紙面が透ける)
+    setIframeReady(false);
     const blob = new Blob([iframeHtml], { type: "text/html" });
     iframe.src = URL.createObjectURL(blob);
 
@@ -983,15 +992,33 @@ export function EditorCanvas() {
 
   // 埋め込み(マルチフレーム): 外側の倍率を iframe に知らせ、選択枠・ハンドルの太さを
   // 画面上で一定に保つ(applyOverlayScale が data-outer-zoom を読む)
-  const outerZoom = multiPageCanvas?.viewState.canvasZoom ?? 1;
+  // ズーム・パンは毎目盛り起きるので、ここでは描き直さず(再レンダーせず)ストアを購読して
+  // 直接 DOM に書く。選択枠の描き直しは 1 フレームに 1 回にまとめる
+  const viewStore = multiPageCanvas?.viewStore ?? null;
   useEffect(() => {
-    if (!isInMultiPageMode) return;
-    const iframeDoc = getIframeDoc();
-    if (!iframeDoc?.documentElement) return;
-    iframeDoc.documentElement.dataset.outerZoom = String(outerZoom);
-    const id = requestAnimationFrame(() => refreshSelectionOverlay(iframeDoc));
-    return () => cancelAnimationFrame(id);
-  }, [isInMultiPageMode, outerZoom, getIframeDoc]);
+    if (!isInMultiPageMode || !viewStore) return;
+    let raf: number | null = null;
+    let lastZoom: number | null = null;
+    const apply = () => {
+      const zoom = viewStore.get().canvasZoom;
+      if (zoom === lastZoom) return;
+      lastZoom = zoom;
+      const iframeDoc = getIframeDoc();
+      if (!iframeDoc?.documentElement) return;
+      iframeDoc.documentElement.dataset.outerZoom = String(zoom);
+      if (raf != null) cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        raf = null;
+        refreshSelectionOverlay(iframeDoc);
+      });
+    };
+    apply();
+    const unsubscribe = viewStore.subscribe(apply);
+    return () => {
+      unsubscribe();
+      if (raf != null) cancelAnimationFrame(raf);
+    };
+  }, [isInMultiPageMode, viewStore, getIframeDoc]);
 
   // ビューポート幅変更時にiframe内のartboard幅を更新
   useEffect(() => {

@@ -3,6 +3,7 @@
  */
 
 import { SLIDE_WIDTH, SLIDE_HEIGHT, WEBPAGE_WIDTH, WEBPAGE_MIN_HEIGHT } from '../constants';
+import type { PreviewStyle } from '../../io';
 import type { EditorMode } from '../EditorContext';
 import { prepareHtmlForSave } from './viewport-utils';
 import { classifySaveAndRevert } from './dom-utils';
@@ -176,12 +177,21 @@ export function generatePreviewHtml(
   content: string,
   editorMode: EditorMode = 'slide',
   artboardWidth?: number,
+  styles: PreviewStyle[] = [],
 ): string {
+  // 利用側が渡したスタイル(コンパイル済み Tailwind など)。head の共通部分の後、紙面の基本 CSS の前
+  const extraStyles = styles
+    .map((s) => ('href' in s ? `<link rel="stylesheet" href="${s.href.replace(/"/g, '&quot;')}">` : `<style data-preview-style>${s.css.replace(/<\/style/gi, '<\\/style')}</style>`))
+    .join('\n  ');
   const width = editorMode === 'webpage' ? (artboardWidth ?? WEBPAGE_WIDTH) : SLIDE_WIDTH;
   const heightRule = editorMode === 'webpage' ? '' : `height: ${SLIDE_HEIGHT}px; overflow: hidden;`;
+  // sandbox(allow-same-origin のみ)では script が動かない。残すと 1 枚ごとに
+  // 「Blocked script execution」がコンソールへ出るだけなので、本文からも head からも外す
+  const stripScripts = (html: string) => html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
   return `<!DOCTYPE html>
 <html lang="ja">
-<head>${buildCommonHead(content)}
+<head>${stripScripts(buildCommonHead(content))}
+  ${extraStyles}
   <style>
     * { box-sizing: border-box; }
     html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
@@ -192,7 +202,7 @@ export function generatePreviewHtml(
   </style>
 </head>
 <body data-editor-mode="${editorMode}" data-preview="1">
-  <div id="artboard">${content}</div>
+  <div id="artboard">${stripScripts(content)}</div>
 </body>
 </html>`;
 }

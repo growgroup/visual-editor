@@ -22,7 +22,7 @@ interface PageFramePreviewProps {
 }
 
 export const PageFramePreview = memo(function PageFramePreview({ page, rootRef }: PageFramePreviewProps) {
-  const { editorMode, ensurePageHtml, setPageHeight, eagerMountCount, notePreviewMounted, isInteracting } = useMultiPageCanvas();
+  const { editorMode, ensurePageHtml, setPageHeight, previewStyles, requestPreviewSlot, releasePreviewSlot } = useMultiPageCanvas();
   const hostRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [nearViewport, setNearViewport] = useState(false);
@@ -43,10 +43,24 @@ export const PageFramePreview = memo(function PageFramePreview({ page, rootRef }
     return () => observer.disconnect();
   }, [rootRef]);
 
-  // webpage は高さの実測がレイアウトに要る(未測定だと仮の高さで並ぶ)ので、順番に先読みする。
-  // slide は寸法が決まっているので見えたときだけ
-  const eager = editorMode === 'webpage' && page.index < eagerMountCount;
-  const shouldMount = nearViewport || eager;
+  // webpage は高さの実測がレイアウトに要る(未測定だと仮の高さで並ぶ)ので、見えていなくても読む。
+  // slide は寸法が決まっているので見えたときだけ。どちらも同時に読む枚数は絞る(順番待ち)
+  const wantsMount = editorMode === 'webpage' || nearViewport;
+  const [granted, setGranted] = useState(false);
+  const grantedRef = useRef(false);
+  useEffect(() => {
+    if (!wantsMount || grantedRef.current) return;
+    requestPreviewSlot(page.id, () => {
+      grantedRef.current = true;
+      setGranted(true);
+    });
+    // 見えなくなった: 順番待ちから外す(読み始めていれば載せたまま)
+    return () => {
+      if (!grantedRef.current) releasePreviewSlot(page.id);
+    };
+  }, [wantsMount, page.id, requestPreviewSlot, releasePreviewSlot]);
+  useEffect(() => () => releasePreviewSlot(page.id), [page.id, releasePreviewSlot]);
+  const shouldMount = granted;
 
   useEffect(() => {
     if (shouldMount && page.html == null && !page.loading && !page.error) void ensurePageHtml(page.id);
@@ -56,8 +70,8 @@ export const PageFramePreview = memo(function PageFramePreview({ page, rootRef }
   const [doc, setDoc] = useState<string | null>(null);
   useEffect(() => {
     if (!shouldMount || page.html == null) return;
-    setDoc(generatePreviewHtml(page.html, editorMode, page.size.width));
-  }, [shouldMount, page.html, editorMode, page.size.width]);
+    setDoc(generatePreviewHtml(page.html, editorMode, page.size.width, previewStyles));
+  }, [shouldMount, page.html, editorMode, page.size.width, previewStyles]);
 
   // 高さの実測(同一オリジンなので親から読む)
   useEffect(() => {
@@ -99,15 +113,16 @@ export const PageFramePreview = memo(function PageFramePreview({ page, rootRef }
     };
   }, [doc, page.id, setPageHeight]);
 
-  // 先読みの順番を進める(読み終わる or 描かないと決まったとき)
-  const notedRef = useRef(false);
+  // 読み終わった(または読めない)ら枠を返して次へ。本文が来ない場合の安全弁つき
   useEffect(() => {
-    if (notedRef.current) return;
+    if (!granted) return;
     if (loaded || page.error) {
-      notedRef.current = true;
-      notePreviewMounted();
+      releasePreviewSlot(page.id);
+      return;
     }
-  }, [loaded, page.error, notePreviewMounted]);
+    const timer = setTimeout(() => releasePreviewSlot(page.id), 8000);
+    return () => clearTimeout(timer);
+  }, [granted, loaded, page.error, page.id, releasePreviewSlot]);
 
   return (
     <div
@@ -129,8 +144,6 @@ export const PageFramePreview = memo(function PageFramePreview({ page, rootRef }
             width: page.size.width,
             height: page.size.height,
             pointerEvents: 'none',
-            // ズーム・パン中は描画の更新を止める(見るだけの紙面が数十枚あってもガタつかない)
-            contentVisibility: isInteracting ? 'auto' : undefined,
           }}
         />
       ) : (

@@ -28,7 +28,7 @@ import { useEditorContext } from "../EditorContext";
 import { ConfirmDialog } from "./shell/ConfirmDialog";
 import { EditorTopBar } from "./shell/EditorTopBar";
 import { MIN_ZOOM, MAX_ZOOM, editorZoomApiRef } from "../hooks/useCanvasControls";
-import { useMultiPageCanvasOptional, MIN_ZOOM as CANVAS_MIN_ZOOM, MAX_ZOOM as CANVAS_MAX_ZOOM } from "../contexts/MultiPageCanvasContext";
+import { useMultiPageCanvasOptional, useCanvasViewStateOptional, MIN_ZOOM as CANVAS_MIN_ZOOM, MAX_ZOOM as CANVAS_MAX_ZOOM } from "../contexts/MultiPageCanvasContext";
 import { generateEditableHtml } from "../utils/html-utils";
 import { useDeck } from "../../components/viewer/useDeck";
 import { unresolvedCount } from "./ppt/PptComments";
@@ -121,7 +121,8 @@ export function EditorHeader({
 
   // マルチフレームのキャンバスでは倍率はキャンバス全体のもの。表示も操作もそちらへ向ける
   const canvas = useMultiPageCanvasOptional();
-  const zoom = canvas ? canvas.viewState.canvasZoom * 100 : singleZoom;
+  const canvasView = useCanvasViewStateOptional();
+  const zoom = canvas && canvasView ? canvasView.canvasZoom * 100 : singleZoom;
   const minZoom = canvas ? CANVAS_MIN_ZOOM * 100 : MIN_ZOOM;
   const maxZoom = canvas ? CANVAS_MAX_ZOOM * 100 : MAX_ZOOM;
   const setZoom = (value: number) => {
@@ -417,7 +418,7 @@ export function EditorHeader({
               {canvas && (
                 <DropdownMenuItem
                   data-zoom-preset="page"
-                  onClick={() => { const id = canvas.viewState.activePageId; if (id) canvas.zoomToPage(id, { animate: true }); }}
+                  onClick={() => { const id = canvas.viewStore.get().activePageId; if (id) canvas.zoomToPage(id, { animate: true }); }}
                   className="cursor-pointer justify-between text-gray-300 hover:bg-[#444444] hover:text-white"
                 >
                   編集中のページに合わせる

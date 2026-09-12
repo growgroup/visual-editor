@@ -131,7 +131,7 @@ function isTypingTarget(target: EventTarget | null): boolean {
  * キーボードだけで操作している人がそのボタンを押せなくなる。
  * realm をまたいでも壊れないプロパティだけで判定する。
  */
-function isSpaceActivatedControl(target: EventTarget | null): boolean {
+export function isSpaceActivatedControl(target: EventTarget | null): boolean {
   const el = target as (HTMLElement & { closest?: (s: string) => Element | null }) | null;
   if (!el || typeof el !== 'object' || typeof el.tagName !== 'string') return false;
   const tag = el.tagName.toUpperCase();

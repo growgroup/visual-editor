@@ -29,6 +29,8 @@ import { generateEditableHtml } from "../utils/html-utils";
 import { setupInlineFormatToolbar } from "../utils/inline-format";
 import { recalculateViewportUnits } from "../utils/viewport-utils";
 import { useMultiPageCanvasOptional } from "../contexts/MultiPageCanvasContext";
+import { setupEmbeddedCanvasBridge } from "../utils/embedded-canvas-bridge";
+import { endContentSwitch } from "../autosave";
 import type {
   DOMTreeNode,
   DragState,
@@ -127,6 +129,11 @@ export function EditorCanvas() {
   // マルチページモード判定
   const multiPageCanvas = useMultiPageCanvasOptional();
   const isInMultiPageMode = !!multiPageCanvas?.isEnabled;
+  // ロードハンドラ(deps=[])から最新の値を読むための ref
+  const multiPageCanvasRef = useRef(multiPageCanvas);
+  multiPageCanvasRef.current = multiPageCanvas;
+  const isInMultiPageModeRef = useRef(isInMultiPageMode);
+  isInMultiPageModeRef.current = isInMultiPageMode;
 
   // Figmaライクなキャンバス操作
   useCanvasControls();
@@ -301,6 +308,17 @@ export function EditorCanvas() {
 
     const scrollHeight = targetElement.scrollHeight;
     const computedHeight = Math.max(scrollHeight, maxBottom);
+    // 埋め込み(マルチフレーム)ではフレーム = 紙面そのもの。下の余白は付けず、
+    // 実測をキャンバス側へ渡してフレームの高さにする
+    if (isInMultiPageModeRef.current) {
+      const frameHeight = Math.max(200, Math.ceil(computedHeight));
+      setContentHeight(frameHeight);
+      contentHeightRef.current = frameHeight;
+      const mpc = multiPageCanvasRef.current;
+      const activeId = mpc?.viewState.activePageId;
+      if (mpc && activeId) mpc.setPageHeight(activeId, frameHeight, "editor");
+      return;
+    }
     const newHeight = Math.max(WEBPAGE_MIN_HEIGHT, computedHeight + 100);
 
     setContentHeight(newHeight);
@@ -409,11 +427,19 @@ export function EditorCanvas() {
     zoomRef.current = zoom;
   }, [zoom]);
 
+  // 埋め込みでは版面の幅を最初から入れて組む(後から書き換えると一瞬 1440px で描かれる)。
+  // 単独表示では幅は effect が書くので、ここでは依存に入れない(幅変更で iframe を作り直さない)
+  const embeddedWidth = isInMultiPageMode ? viewportWidth : 0;
   const iframeHtml = useMemo(
     // sourceHtml(ページ切替でのみ変わる)から組む。originalHtml は
     // initLayout が変更判定の基準として書き換えるため、ここに使うとループする
-    () => generateEditableHtml(sourceHtml, editorMode),
-    [sourceHtml, editorMode]
+    () =>
+      generateEditableHtml(
+        sourceHtml,
+        editorMode,
+        embeddedWidth ? { embedded: true, artboardWidth: embeddedWidth } : undefined,
+      ),
+    [sourceHtml, editorMode, embeddedWidth]
   );
 
   // ========== iframe Load Handler ==========
@@ -460,8 +486,13 @@ export function EditorCanvas() {
     // 3. イベントリスナーのセットアップ（ローカル配列に収集後、refに保存）
     const cleanupFunctions: (() => void)[] = [];
 
-    // タッチジェスチャー
-    cleanupFunctions.push(setupTouchGestureListeners(iframeDoc));
+    // タッチジェスチャー。埋め込み(マルチフレーム)では倍率も位置も外側が持つので、
+    // ホイール・ピンチ・Space・中ボタンをそのまま親へ転送する
+    if (isInMultiPageModeRef.current) {
+      cleanupFunctions.push(setupEmbeddedCanvasBridge(iframeDoc, iframe));
+    } else {
+      cleanupFunctions.push(setupTouchGestureListeners(iframeDoc));
+    }
 
     // キーボードショートカット
     cleanupFunctions.push(setupKeyboardShortcuts(iframeDoc));
@@ -521,13 +552,16 @@ export function EditorCanvas() {
     // 「iframe ビューポート基準」なので、iframe の矩形分だけ平行移動して渡す。
     // iframe 自体は等倍（scale は iframe 内の #artboard-wrapper に掛かる）なので
     // 平行移動だけで正しく一致する。
+    // 埋め込み(マルチフレーム)では iframe 要素自体が外側の transform で縮んでいるので、
+    // 実測の矩形と iframe の内寸の比(= 外側の倍率)で割ってから渡す。単独表示では比は 1
     const toIframeCoords = (e: MouseEvent): MouseEvent => {
       const frameEl = iframeRef.current;
       if (!frameEl) return e;
       const r = frameEl.getBoundingClientRect();
+      const outerScale = r.width / (frameEl.clientWidth || r.width) || 1;
       return new MouseEvent(e.type, {
-        clientX: e.clientX - r.left,
-        clientY: e.clientY - r.top,
+        clientX: (e.clientX - r.left) / outerScale,
+        clientY: (e.clientY - r.top) / outerScale,
         screenX: e.screenX,
         screenY: e.screenY,
         button: e.button,
@@ -805,6 +839,14 @@ export function EditorCanvas() {
     initLayout().then(() => {
       // ページ切替直後の文書へ現在の倍率を適用(上記 zoomRef のコメント参照)
       applyCanvasZoomDom(iframeDoc, zoomRef.current);
+      // 履歴の本文がこの文書の姿になった = ページ切替が終わった(自動保存を再開してよい)
+      endContentSwitch();
+      if (isInMultiPageModeRef.current) {
+        const mpc = multiPageCanvasRef.current;
+        if (mpc) {
+          iframeDoc.documentElement.dataset.outerZoom = String(mpc.viewState.canvasZoom);
+        }
+      }
       const artboardEl = iframeDoc.getElementById("artboard");
       if (editorModeRef.current === "webpage" && artboardEl) {
         updateContentHeightRef.current();
@@ -939,6 +981,18 @@ export function EditorCanvas() {
     );
   }, [zoom, editorMode, contentHeight, viewportWidth, getIframeDoc]);
 
+  // 埋め込み(マルチフレーム): 外側の倍率を iframe に知らせ、選択枠・ハンドルの太さを
+  // 画面上で一定に保つ(applyOverlayScale が data-outer-zoom を読む)
+  const outerZoom = multiPageCanvas?.viewState.canvasZoom ?? 1;
+  useEffect(() => {
+    if (!isInMultiPageMode) return;
+    const iframeDoc = getIframeDoc();
+    if (!iframeDoc?.documentElement) return;
+    iframeDoc.documentElement.dataset.outerZoom = String(outerZoom);
+    const id = requestAnimationFrame(() => refreshSelectionOverlay(iframeDoc));
+    return () => cancelAnimationFrame(id);
+  }, [isInMultiPageMode, outerZoom, getIframeDoc]);
+
   // ビューポート幅変更時にiframe内のartboard幅を更新
   useEffect(() => {
     if (editorMode !== "webpage") return;
@@ -977,6 +1031,7 @@ export function EditorCanvas() {
     <div
       ref={containerRef}
       className="h-full w-full"
+      data-editor-canvas={isInMultiPageMode ? "embedded" : "single"}
       style={{
         backgroundColor: isInMultiPageMode ? "transparent" : "var(--ed-bg)",
       }}
@@ -986,6 +1041,7 @@ export function EditorCanvas() {
         className="w-full h-full border-0"
         title={editorMode === "webpage" ? "Webpage Editor" : "Slide Editor"}
         sandbox="allow-same-origin allow-scripts"
+        style={isInMultiPageMode ? { display: "block", background: "#fff" } : undefined}
       />
     </div>
   );

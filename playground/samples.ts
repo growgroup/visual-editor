@@ -17,3 +17,25 @@ export const slides = [
 `<div data-gg-src="slide:1" style="width:1920px;height:1080px;background:#f4f1ea;font-family:system-ui,sans-serif;color:#263c34;position:relative;overflow:hidden"><p data-gg-src="slide:1:eyebrow" style="position:absolute;left:120px;top:104px;font-size:24px;letter-spacing:4px">PROJECT PROPOSAL / 2026</p><h1 data-gg-src="slide:1:title" style="position:absolute;left:120px;top:280px;font-size:80px;line-height:1.5;margin:0">伝わる体験を、<br>いっしょにつくる。</h1><p data-gg-src="slide:1:body" style="position:absolute;left:128px;top:632px;font-size:30px;line-height:1.8">ウェブサイト リニューアルのご提案<br>2026年9月</p><div data-gg-src="slide:1:shape" style="position:absolute;left:1180px;top:200px;width:580px;height:640px;background:#d4dfd2;border-radius:280px 280px 16px 16px"></div><p style="position:absolute;left:128px;bottom:64px;font-size:22px">GROWGROUP　 /　PLAYGROUND</p></div>`,
 `<div data-gg-src="slide:2" style="width:1920px;height:1080px;background:white;font-family:system-ui,sans-serif;color:#263c34;position:relative"><p style="position:absolute;left:120px;top:88px;font-size:24px">01 / APPROACH</p><h1 data-gg-src="slide:2:title" style="position:absolute;left:120px;top:180px;font-size:64px">迷わず、次の一歩へ。</h1><div style="position:absolute;left:120px;top:440px;width:1680px;display:grid;grid-template-columns:repeat(3,1fr);gap:40px">${card('理解する','誰に、何を伝えるか。使う人の視点から目的を整理します。',51)}${card('つくる','構成・言葉・デザインを一つの体験として組み立てます。',52)}${card('確かめる','実際に触れて、学んだことを次の改善へつなげます。',53)}</div></div>`,
 ];
+
+/** マルチフレームのキャンバス確認用: 長さの違う 3 ページ */
+export const webpagePages: { title: string; html: string }[] = [
+  { title: 'トップページ', html: webpage },
+  {
+    title: '私たちについて',
+    html: `<main ${anchor(101)} style="width:100%;font-family:system-ui,sans-serif;color:#242424;background:white">
+<header ${anchor(102)} style="padding:32px 64px;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center"><strong style="font-size:28px">まちの学び舎</strong><nav style="font-size:18px">私たちについて　　講座一覧　　アクセス　　お問い合わせ</nav></header>
+<section ${anchor(103)} style="padding:80px 64px"><p style="font-size:18px">ABOUT</p><h1 ${anchor(104)} style="font-size:44px;margin:24px 0">私たちについて</h1><p ${anchor(105)} style="font-size:20px;line-height:1.9;max-width:900px">まちの学び舎は、日常のなかで学びを続けたい人のための教室です。年齢や経験に関わらず、それぞれのペースで続けられる講座を用意しています。</p></section>
+<section ${anchor(106)} style="padding:0 64px 80px;display:grid;grid-template-columns:repeat(2,1fr);gap:24px">${card('大切にしていること', '「続けられる」を第一に、少人数で進めます。', 107)}${card('講師について', '各分野で活動する講師が、実践に沿って教えます。', 108)}</section>
+<footer ${anchor(109)} style="padding:64px;font-size:18px;border-top:1px solid #ddd">まちの学び舎　　お問い合わせ　　アクセス</footer>
+</main>`,
+  },
+  {
+    title: 'お問い合わせ',
+    html: `<main ${anchor(201)} style="width:100%;font-family:system-ui,sans-serif;color:#242424;background:white">
+<header ${anchor(202)} style="padding:32px 64px;border-bottom:1px solid #ddd;display:flex;justify-content:space-between;align-items:center"><strong style="font-size:28px">まちの学び舎</strong><nav style="font-size:18px">私たちについて　　講座一覧　　アクセス　　お問い合わせ</nav></header>
+<section ${anchor(203)} style="padding:80px 64px;max-width:960px"><p style="font-size:18px">CONTACT</p><h1 ${anchor(204)} style="font-size:44px;margin:24px 0">お問い合わせ</h1><p ${anchor(205)} style="font-size:20px;line-height:1.9">講座の内容・見学のご希望など、お気軽にご連絡ください。</p><div ${anchor(206)} style="margin-top:40px;display:grid;gap:16px"><div style="height:56px;border:1px solid #bbb;display:flex;align-items:center;padding:0 16px;color:#777">お名前</div><div style="height:56px;border:1px solid #bbb;display:flex;align-items:center;padding:0 16px;color:#777">メールアドレス</div><div style="height:160px;border:1px solid #bbb;padding:16px;color:#777">お問い合わせ内容</div><div style="height:56px;width:240px;background:#333;color:white;display:flex;align-items:center;justify-content:center;font-size:18px">送信する</div></div></section>
+<footer ${anchor(207)} style="padding:64px;font-size:18px;border-top:1px solid #ddd">まちの学び舎　　お問い合わせ　　アクセス</footer>
+</main>`,
+  },
+];

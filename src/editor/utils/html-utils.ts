@@ -133,21 +133,29 @@ ${collectHostThemeTokens()}
  * - #artboard-wrapper: transform適用対象（ズーム/パン）
  * - #artboard: 白背景、コンテンツ配置エリア
  */
-export function generateEditableHtml(content: string, editorMode: EditorMode = 'slide'): string {
-  const artboardWidth = editorMode === 'webpage' ? WEBPAGE_WIDTH : SLIDE_WIDTH;
-  const artboardHeight = editorMode === 'webpage' ? WEBPAGE_MIN_HEIGHT : SLIDE_HEIGHT;
-  const artboardHeightStyle = editorMode === 'webpage' ? 'min-height' : 'height';
+export interface EditableHtmlOptions {
+  /**
+   * マルチフレームのキャンバスに埋め込む姿。
+   * 倍率は外側(親)の CSS transform が持つので、iframe の中は等倍・スクロール無しにする。
+   * #canvas-container 等の id は残す(数十か所の getElementById を壊さないため)
+   */
+  embedded?: boolean;
+  /** webpage の版面の幅。省略時は WEBPAGE_WIDTH(EditorCanvas が後から viewportWidth で上書きする) */
+  artboardWidth?: number;
+}
 
+/**
+ * 紙面の外側で共通に読む <head> の中身(Tailwind の注入判定・フォント)。
+ * 編集用(generateEditableHtml)と見るだけ(generatePreviewHtml)で同じ判定を使う。
+ * 別々に持つと、片方だけ Tailwind を二重注入して見え方が食い違う
+ */
+function buildCommonHead(content: string): string {
   // コンテンツにTailwind CSSが含まれていない場合は注入
   // 外部スタイルがある場合はセーフモードを使用（既存スタイルを保護）
   const needsTailwind = !hasTailwindCss(content);
   const useSafeMode = needsTailwind && hasExternalStyles(content);
   const tailwindScript = needsTailwind ? getTailwindScriptHtml(useSafeMode) : '';
-
   return `
-<!DOCTYPE html>
-<html lang="ja">
-<head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   ${tailwindScript}
@@ -156,7 +164,64 @@ export function generateEditableHtml(content: string, editorMode: EditorMode = '
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@100;200;300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <!-- スライドの欧文(font-en)。読み込まないと游ゴシックで代替され、
        数字・フッターの幅がビューアと10px以上ずれる(検証で実測) -->
-  <link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Jost:wght@300;400;500;600;700&display=swap" rel="stylesheet">`;
+}
+
+/**
+ * 見るだけの紙面(マルチフレームのキャンバスで、編集していないページの姿)。
+ * 編集用と同じ head を使い、body は等倍・白地・スクロール無し。
+ * 編集用の属性は付けない(選択も編集も、このページを開いてから)
+ */
+export function generatePreviewHtml(
+  content: string,
+  editorMode: EditorMode = 'slide',
+  artboardWidth?: number,
+): string {
+  const width = editorMode === 'webpage' ? (artboardWidth ?? WEBPAGE_WIDTH) : SLIDE_WIDTH;
+  const heightRule = editorMode === 'webpage' ? '' : `height: ${SLIDE_HEIGHT}px; overflow: hidden;`;
+  return `<!DOCTYPE html>
+<html lang="ja">
+<head>${buildCommonHead(content)}
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+    body { width: ${width}px; }
+    #artboard { position: relative; width: ${width}px; ${heightRule} background: white; }
+    /* 見るだけなので、リンク・入力を触れなくする */
+    #artboard a, #artboard button, #artboard input, #artboard textarea, #artboard select { pointer-events: none; }
+  </style>
+</head>
+<body data-editor-mode="${editorMode}" data-preview="1">
+  <div id="artboard">${content}</div>
+</body>
+</html>`;
+}
+
+export function generateEditableHtml(
+  content: string,
+  editorMode: EditorMode = 'slide',
+  options: EditableHtmlOptions = {},
+): string {
+  const embedded = !!options.embedded;
+  const artboardWidth = editorMode === 'webpage' ? (options.artboardWidth ?? WEBPAGE_WIDTH) : SLIDE_WIDTH;
+  const artboardHeight = editorMode === 'webpage' ? WEBPAGE_MIN_HEIGHT : SLIDE_HEIGHT;
+  const artboardHeightStyle = editorMode === 'webpage' ? 'min-height' : 'height';
+
+  // 埋め込み: 倍率もスクロールも外側が持つ。中は「紙面がそのまま置いてある」だけの姿にする。
+  // id は残し(getElementById の呼び出しを壊さない)、役割だけ CSS で外す
+  const embeddedCss = embedded
+    ? `
+    html, body { overflow: visible; height: auto; background: transparent; }
+    #canvas-container { position: static; overflow: visible; background: transparent; }
+    #canvas-scroll-area { display: block; padding: 0 !important; width: auto !important; height: auto !important; min-width: 0 !important; min-height: 0 !important; }
+    #artboard-wrapper { transform: none !important; visibility: visible; }
+    #artboard { box-shadow: none; ${editorMode === 'webpage' ? 'min-height: 200px;' : ''} }`
+    : '';
+
+  return `
+<!DOCTYPE html>
+<html lang="ja">
+<head>${buildCommonHead(content)}
   <style>
     * { box-sizing: border-box; }
     html, body {
@@ -232,10 +297,10 @@ export function generateEditableHtml(content: string, editorMode: EditorMode = '
     body.panning #artboard,
     body.panning [data-editable="true"] {
       pointer-events: none !important;
-    }
+    }${embeddedCss}
   </style>
 </head>
-<body tabindex="-1" data-editor-mode="${editorMode}">
+<body tabindex="-1" data-editor-mode="${editorMode}"${embedded ? ' data-embedded="1"' : ''}>
   <div id="canvas-container">
     <div id="canvas-scroll-area">
       <div id="artboard-wrapper">

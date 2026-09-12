@@ -32,3 +32,35 @@ export async function flushAutoSave(): Promise<boolean> {
     return false
   }
 }
+
+/**
+ * ページ切替の途中(次の本文を読み込んで iframe を組み直している間)は、
+ * 履歴の本文がまだ前のページのものなので、自動保存が走ると
+ * **前のページの内容を次のページへ書いてしまう**。切替の始まりと終わりを
+ * ここで印し、その間の自動保存を見送る(手動保存も同じ窓口を通る)。
+ */
+let switching = 0
+let switchTimer: ReturnType<typeof setTimeout> | null = null
+
+/** 切替の開始。読み込みが失敗しても永久に止まらないよう 5 秒で自動解除 */
+export function beginContentSwitch(): void {
+  switching++
+  if (switchTimer) clearTimeout(switchTimer)
+  switchTimer = setTimeout(() => {
+    switching = 0
+    switchTimer = null
+  }, 5000)
+}
+
+/** 切替の終了(iframe の初期化が済んだ時点で EditorCanvas が呼ぶ) */
+export function endContentSwitch(): void {
+  if (switching > 0) switching--
+  if (switching === 0 && switchTimer) {
+    clearTimeout(switchTimer)
+    switchTimer = null
+  }
+}
+
+export function isContentSwitching(): boolean {
+  return switching > 0
+}

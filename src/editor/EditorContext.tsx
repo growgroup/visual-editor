@@ -275,6 +275,8 @@ interface EditorProviderProps {
   websiteId?: string;
   /** マルチページ無限キャンバスモードを有効にする (default: false) */
   enableMultiPageCanvas?: boolean;
+  /** キャンバスの表示位置(倍率・スクロール)を記憶するキー */
+  canvasStorageKey?: string | null;
   /** @deprecated Use contentList instead */
   slides?: ContentListItem[];
   /** @deprecated Use currentContentId instead */
@@ -529,6 +531,7 @@ export function EditorProvider({
   websiteId,
   // Multi-page canvas
   enableMultiPageCanvas = false,
+  canvasStorageKey,
   // deprecated props
   slides,
   currentSlideId,
@@ -555,7 +558,7 @@ export function EditorProvider({
                       currentSlideId={currentSlideId}
                       onSlideChange={onSlideChange}
                     >
-                      <ConditionalMultiPageProvider enabled={enableMultiPageCanvas}>
+                      <ConditionalMultiPageProvider enabled={enableMultiPageCanvas} storageKey={canvasStorageKey}>
                         <EditorUIStateProviderWrapper>
                           <EditorVariablesProviderWrapper
                             initialVariables={initialVariables}

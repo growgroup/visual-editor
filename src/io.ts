@@ -144,6 +144,14 @@ export type EditorIO = {
   notifySave?: (info: { page: number }) => void;
 
   /**
+   * 1件の本文(HTML)を取る。マルチフレームのキャンバス(enableMultiPageCanvas)で、
+   * 隣のページへ移るとき・見えてきたページを描くときに呼ばれる。
+   * id は contentList の id。無ければ contentList[].thumbnailHtml を使い、
+   * それも無ければ(parentId がある利用側では)API から取る
+   */
+  loadContent?: (id: string) => Promise<string>;
+
+  /**
    * 部品(HTML の template)の一覧。渡すと部品パネルはこれを使い、
    * ブラウザ内(localStorage)の JSON コンポーネントは読まない。
    * 挿入は実体化(完全な HTML をページに残す)になる

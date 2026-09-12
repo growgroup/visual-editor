@@ -9,7 +9,6 @@ import { useCallback, useRef, useEffect, MutableRefObject } from 'react';
 import { useEditorContext } from '../EditorContext';
 import { updateSelectionBox } from '../utils/dom-utils';
 import { extractElementInfo } from '../utils/style-utils';
-import { SLIDE_WIDTH, SLIDE_HEIGHT, WEBPAGE_WIDTH } from '../constants';
 
 interface UseContextMenuHandlerOptions {
   /** 編集可能要素を取得する関数 */
@@ -80,19 +79,11 @@ export function useContextMenuHandler(
         const iframeRect = iframe?.getBoundingClientRect();
         if (!iframeRect) return;
 
-        // クリック位置のiframe内での比率（0〜1）を計算
-        const currentWidth =
-          editorModeRef.current === 'webpage' ? WEBPAGE_WIDTH : SLIDE_WIDTH;
-        const currentHeight =
-          editorModeRef.current === 'webpage'
-            ? contentHeightRef.current
-            : SLIDE_HEIGHT;
-        const proportionX = e.clientX / currentWidth;
-        const proportionY = e.clientY / currentHeight;
-
-        // 比率をスケール後のビジュアルサイズに適用
-        const x = iframeRect.left + iframeRect.width * proportionX;
-        const y = iframeRect.top + iframeRect.height * proportionY;
+        // iframe の座標 → 親の座標。iframe 要素が外側の transform で縮んでいる
+        // (マルチフレームのキャンバス)ときは実測の矩形と内寸の比で掛ける。単独表示では 1
+        const outerScale = iframeRect.width / (iframe!.clientWidth || iframeRect.width) || 1;
+        const x = iframeRect.left + e.clientX * outerScale;
+        const y = iframeRect.top + e.clientY * outerScale;
 
         // 要素がクリックされた場合は選択
         const element = getEditableElement(e.target, iframeDoc);

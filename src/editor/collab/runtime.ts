@@ -12,6 +12,7 @@ import type * as Y from 'yjs';
 import type { EditorCollab } from '../../io';
 import { acquireRoom, acquireSocket, peekRoom, releaseRoom, releaseSocket, type Room } from './connection';
 import { colorFor } from './color';
+import { checkCollabRoom } from './room';
 import { PageBinding } from './binding';
 import {
   collabStore,
@@ -108,6 +109,7 @@ export function createCollabRuntime(config: EditorCollab): CollabRuntime {
   let currentContentId: string | null = null;
   let page: (PageSession & { off: () => void }) | null = null;
   let localPending = false;
+  let roomError: string | null = null;
   let selection: string[] = [];
   let editing: string | null = null;
   let cursorLatest: { x: number; y: number } | null = null;
@@ -128,7 +130,25 @@ export function createCollabRuntime(config: EditorCollab): CollabRuntime {
     unsynced: 0,
     canUndo: false,
     canRedo: false,
+    roomError: null,
   });
+
+  /**
+   * 中継が保存する部屋名か。外れていれば null を返す(その部屋には繋がない)。
+   * report は編集中のページのときだけ true にする(見るだけの紙面の分で接続状態を赤くしない)
+   */
+  const warned = new Set<string>();
+  const usableRoom = (name: string | null, report = false): string | null => {
+    if (!name) return null;
+    const room = checkCollabRoom(name);
+    if (room.ok) return name;
+    if (!warned.has(room.reason)) {
+      warned.add(room.reason);
+      console.warn(`[collab] 部屋名が中継に保存されない形なので、この部屋は共同編集しません: ${room.reason}`);
+    }
+    if (report) roomError = room.reason;
+    return null;
+  };
 
   const setProjectPresence = () => {
     project.provider.awareness?.setLocalState({
@@ -198,12 +218,14 @@ export function createCollabRuntime(config: EditorCollab): CollabRuntime {
     const connected = socket.status === WebSocketStatus.Connected;
     const target = page?.room ?? project;
     const unsynced = page ? page.room.provider.unsyncedChanges : 0;
-    const status: CollabStatus = !connected
-      ? 'offline'
-      : !target.provider.synced || unsynced > 0 || localPending
-        ? 'syncing'
-        : 'synced';
-    collabStore.set({ status, unsynced, ready: project.provider.synced || collabStore.get().ready });
+    const status: CollabStatus = roomError
+      ? 'error'
+      : !connected
+        ? 'offline'
+        : !target.provider.synced || unsynced > 0 || localPending
+          ? 'syncing'
+          : 'synced';
+    collabStore.set({ status, unsynced, roomError, ready: project.provider.synced || collabStore.get().ready });
   };
 
   const setLocalPending = (pending: boolean) => {
@@ -256,7 +278,7 @@ export function createCollabRuntime(config: EditorCollab): CollabRuntime {
 
   // 共同編集中のページ切替で、部屋に同期済みの本文があればそれを使わせる
   setCollabSharedReader((contentId) => {
-    const name = config.roomFor(contentId);
+    const name = usableRoom(config.roomFor(contentId));
     const room = name ? peekRoom(config.url, name) : null;
     if (!room || !room.provider.synced) return null;
     const text = room.doc.getText('html').toString();
@@ -310,7 +332,9 @@ export function createCollabRuntime(config: EditorCollab): CollabRuntime {
       if (destroyed) return;
       currentContentId = contentId;
       setProjectPresence();
-      const name = contentId ? config.roomFor(contentId) : null;
+      // 部屋名が保存されない形のページは、繋がずにエラーを出す(自動保存は今までどおり動く)
+      roomError = null;
+      const name = contentId ? usableRoom(config.roomFor(contentId), true) : null;
       if (page && contentId && name && page.room.name === name) {
         page.contentId = contentId;
       } else {
@@ -379,7 +403,7 @@ export function createCollabRuntime(config: EditorCollab): CollabRuntime {
       };
     },
     async readShared(contentId) {
-      const name = config.roomFor(contentId);
+      const name = usableRoom(config.roomFor(contentId));
       if (destroyed || !name) return null;
       const fresh = !peekRoom(config.url, name);
       const room = acquireRoom(config.url, name, config.token);

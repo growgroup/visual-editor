@@ -20,7 +20,9 @@ import { anchorValueOf } from '../components/ppt/PptComments';
 import { getCleanHtml } from '../utils/html-utils';
 import type { CollabDocBinding, CollabRuntime } from './runtime';
 import { COLLAB_DOCUMENT_READY_ATTR, COLLAB_DOCUMENT_READY_EVENT, type CollabDocumentReadyDetail } from './signals';
-import { setCollabFlusher } from './store';
+import { COLLAB_DISABLED, collabStore, setCollabFlusher } from './store';
+import { checkCollabRoom } from './room';
+import { colorFor } from './color';
 import { useCollabLayer } from './layer';
 
 /** 他の人の rev が続けて届いたとき、読み直しを 1 回にまとめる(ms) */
@@ -59,6 +61,19 @@ export function useCollab({ contentId, selectedIds }: { contentId: string | null
 
   useEffect(() => {
     if (!config) return;
+    // 中継が保存しない部屋名だと、繋がっているのに中身が消える。繋ぐ前に検査して、外れたら始めない
+    const room = checkCollabRoom(config.projectRoom);
+    if (!room.ok) {
+      console.warn(`[collab] 部屋名が中継に保存されない形なので共同編集を始めません: ${room.reason}`);
+      collabStore.set({
+        enabled: true,
+        self: { id: config.user.id, name: config.user.name || config.user.id, color: colorFor(config.user.id, config.user.color) },
+        requireBridge: !!config.requireBridge,
+        status: 'error',
+        roomError: room.reason,
+      });
+      return () => collabStore.set(COLLAB_DISABLED);
+    }
     let alive = true;
     let created: CollabRuntime | null = null;
     import('./runtime').then(

@@ -253,6 +253,7 @@
 .gg-editor-ui .ed-collab-bridge-alert { color: #fff; background: var(--ed-danger); padding: 3px 8px; border-radius: var(--ed-radius); font-weight: 600; }
 .gg-editor-ui .ed-save-status[data-collab-status="synced"] svg { color: var(--ed-success); }
 .gg-editor-ui .ed-save-status[data-collab-status="offline"] { color: var(--ed-danger); }
+.gg-editor-ui .ed-save-status[data-collab-status="error"] { color: var(--ed-danger); font-weight: 600; }
 .gg-editor-ui .ed-save-status[data-collab-pending] { color: var(--ed-warning); }
 .gg-editor-ui .ed-collab-dots { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; }
 .gg-editor-ui .ed-collab-dot { width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 0 1px var(--ed-panel); }

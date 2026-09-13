@@ -8,7 +8,8 @@
 
 import { useCallback, useRef, useSyncExternalStore } from 'react';
 
-export type CollabStatus = 'offline' | 'syncing' | 'synced';
+/** error = 部屋名がサーバーに保存されない形(room.ts の検査に外れた)ので繋いでいない */
+export type CollabStatus = 'offline' | 'syncing' | 'synced' | 'error';
 
 export type CollabUser = { id: string; name: string; color: string };
 
@@ -44,6 +45,8 @@ export type CollabSnapshot = {
   unsynced: number;
   canUndo: boolean;
   canRedo: boolean;
+  /** 部屋名が保存される形を外れている理由(null = 問題なし)。接続状態にエラーとして出す */
+  roomError: string | null;
 };
 
 export const COLLAB_DISABLED: CollabSnapshot = {
@@ -60,6 +63,7 @@ export const COLLAB_DISABLED: CollabSnapshot = {
   unsynced: 0,
   canUndo: false,
   canRedo: false,
+  roomError: null,
 };
 
 let snapshot: CollabSnapshot = COLLAB_DISABLED;
@@ -169,6 +173,8 @@ export type CollabPresence = {
   /** 自分以外のエディタ(同じ人が複数のタブで開いていても 1 人) */
   peers: CollabPeer[];
   bridges: number;
+  /** 部屋名が保存される形を外れている理由(status === 'error' のとき) */
+  roomError: string | null;
 };
 
 const selectPresence = (s: CollabSnapshot): CollabPresence => ({
@@ -177,6 +183,7 @@ const selectPresence = (s: CollabSnapshot): CollabPresence => ({
   self: s.self,
   peers: s.peers,
   bridges: s.bridges,
+  roomError: s.roomError,
 });
 
 /** 誰がどのページに居るか。io.collab が無ければ enabled: false で peers は空 */

@@ -102,7 +102,8 @@ const adapter: EditorIO = {
 /**
  * ?collab=ws://127.0.0.1:5418&name=A&room=pg … リアルタイム共同編集(io.collab)。
  * room が同じタブどうしが同じ部屋に入る。route はページ 1 が "/"、以降 "/page-<id>"。
- * &uid= で参加者の id(省略時は name)、&requireBridge で書き戻し役が居ない警告を出し続ける
+ * &uid= で参加者の id(省略時は name)、&requireBridge で書き戻し役が居ない警告を出し続ける。
+ * &badroute でページの部屋だけ保存されない形にする(部屋名の検査の確認用)
  */
 const collabUrl = params.get('collab');
 const collabRoom = params.get('room') || 'pg-local';
@@ -111,7 +112,9 @@ const collabIo: EditorIO['collab'] = collabUrl
   ? {
       url: collabUrl,
       projectRoom: `wf/${collabRoom}__@project`,
-      roomFor: (id) => `wf/${collabRoom}__${encodeURIComponent(routeOf(id))}`,
+      // ?badroute … ページの部屋だけ中継が保存しない形(encode していない route)にする検証用
+      roomFor: (id) =>
+        params.has('badroute') ? `wf/${collabRoom}__${routeOf(id)}` : `wf/${collabRoom}__${encodeURIComponent(routeOf(id))}`,
       routeFor: routeOf,
       user: { id: params.get('uid') || params.get('name') || 'A', name: params.get('name') || 'A' },
       requireBridge: params.has('requireBridge'),

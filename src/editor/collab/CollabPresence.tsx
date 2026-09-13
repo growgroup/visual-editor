@@ -18,6 +18,8 @@ const MAX_AVATARS = 5;
 const selectHeader = (s: CollabSnapshot) => ({
   enabled: s.enabled,
   ready: s.ready,
+  status: s.status,
+  roomError: s.roomError,
   self: s.self,
   peers: s.peers,
   bridges: s.bridges,
@@ -46,6 +48,23 @@ export function CollabPresence() {
   );
 
   if (!s.enabled || !s.self) return null;
+  // 部屋名が中継に保存されない形のときは、参加者ではなく理由を出す(繋いでいないので参加者は居ない)
+  if (s.status === 'error') {
+    return (
+      <div data-collab-presence className="ed-collab-presence">
+        <span
+          data-collab-room-error
+          data-collab-status="error"
+          role="alert"
+          className="ed-collab-bridge ed-collab-bridge-alert"
+          title={`部屋名が中継に保存されない形なので繋いでいません(${s.roomError ?? ''})。保存は今までどおりファイルへ行われます`}
+        >
+          <AlertTriangle aria-hidden="true" className="h-3.5 w-3.5" />
+          共同編集できません(部屋名)
+        </span>
+      </div>
+    );
+  }
   const shown = s.peers.slice(0, MAX_AVATARS);
   const more = s.peers.length - shown.length;
   const pageTitle = (id: string | null) => (id ? contentList.find((c) => c.id === id)?.title : undefined);
@@ -99,24 +118,31 @@ export function CollabPresence() {
   );
 }
 
-const selectStatus = (s: CollabSnapshot) => ({ status: s.status, pending: s.pending, unsynced: s.unsynced });
+const selectStatus = (s: CollabSnapshot) => ({ status: s.status, pending: s.pending, unsynced: s.unsynced, roomError: s.roomError });
 
 /** 接続状態(ページの部屋に入っている間、保存の状態の代わりに出す) */
 export function CollabStatusPill() {
-  const { status, pending } = useCollabSelector(selectStatus);
-  const view = pending
-    ? { label: '反映待ち', Icon: PauseCircle, title: '入力中の要素に他の人の変更があります。入力を終えると反映します' }
-    : {
-        synced: { label: '同期済み', Icon: CheckCircle2, title: '変更は共同編集の中継に届いています' },
-        syncing: { label: '同期中…', Icon: Loader2, title: '変更を中継へ送っています' },
-        offline: { label: 'オフライン', Icon: CloudOff, title: '中継に繋がっていません。繋がると変更が送られます' },
-      }[status];
+  const { status, pending, roomError } = useCollabSelector(selectStatus);
+  const view = status === 'error'
+    ? {
+        label: '共同編集できません',
+        Icon: AlertTriangle,
+        title: `部屋名が中継に保存されない形なので繋いでいません(${roomError ?? ''})。保存は今までどおりファイルへ行われます`,
+      }
+    : pending
+      ? { label: '反映待ち', Icon: PauseCircle, title: '入力中の要素に他の人の変更があります。入力を終えると反映します' }
+      : {
+          synced: { label: '同期済み', Icon: CheckCircle2, title: '変更は共同編集の中継に届いています' },
+          syncing: { label: '同期中…', Icon: Loader2, title: '変更を中継へ送っています' },
+          offline: { label: 'オフライン', Icon: CloudOff, title: '中継に繋がっていません。繋がると変更が送られます' },
+          error: { label: '共同編集できません', Icon: AlertTriangle, title: '部屋名が中継に保存されない形です' },
+        }[status];
   return (
     <span
       data-topbar="save-status"
       data-collab-status={status}
       data-collab-pending={pending ? '1' : undefined}
-      role="status"
+      role={status === 'error' ? 'alert' : 'status'}
       aria-live="polite"
       className="ed-save-status"
       title={view.title}

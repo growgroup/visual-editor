@@ -70,6 +70,12 @@ export type {
  */
 export { useCollabPresence } from "./editor/collab/store";
 export type { CollabPresence, CollabPeer, CollabStatus } from "./editor/collab/store";
+/**
+ * 部屋名が中継(gg-manager の hocuspocus-server)に保存される形かの検査。
+ * 形を外れた部屋は中継はされるが保存されないので、殻・書き戻し役でも繋ぐ前にこれで確かめる
+ */
+export { checkCollabRoom } from "./editor/collab/room";
+export type { CollabRoomCheck } from "./editor/collab/room";
 export type { CSSVariableDefinition, CSSVariableCategory } from "./types/css-variables";
 
 /**

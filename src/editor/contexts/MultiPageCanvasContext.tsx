@@ -63,14 +63,29 @@ const VIEW_ANIMATION_MS = 240;
 /** 見るだけの紙面を同時に読む枚数 */
 const PREVIEW_PARALLEL = 4;
 /**
- * 見るだけの紙面を画像で描く倍率のしきい値。これ未満に縮小されている間は
- * srcdoc の iframe ではなく contentList[].thumbnail の画像を出す。
- * 判定は操作が終わってからしか動かさない(縮小の途中で 26 枚を差し替えない)。
- * 行き来でちらつかないように戻りは別のしきい値にする(ヒステリシス)
+ * 見るだけの紙面を画像で描く倍率の **上限の最大値**。これ以上に拡大されていれば、
+ * どんなに解像度の高い画像でも iframe で描く(画像は文字を選べない・検索できないため)。
+ * 実際の上限はこれより小さくなることがある ── getPreviewImageZoomCap() を見ること
  */
 export const PREVIEW_IMAGE_ZOOM = 0.5;
-/** 画像 → iframe に戻す倍率(PREVIEW_IMAGE_ZOOM 以上)。iframe → 画像は PREVIEW_IMAGE_ZOOM_OUT 未満 */
+/** 画像 → iframe に戻す倍率(上限の最大値のとき)。上限に対する比は下の HYSTERESIS */
 export const PREVIEW_IMAGE_ZOOM_OUT = 0.4;
+/**
+ * 画像を引き伸ばしてよい上限。1.25 = 画面の画素に対して 25% まで。
+ * これを超えると Retina(DPR 2)で文字がにじんで見える(実測: 960px の画像を
+ * 1766 device px の枠に出すと 1.84 倍で、同じ倍率の iframe と並べて粗さが分かる)
+ */
+export const PREVIEW_IMAGE_MAX_STRETCH = 1.25;
+/**
+ * 画像の実寸がまだ 1 枚も分からないときに仮定する「画像の幅 ÷ 紙面の幅」。
+ * 0.5 = 1920 の紙面に 960px の画像(殻の既定)
+ */
+const PREVIEW_IMAGE_PRESUMED_RATIO = 0.5;
+/**
+ * 上限に対する「画像に落とす」側の比(ヒステリシス)。
+ * 画像 → iframe は上限以上、iframe → 画像は上限 × これ未満。境目で行き来しないため
+ */
+export const PREVIEW_IMAGE_ZOOM_HYSTERESIS = PREVIEW_IMAGE_ZOOM_OUT / PREVIEW_IMAGE_ZOOM;
 
 /** フレームどうしの間隔(紙面の座標系、等倍のとき)。フレーム名を出すかの判定にも使う */
 export const FRAME_GAP: Record<EditorMode, { x: number; y: number }> = {
@@ -228,6 +243,19 @@ export interface MultiPageCanvasContextValue {
    */
   requestPreviewSlot: (id: string, grant: () => void) => void;
   releasePreviewSlot: (id: string) => void;
+
+  // ---- 紙面の画像(contentList[].thumbnail)
+  /**
+   * 紙面を画像で描いてよい倍率の上限。画像の解像度と devicePixelRatio から決める
+   * (= min(PREVIEW_IMAGE_ZOOM, 画像の幅 × 1.25 ÷ (紙面の幅 × DPR)))。
+   * 上限はキャンバス全体で 1 つで、報告された中でいちばん粗い画像に合わせる。
+   * DPR は呼ぶたびに読む(別のディスプレイへ移すと変わる)
+   */
+  getPreviewImageZoomCap: () => number;
+  /** 画像の実寸(naturalWidth)を報告する。PageFramePreview が onLoad で呼ぶ */
+  reportThumbnailWidth: (id: string, naturalWidth: number) => void;
+  /** 上限が変わった回数。React 側が判定をやり直すきっかけに使う */
+  previewImageCapVersion: number;
 }
 
 // ============================================================
@@ -954,6 +982,36 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     [pumpPreviewSlots],
   );
 
+  // ---- 紙面の画像の解像度(画像を出してよい倍率の上限を決める)
+  // 引き伸ばしすぎるとにじむ。上限はキャンバス全体で 1 つにし、いちばん粗い画像に合わせる
+  const thumbnailWidthsRef = useRef(new Map<string, number>());
+  const thumbnailRatioRef = useRef<number | null>(null);
+  const [previewImageCapVersion, setPreviewImageCapVersion] = useState(0);
+
+  const reportThumbnailWidth = useCallback<MultiPageCanvasContextValue['reportThumbnailWidth']>((id, naturalWidth) => {
+    if (!Number.isFinite(naturalWidth) || naturalWidth <= 0) return;
+    if (thumbnailWidthsRef.current.get(id) === naturalWidth) return;
+    thumbnailWidthsRef.current.set(id, naturalWidth);
+    let min = Infinity;
+    thumbnailWidthsRef.current.forEach((width, key) => {
+      const pageWidth = framesMapRef.current.get(key)?.size.width;
+      if (!pageWidth || pageWidth <= 0) return;
+      min = Math.min(min, width / pageWidth);
+    });
+    const ratio = Number.isFinite(min) ? min : null;
+    if (ratio === thumbnailRatioRef.current) return;
+    thumbnailRatioRef.current = ratio;
+    // 上限が動いたので、React 側(画像にするかの判定)にやり直させる
+    setPreviewImageCapVersion((v) => v + 1);
+  }, []);
+
+  const getPreviewImageZoomCap = useCallback<MultiPageCanvasContextValue['getPreviewImageZoomCap']>(() => {
+    // 別のディスプレイへ移すと変わるので、そのつど読む
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const ratio = thumbnailRatioRef.current ?? PREVIEW_IMAGE_PRESUMED_RATIO;
+    return Math.min(PREVIEW_IMAGE_ZOOM, (ratio * PREVIEW_IMAGE_MAX_STRETCH) / dpr);
+  }, []);
+
   const value = useMemo<MultiPageCanvasContextValue>(
     () => ({
       isEnabled: enabled,
@@ -992,12 +1050,16 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
       toggleRulers,
       requestPreviewSlot,
       releasePreviewSlot,
+      getPreviewImageZoomCap,
+      reportThumbnailWidth,
+      previewImageCapVersion,
     }),
     [
       enabled, editorMode, pages, bounds, layout, getPage, updatePageFrame, setPageHtml, invalidatePages, artboard.documentAttributes,
       setPageHeight, ensurePageHtml, previewStyles, viewStore, setCanvasOffset, setCanvasZoom, setView, zoomAt, zoomTo, zoomIn, zoomOut, zoomToFit, zoomToPage,
       zoomToActual, revealPage, activatePage, activatingPageId, registerContainer, isInteracting, markInteracting,
       persisted, rulersVisible, toggleRulers, requestPreviewSlot, releasePreviewSlot,
+      getPreviewImageZoomCap, reportThumbnailWidth, previewImageCapVersion,
     ],
   );
 

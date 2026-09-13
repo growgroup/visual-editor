@@ -38,8 +38,7 @@ import {
   useCanvasActivePageId,
   RULER_SIZE,
   FRAME_GAP,
-  PREVIEW_IMAGE_ZOOM,
-  PREVIEW_IMAGE_ZOOM_OUT,
+  PREVIEW_IMAGE_ZOOM_HYSTERESIS,
   type PageFrameLayout,
 } from '../../contexts/MultiPageCanvasContext';
 import { useEditorContext } from '../../EditorContext';
@@ -218,6 +217,8 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
     rulersVisible,
     isInteracting,
     initialViewRestored,
+    getPreviewImageZoomCap,
+    previewImageCapVersion,
   } = canvas;
   // 倍率・位置は購読しない(ホイール 1 段ごとにキャンバス全体が React を通ってしまう)。
   // 描画に要る「粗い倍率」だけを下の useLayoutEffect が間引いて渡す
@@ -280,7 +281,7 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
       // (CSS が拾う。属性 1 つの書き換えで 26 枚がいっぺんに切り替わり、React は通らない)。
       // iframe を外してメモリを返すのは操作が止まってから(下の imageMode)。
       // 外す向き(画像 → iframe)もここではやらない ── 止まってから 0.5 以上で判定する
-      if (el && z < PREVIEW_IMAGE_ZOOM_OUT && el.getAttribute('data-canvas-preview-image') !== '1') {
+      if (el && z < getPreviewImageZoomCap() * PREVIEW_IMAGE_ZOOM_HYSTERESIS && el.getAttribute('data-canvas-preview-image') !== '1') {
         el.setAttribute('data-canvas-preview-image', '1');
       }
       // 粗い倍率: 150ms に 1 回まで。末尾のタイマーで操作の終わりに必ず追いつく
@@ -295,7 +296,7 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
       unsubscribe();
       if (coarseTimer) clearTimeout(coarseTimer);
     };
-  }, [viewStore]);
+  }, [viewStore, getPreviewImageZoomCap]);
 
   // エディタの内側の倍率は 100% 固定(倍率は外側の transform が持つ)
   useEffect(() => {
@@ -366,21 +367,26 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
   // ---- 紙面を画像に落とすか(大きく縮小している間だけ)
   // 判定は操作が止まってからしか動かさない。縮小の途中で 26 枚の iframe を差し替えると、
   // 軽くするための切替そのものが重いフレームを作る
-  const [imageMode, setImageMode] = useState(() => viewStore.get().canvasZoom < PREVIEW_IMAGE_ZOOM_OUT);
+  const [imageMode, setImageMode] = useState(
+    () => viewStore.get().canvasZoom < getPreviewImageZoomCap() * PREVIEW_IMAGE_ZOOM_HYSTERESIS,
+  );
   const imageModeRef = useRef(imageMode);
   imageModeRef.current = imageMode;
+  // previewImageCapVersion は「画像の解像度が分かって上限が動いた」きっかけ。
+  // 止まったまま画像が読み終わった場合でも、ここで判定をやり直す
   useEffect(() => {
     if (isInteracting) return;
     const timer = setTimeout(() => {
       const z = viewStore.get().canvasZoom;
-      // ヒステリシス: 画像 → iframe は 0.5 以上、iframe → 画像は 0.4 未満(境目で行き来しない)
-      const next = imageModeRef.current ? z < PREVIEW_IMAGE_ZOOM : z < PREVIEW_IMAGE_ZOOM_OUT;
+      const cap = getPreviewImageZoomCap();
+      // ヒステリシス: 画像 → iframe は上限以上、iframe → 画像は上限 × 0.8 未満(境目で行き来しない)
+      const next = imageModeRef.current ? z < cap : z < cap * PREVIEW_IMAGE_ZOOM_HYSTERESIS;
       if (next !== imageModeRef.current) setImageMode(next);
       // iframe に戻す向きに決まったら、縮小の途中で立てた掛け金も外す(iframe がまた見える)
       if (!next) containerRef.current?.removeAttribute('data-canvas-preview-image');
     }, PREVIEW_MODE_SETTLE_MS);
     return () => clearTimeout(timer);
-  }, [isInteracting, coarseZoom, viewStore]);
+  }, [isInteracting, coarseZoom, viewStore, getPreviewImageZoomCap, previewImageCapVersion]);
   // 画像を裏で先に読んでおくか(粗い倍率なので、段ごとには変わらない真偽値)
   const preloadImage = coarseZoom < PREVIEW_IMAGE_PRELOAD_ZOOM;
 

@@ -9,25 +9,37 @@
  * 層の構成(下から):
  *   1. 転写層(translate + scale)… フレームの白地 + 見るだけの紙面(PageFramePreview)
  *   2. 転写層の中、編集中のフレームの位置に EditorCanvas(1 つだけ。ページを移っても作り直さない)
- *   3. 画面座標のオーバーレイ … フレーム名・選択リング(倍率に関係なく同じ太さ・同じ文字サイズ)
- *   4. 定規
+ *   3. 飾りの canvas(画面の座標)… フレームの枠線・階層の線
+ *   4. オーバーレイ(転写層と同じ translate + scale)… フレーム名・選択リング。
+ *      中身は紙面の座標に置いて scale(1/倍率) で打ち消すので、画面上は倍率に関係なく同じ大きさ
+ *   5. 定規
  *
  * EditorCanvas を pages.map の中に置くとページを移るたびに React が作り直して
  * iframe が読み直される。map の外に 1 つだけ置き、位置だけ動かす
  *
  * [パン・ズームの軽さ]
- * パンは 2 つの層の transform 文字列を変えるだけにする。フレーム 1 枚ずつの要素
- * (FrameShell / FrameChrome)は memo で、位置は倍率だけに依存させる(画面上の位置 =
- * 層の translate + 紙面の位置 × 倍率)。150 枚あってもパンで描き直る要素は 2 つ。
- * ズームは倍率に依存する要素が描き直る(それでも小さな要素が 300 個ほど)
+ * ホイール 1 段の仕事を「合成だけ」にする。倍率・位置は React を通さず、viewStore を
+ * 直接購読して 2 つの層の style へ書く(転写層とオーバーレイの transform、オーバーレイの
+ * --ed-zoom / --ed-inv、容器の data-canvas-zoom の 4 つだけ)。フレーム 1 枚ずつの要素は
+ * memo で、倍率を props に持たない。
+ *
+ * 転写層の中には「白い矩形 + 合成済みの iframe」しか置かない。枠線(box-shadow / outline /
+ * border のどれでも)や階層の線(SVG)を中に置くと、倍率が変わるたびに転写層まるごとが
+ * 塗り直され、1 段 10〜20ms の Paint になる(実測)。枠線と線は画面の座標の canvas
+ * (CanvasFrameDecor)へ出した。
+ *
+ * 名前の幅と出し分けだけは DOM のままなので、段ごとではなく **粗い倍率**
+ * (coarseZoom、150ms に 1 回まで。操作の終わりに必ず追いつく)から決める
  */
 
-import { memo, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   useMultiPageCanvas,
-  useCanvasViewState,
+  useCanvasActivePageId,
   RULER_SIZE,
   FRAME_GAP,
+  PREVIEW_IMAGE_ZOOM,
+  PREVIEW_IMAGE_ZOOM_OUT,
   type PageFrameLayout,
 } from '../../contexts/MultiPageCanvasContext';
 import { useEditorContext } from '../../EditorContext';
@@ -38,11 +50,19 @@ import { EditorAppearanceContext } from '../../contexts/EditorAppearanceContext'
 import { EditorCanvas } from '../EditorCanvas';
 import { PageFramePreview } from './PageFramePreview';
 import { CanvasRulers } from './CanvasRulers';
+import { CanvasFrameDecor } from './CanvasFrameDecor';
 import { cn } from '../../../lib/utils';
 import { ArrowUpRight } from 'lucide-react';
 
 /** フレーム名の高さ(px、画面上)。フレームの上端との間隔 */
 const LABEL_HEIGHT = 20;
+/**
+ * 粗い倍率を更新する間隔(ms)。これを短くすると縮小中の塗り直しが増える。
+ * 操作の終わりには必ず本当の倍率に追いつく(末尾で 1 回)
+ */
+const COARSE_ZOOM_MS = 150;
+/** 紙面を画像に落とすかの判定を、操作が止まってから何 ms 後に見るか(全体表示の 240ms の動きを跨がない) */
+const PREVIEW_MODE_SETTLE_MS = 300;
 
 // ------------------------------------------------------------
 // フレームの白地 + 見るだけの紙面(転写層の中。紙面の座標)
@@ -50,47 +70,51 @@ const LABEL_HEIGHT = 20;
 
 interface FrameShellProps {
   page: PageFrameLayout;
-  zoom: number;
   isActive: boolean;
   passThrough: boolean;
+  /** 大きく縮小している間は紙面を画像で描く(この層の zoom には依存しない真偽値) */
+  imageMode: boolean;
   rootRef: React.RefObject<HTMLDivElement | null>;
   onMouseDown: (e: React.MouseEvent, id: string) => void;
   onHover: (id: string | null) => void;
 }
 
-const FrameShell = memo(function FrameShell({ page, zoom, isActive, passThrough, rootRef, onMouseDown, onHover }: FrameShellProps) {
+/**
+ * 倍率を props に持たない(持たせるとホイール 1 段ごとに 26 枚が React を通る)。
+ * 枠線はこの要素には無い ── 画面の座標の canvas(CanvasFrameDecor)が描く
+ */
+const FrameShell = memo(function FrameShell({ page, isActive, passThrough, imageMode, rootRef, onMouseDown, onHover }: FrameShellProps) {
   return (
     <div
       data-page-frame={page.id}
       data-page-active={isActive ? 'true' : undefined}
-      className="absolute"
+      className="ed-frame-shell absolute"
       style={{
         left: page.position.x,
         top: page.position.y,
         width: page.size.width,
         height: page.size.height,
-        background: '#fff',
-        boxShadow: `0 0 0 ${1 / zoom}px var(--ed-frame-edge, rgba(0,0,0,0.08))`,
         cursor: isActive || passThrough ? undefined : 'pointer',
       }}
       onMouseDown={(e) => onMouseDown(e, page.id)}
       onMouseEnter={() => onHover(page.id)}
       onMouseLeave={() => onHover(null)}
     >
-      <PageFramePreview page={page} rootRef={rootRef} />
+      <PageFramePreview page={page} rootRef={rootRef} imageMode={imageMode} />
     </div>
   );
 });
 
 // ------------------------------------------------------------
-// フレーム名・リング(オーバーレイの中。画面の座標 = 紙面の位置 × 倍率)
+// フレーム名・リング(オーバーレイの中)
 // ------------------------------------------------------------
 
 interface FrameChromeProps {
   page: PageFrameLayout;
-  zoom: number;
-  /** 名前を出せる倍率か(行の隙間に名前が収まる)。全フレーム共通なので親で判定する */
-  labelsVisible: boolean;
+  /** 名前を出すか(粗い倍率から親が判定する。全フレーム共通の条件 + このフレームの幅) */
+  showLabel: boolean;
+  /** 「別タブで開く」を出すか(名前の右。フレームが細いときは出さない) */
+  showLink: boolean;
   /** リングと名前の強調(切替中はクリックしたページへ先に移る) */
   isSelected: boolean;
   isHover: boolean;
@@ -100,18 +124,31 @@ interface FrameChromeProps {
   onZoomTo: (id: string) => void;
 }
 
-const FrameChrome = memo(function FrameChrome({ page, zoom, labelsVisible, isSelected, isHover, isBusy, onActivate, onZoomTo }: FrameChromeProps) {
-  const sx = page.position.x * zoom;
-  const sy = page.position.y * zoom;
-  const sw = page.size.width * zoom;
-  const sh = page.size.height * zoom;
-  // 縮小してフレームが細くなったら名前は幅に収める(重ならない)。極端に小さければ出さない
-  const showLabel = labelsVisible && sw >= 28;
+/**
+ * オーバーレイは転写層と同じ transform(translate + scale)なので、ここで scale(1/倍率) を
+ * 掛けて打ち消す。こうすると中身は画面上の大きさのまま、位置は紙面の座標で書ける
+ * (段ごとに React を通さず、--ed-inv が変わるだけで動く)。
+ * リングだけは画面上の寸法が要るので --ed-zoom から CSS で出す(段ごとに変わるのは 1〜2 個)
+ */
+const FrameChrome = memo(function FrameChrome({ page, showLabel, showLink, isSelected, isHover, isBusy, onActivate, onZoomTo }: FrameChromeProps) {
+  const hasRing = isSelected || isHover;
   return (
-    <div className="absolute left-0 top-0" data-frame-chrome={page.id} style={{ transform: `translate(${sx}px, ${sy}px)` }}>
+    <div
+      className="absolute left-0 top-0"
+      data-frame-chrome={page.id}
+      style={{
+        transform: `translate(${page.position.x}px, ${page.position.y}px) scale(var(--ed-inv, 1))`,
+        transformOrigin: '0 0',
+        // 名前だけの小さな層にしておく(倍率が変わっても塗り直さずに動く)。
+        // リングが出ているフレームはフレームと同じ大きさになるので層にしない(巨大な合成層を作らない)
+        willChange: hasRing ? undefined : 'transform',
+        ['--ed-fw' as string]: `${page.size.width}px`,
+        ['--ed-fh' as string]: `${page.size.height}px`,
+      }}
+    >
       {/* フレーム名(Figma: フレームの左上、倍率に関係なく同じ大きさ)+ 別タブで開く(href があるとき) */}
       {showLabel && (
-        <div className="ed-frame-label-row" style={{ top: -LABEL_HEIGHT, maxWidth: Math.max(28, sw) }}>
+        <div className="ed-frame-label-row" style={{ top: -LABEL_HEIGHT, maxWidth: 'max(28px, calc(var(--ed-fw) * var(--ed-zoom, 1)))' }}>
           <button
             type="button"
             data-frame-label={page.id}
@@ -126,7 +163,7 @@ const FrameChrome = memo(function FrameChrome({ page, zoom, labelsVisible, isSel
             {page.isDirty && <span className="ed-frame-label-dirty" aria-label="未保存の変更" />}
             {isBusy && <span className="ed-frame-label-loading" aria-label="読み込み中" />}
           </button>
-          {page.href && sw >= 96 && (
+          {page.href && showLink && (
             <a
               className="ed-frame-label-link"
               data-frame-link={page.id}
@@ -143,43 +180,14 @@ const FrameChrome = memo(function FrameChrome({ page, zoom, labelsVisible, isSel
           )}
         </div>
       )}
-      {/* リング(選択中 = 実線、ホバー = 淡い実線) */}
-      {(isSelected || isHover) && (
+      {/* リング(選択中 = 実線、ホバー = 淡い実線)。画面上の寸法 = 紙面の寸法 × 倍率 */}
+      {hasRing && (
         <div
           className={cn('ed-frame-ring', isSelected ? 'ed-frame-ring-active' : 'ed-frame-ring-hover')}
-          style={{ width: sw, height: sh }}
+          style={{ width: 'calc(var(--ed-fw) * var(--ed-zoom, 1))', height: 'calc(var(--ed-fh) * var(--ed-zoom, 1))' }}
         />
       )}
     </div>
-  );
-});
-
-// ------------------------------------------------------------
-// 階層の線(親の下端の中央 → 子の上端の中央。転写層の中、紙面の座標)
-// ------------------------------------------------------------
-
-const TreeConnectors = memo(function TreeConnectors({ pages, gapY }: { pages: PageFrameLayout[]; gapY: number }) {
-  const byId = useMemo(() => new Map(pages.map((p) => [p.id, p] as const)), [pages]);
-  const d = useMemo(() => {
-    const parts: string[] = [];
-    pages.forEach((child) => {
-      const parent = child.parentId ? byId.get(child.parentId) : undefined;
-      if (!parent) return;
-      const x1 = parent.position.x + parent.size.width / 2;
-      const y1 = parent.position.y + parent.size.height;
-      const x2 = child.position.x + child.size.width / 2;
-      const y2 = child.position.y;
-      // 親の下から、子の行との隙間の真ん中まで下り、横へ移って子の上へ
-      const ym = y2 - gapY / 2;
-      parts.push(`M${x1} ${y1} V${ym} H${x2} V${y2}`);
-    });
-    return parts.join(' ');
-  }, [pages, byId, gapY]);
-  if (!d) return null;
-  return (
-    <svg className="ed-frame-connectors" data-canvas-connectors aria-hidden="true" width={1} height={1} style={{ overflow: 'visible' }}>
-      <path d={d} fill="none" vectorEffect="non-scaling-stroke" />
-    </svg>
   );
 });
 
@@ -192,7 +200,7 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
   const {
     pages,
     bounds,
-    layout,
+    viewStore,
     registerContainer,
     activatePage,
     activatingPageId,
@@ -203,10 +211,14 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
     isInteracting,
     initialViewRestored,
   } = canvas;
-  const { canvasOffset, canvasZoom, activePageId } = useCanvasViewState();
+  // 倍率・位置は購読しない(ホイール 1 段ごとにキャンバス全体が React を通ってしまう)。
+  // 描画に要る「粗い倍率」だけを下の useLayoutEffect が間引いて渡す
+  const activePageId = useCanvasActivePageId();
   const { setZoom, setFitZoom, activeTool, iframeReady } = useEditorContext();
   const theme = useContext(EditorAppearanceContext) ?? 'light';
   const containerRef = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const active = useMemo(() => pages.find((p) => p.id === activePageId) ?? null, [pages, activePageId]);
   // リング・名前の強調は「移ろうとしているページ」を優先する(押した瞬間に手応えを返す)
   const selectedId = activatingPageId ?? activePageId;
@@ -222,6 +234,53 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
     registerContainer(containerRef.current);
     return () => registerContainer(null);
   }, [registerContainer]);
+
+  // ---- 倍率・位置の反映(React を通さない)
+  const [coarseZoom, setCoarseZoom] = useState(() => viewStore.get().canvasZoom);
+  const coarseZoomRef = useRef(coarseZoom);
+  coarseZoomRef.current = coarseZoom;
+
+  useLayoutEffect(() => {
+    let lastZoom = NaN;
+    let coarseTimer: ReturnType<typeof setTimeout> | null = null;
+    let coarseAt = 0;
+    const pushCoarse = () => {
+      coarseAt = performance.now();
+      const z = viewStore.get().canvasZoom;
+      if (coarseZoomRef.current === z) return;
+      coarseZoomRef.current = z;
+      setCoarseZoom(z);
+    };
+    const write = () => {
+      const { canvasOffset: o, canvasZoom: z } = viewStore.get();
+      const transform = `translate(${o.x}px, ${o.y}px) scale(${z})`;
+      if (layerRef.current) layerRef.current.style.transform = transform;
+      const overlay = overlayRef.current;
+      if (overlay) overlay.style.transform = transform;
+      if (z === lastZoom) return;
+      lastZoom = z;
+      if (overlay) {
+        // 中身の scale(1/倍率) とリングの寸法に使う。この 1 要素だけが段ごとに変わる
+        overlay.style.setProperty('--ed-zoom', String(z));
+        overlay.style.setProperty('--ed-inv', String(1 / z));
+      }
+      // 検証スクリプトとヘッダーの表示が読む(四捨五入した %)
+      const el = containerRef.current;
+      const pct = String(Math.round(z * 100));
+      if (el && el.getAttribute('data-canvas-zoom') !== pct) el.setAttribute('data-canvas-zoom', pct);
+      // 粗い倍率: 150ms に 1 回まで。末尾のタイマーで操作の終わりに必ず追いつく
+      if (coarseTimer) clearTimeout(coarseTimer);
+      const elapsed = performance.now() - coarseAt;
+      if (elapsed >= COARSE_ZOOM_MS) pushCoarse();
+      else coarseTimer = setTimeout(() => { coarseTimer = null; pushCoarse(); }, COARSE_ZOOM_MS - elapsed);
+    };
+    write();
+    const unsubscribe = viewStore.subscribe(write);
+    return () => {
+      unsubscribe();
+      if (coarseTimer) clearTimeout(coarseTimer);
+    };
+  }, [viewStore]);
 
   // エディタの内側の倍率は 100% 固定(倍率は外側の transform が持つ)
   useEffect(() => {
@@ -289,44 +348,51 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
   const handleActivate = useCallback((id: string) => { void activatePage(id, { reveal: true }); }, [activatePage]);
   const handleZoomTo = useCallback((id: string) => zoomToPage(id, { animate: true }), [zoomToPage]);
 
+  // ---- 紙面を画像に落とすか(大きく縮小している間だけ)
+  // 判定は操作が止まってからしか動かさない。縮小の途中で 26 枚の iframe を差し替えると、
+  // 軽くするための切替そのものが重いフレームを作る
+  const [imageMode, setImageMode] = useState(() => viewStore.get().canvasZoom < PREVIEW_IMAGE_ZOOM_OUT);
+  useEffect(() => {
+    if (isInteracting) return;
+    const timer = setTimeout(() => {
+      const z = viewStore.get().canvasZoom;
+      // ヒステリシス: 画像 → iframe は 0.5 以上、iframe → 画像は 0.4 未満(境目で行き来しない)
+      setImageMode((prev) => (prev ? z < PREVIEW_IMAGE_ZOOM : z < PREVIEW_IMAGE_ZOOM_OUT));
+    }, PREVIEW_MODE_SETTLE_MS);
+    return () => clearTimeout(timer);
+  }, [isInteracting, coarseZoom, viewStore]);
+
   const cursor = isPanning ? 'grabbing' : isSpaceHeld || activeTool === 'move' ? 'grab' : undefined;
   // 行の隙間(画面上)に名前が収まらない倍率では名前を出さない。出すと下の行の名前が
   // 上の行のフレームに被り、フレームのクリックを奪う(150 枚の全体表示で実測)
-  const labelsVisible = FRAME_GAP[canvas.editorMode].y * canvasZoom >= LABEL_HEIGHT + 6;
-  // data-interacting はズーム・パン中の印(CSS・検証用のフック。中では willChange に使う)
-  const layerTransform = `translate(${canvasOffset.x}px, ${canvasOffset.y}px) scale(${canvasZoom})`;
-  const overlayTransform = `translate(${canvasOffset.x}px, ${canvasOffset.y}px)`;
+  const labelsVisible = FRAME_GAP[canvas.editorMode].y * coarseZoom >= LABEL_HEIGHT + 6;
 
   return (
     <div
       ref={containerRef}
       data-infinite-canvas="true"
-      data-canvas-zoom={Math.round(canvasZoom * 100)}
       data-interacting={isInteracting ? 'true' : undefined}
       className="absolute inset-0 overflow-hidden select-none"
       style={{ background: 'var(--ed-canvas, var(--ed-bg))', cursor, touchAction: 'none', overscrollBehavior: 'none' }}
       onMouseDown={onMarqueeMouseDown}
     >
-      {/* 転写層 */}
+      {/* 転写層(transform は useLayoutEffect が直接書く。React の style には入れない) */}
       <div
+        ref={layerRef}
         data-canvas-transform-layer
         className="absolute left-0 top-0"
         style={{
-          transform: layerTransform,
           transformOrigin: '0 0',
           willChange: isInteracting ? 'transform' : undefined,
         }}
       >
-        {/* 階層の線(フレームの下に描く。線の太さは倍率に関係なく一定 = non-scaling-stroke) */}
-        {layout === 'tree' && <TreeConnectors pages={pages} gapY={FRAME_GAP[canvas.editorMode].y} />}
-
         {pages.map((page) => (
           <FrameShell
             key={page.id}
             page={page}
-            zoom={canvasZoom}
             isActive={page.id === activePageId}
             passThrough={passThrough}
+            imageMode={imageMode}
             rootRef={containerRef}
             onMouseDown={handleFrameMouseDown}
             onHover={handleHover}
@@ -356,20 +422,27 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
         )}
       </div>
 
-      {/* 画面座標のオーバーレイ: フレーム名・リング(層ごと平行移動。倍率だけ各要素に渡す) */}
+      {/* フレームの枠線と階層の線(画面の座標の canvas)。転写層の中に置くと 1 段ごとに
+          転写層まるごとが塗り直される ── 詳しくは CanvasFrameDecor の頭の注記 */}
+      <CanvasFrameDecor theme={theme} />
+
+      {/* オーバーレイ: フレーム名・リング。転写層と同じ transform を掛け、中身が scale(1/倍率) で戻す */}
       <div
+        ref={overlayRef}
         className="pointer-events-none absolute left-0 top-0 z-10"
         data-canvas-overlay
-        style={{ transform: overlayTransform, willChange: isInteracting ? 'transform' : undefined }}
+        style={{ transformOrigin: '0 0', willChange: isInteracting ? 'transform' : undefined }}
       >
         {pages.map((page) => {
           const isSelected = page.id === selectedId;
+          // 縮小してフレームが細くなったら名前は出さない(重ならない)。粗い倍率で判定する
+          const screenWidth = page.size.width * coarseZoom;
           return (
             <FrameChrome
               key={page.id}
               page={page}
-              zoom={canvasZoom}
-              labelsVisible={labelsVisible}
+              showLabel={labelsVisible && screenWidth >= 28}
+              showLink={screenWidth >= 96}
               isSelected={isSelected}
               isHover={hoverId === page.id && !isSelected && !passThrough}
               isBusy={page.loading || page.id === activatingPageId || (page.id === activePageId && !iframeReady)}

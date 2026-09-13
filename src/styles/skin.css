@@ -325,8 +325,12 @@
 .gg-editor-ui :is(input:not([type="color"]), textarea, select):not([data-editor-preview] *) { border-color: var(--ed-line-strong) !important; }
 
 /* ── マルチフレームのキャンバス(Figma 風) ──────────────
-   フレーム名とリングは画面座標に置く(倍率に関係なく同じ太さ・同じ文字サイズ)。
+   フレーム名とリングはオーバーレイの中で scale(1/倍率) を掛けて画面上の大きさに戻す
+   (倍率に関係なく同じ太さ・同じ文字サイズ)。
    見るだけの紙面の骨組み(スケルトン)だけは転写層の中にあるので、フレームの寸法に対する % で描く */
+/* フレームの白地だけ。枠線と階層の線は画面の座標の canvas(CanvasFrameDecor)が描く。
+   転写層の中に枠線を持たせると、倍率が変わるたびに転写層まるごとが塗り直される(実測) */
+.gg-editor-ui .ed-frame-shell { background: #fff; }
 .gg-editor-ui .ed-frame-label-row { position: absolute; left: 0; height: 20px; display: inline-flex; align-items: center; gap: 2px; max-width: 100%; }
 .gg-editor-ui .ed-frame-label {
   height: 20px; min-width: 0; display: inline-flex; align-items: center; gap: 6px;
@@ -341,9 +345,6 @@
 .gg-editor-ui .ed-frame-label-link svg { width: 12px; height: 12px; }
 .gg-editor-ui .ed-frame-label-row:hover .ed-frame-label-link, .gg-editor-ui .ed-frame-label-active + .ed-frame-label-link, .gg-editor-ui .ed-frame-label-link:focus-visible { opacity: 1; }
 .gg-editor-ui .ed-frame-label-link:hover { color: var(--ed-text); background: var(--ed-panel); box-shadow: 0 0 0 1px var(--ed-line); }
-/* 階層の線(ツリー配置)。転写層の中にあるが、線の太さは non-scaling-stroke で画面上 1.5px */
-.gg-editor-ui .ed-frame-connectors { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
-.gg-editor-ui .ed-frame-connectors path { stroke: var(--ed-line-strong); stroke-width: 1.5px; stroke-linejoin: round; }
 /* 部品(data-part)のカード。紙面の紫の選択枠と同じ色 */
 .gg-editor-ui .ed-part-card { border: 1px solid color-mix(in srgb, #7b61ff 45%, var(--ed-line)); background: color-mix(in srgb, #7b61ff 8%, var(--ed-panel)); color: var(--ed-text); }
 .gg-editor-ui .ed-part-accent { color: #7b61ff; }

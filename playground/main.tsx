@@ -15,7 +15,25 @@ const mode = params.get('mode') === 'slide' ? 'slide' : 'webpage';
 const minimal = params.has('minimal');
 // ?canvas … Figma 風のマルチフレームキャンバス(全ページを 1 枚のキャンバスに並べる)
 const canvasMode = params.has('canvas');
-const sampleHtml = parts ? [partsPage] : mode === 'webpage' ? (canvasMode ? webpagePages.map((p) => p.html) : [webpage]) : canvasMode ? [...slides, ...slides, ...slides] : slides;
+/**
+ * ?canvas&thumbs … contentList[].thumbnail(ページ全体を写した画像)付きの 26 ページ。
+ * 大きく縮小したときに、見るだけの紙面が iframe から画像に落ちることの確認用。
+ * 1 枚(8 ページ目)だけ画像の URL を壊してあり、読めないページが iframe のまま残ることを見る
+ */
+const thumbsMode = canvasMode && params.has('thumbs');
+const THUMB_COUNT = 26;
+/** ページと同じ縦横比(幅 1820 × 高さ 1200)で、番号だけ入った画像。幅は 480px 以上 */
+const thumbUrl = (n: number) =>
+  'data:image/svg+xml;charset=utf-8,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="546" height="360" viewBox="0 0 1820 1200"><rect width="1820" height="1200" fill="#eef2f7"/><rect x="120" y="120" width="900" height="90" fill="#c9d4e3"/><rect x="120" y="260" width="1580" height="40" fill="#dce3ec"/><rect x="120" y="330" width="1400" height="40" fill="#dce3ec"/><text x="120" y="900" font-family="sans-serif" font-size="220" fill="#8fa3bb">page ${n}</text></svg>`,
+  );
+const thumbPages = Array.from({ length: THUMB_COUNT }, (_, i) => webpagePages[i % webpagePages.length]);
+const sampleHtml = parts
+  ? [partsPage]
+  : mode === 'webpage'
+    ? (thumbsMode ? thumbPages.map((p) => p.html) : canvasMode ? webpagePages.map((p) => p.html) : [webpage])
+    : canvasMode ? [...slides, ...slides, ...slides] : slides;
 const partsStore = createPartsStore();
 const partsIo: EditorIO = {
   loadParts: async () => ({
@@ -37,7 +55,11 @@ const partsIo: EditorIO = {
     partsStore.log.push({ op: 'saveVariables', at: new Date().toISOString() });
   },
 };
-let deck: EditorDeck = { version: 1, title: 'リデザインの動作確認', slides: sampleHtml.map((_, i) => ({ id: String(i + 1), title: mode === 'webpage' ? (canvasMode ? webpagePages[i].title : 'トップページ') : ['伝わる体験を、いっしょにつくる。', '私たちの進め方'][i % 2] + (canvasMode && i >= 2 ? `（${i + 1}）` : ''), template: 'sample', edited: false, comments: [] })) };
+const pageTitle = (i: number) =>
+  mode === 'webpage'
+    ? (thumbsMode ? `${thumbPages[i].title}（${i + 1}）` : canvasMode ? webpagePages[i].title : 'トップページ')
+    : ['伝わる体験を、いっしょにつくる。', '私たちの進め方'][i % 2] + (canvasMode && i >= 2 ? `（${i + 1}）` : '');
+let deck: EditorDeck = { version: 1, title: 'リデザインの動作確認', slides: sampleHtml.map((_, i) => ({ id: String(i + 1), title: pageTitle(i), template: 'sample', edited: false, comments: [] })) };
 const documents = new Map(deck.slides.map((entry, i) => [entry.id, sampleHtml[i]]));
 const saveLog: { html: string; auto: boolean; id: string }[] = [];
 const failure = { save: false, comment: false };
@@ -102,7 +124,7 @@ function Playground() {
   return <div className="pg-layout">
     <aside className="pg-rail">
       <strong>Visual Editor</strong><span className="pg-caption">リデザインの動作確認</span>
-      <nav><a href="?mode=webpage" aria-current={mode === 'webpage' && !parts && !canvasMode ? 'page' : undefined}>構成ラフ</a><a href="?mode=slide" aria-current={mode === 'slide' && !canvasMode ? 'page' : undefined}>スライド</a><a href="?mode=parts" aria-current={parts ? 'page' : undefined}>部品</a><a href="?mode=webpage&canvas" aria-current={mode === 'webpage' && canvasMode ? 'page' : undefined}>キャンバス(構成ラフ)</a><a href="?mode=slide&canvas" aria-current={mode === 'slide' && canvasMode ? 'page' : undefined}>キャンバス(スライド)</a></nav>
+      <nav><a href="?mode=webpage" aria-current={mode === 'webpage' && !parts && !canvasMode ? 'page' : undefined}>構成ラフ</a><a href="?mode=slide" aria-current={mode === 'slide' && !canvasMode ? 'page' : undefined}>スライド</a><a href="?mode=parts" aria-current={parts ? 'page' : undefined}>部品</a><a href="?mode=webpage&canvas" aria-current={mode === 'webpage' && canvasMode ? 'page' : undefined}>キャンバス(構成ラフ)</a><a href="?mode=slide&canvas" aria-current={mode === 'slide' && canvasMode ? 'page' : undefined}>キャンバス(スライド)</a><a href="?mode=webpage&canvas&thumbs" aria-current={thumbsMode ? 'page' : undefined}>キャンバス(サムネイル26枚)</a></nav>
       {canvasMode && <div className="pg-card"><strong>マルチフレームのキャンバス</strong><p>全ページが並びます。クリックしたページが編集対象。ホイールで移動、⌘+ホイールで拡大縮小、Space+ドラッグで移動。⇧1 全体 / ⇧2 このページ / ⇧R 定規。</p></div>}
       {parts && <div className="pg-card"><strong>部品モード</strong><p>左パネルの部品をドロップ → 実体化(data-part)。CTA 帯はスロット(見出し・説明)だけ編集できます。右クリックで「部品として保存」「切り離す」。</p><p>保存先はメモリ(window.editorPlayground.parts)。</p></div>}
       <div className="pg-card"><strong>確認すること</strong><p>文字をダブルクリックして編集。要素を選んでコメントを追加できます。</p><p>上部の「…」からライト／ダークを切り替えられます。</p></div>
@@ -115,7 +137,14 @@ function Playground() {
     <div className="pg-editor">
       {closed ? <button className="pg-reopen" onClick={() => setClosed(false)}>エディタを開く</button> : <VisualEditor
         key={canvasMode ? 'canvas' : `${opened.id}:${revision}`} html={opened.html} editorMode={mode} artboardWidth={mode === 'webpage' ? 1820 : undefined}
-        contentId={String(page)} contentList={deck.slides.map((item, i) => ({ id: String(i + 1), title: item.title, order: i + 1 }))}
+        contentId={String(page)} contentList={deck.slides.map((item, i) => ({
+          id: String(i + 1), title: item.title, order: i + 1,
+          // サムネイル検証用: 階層(親の下に子 5 枚ずつ)と画像。8 ページ目だけ画像の URL が壊れている
+          ...(thumbsMode ? {
+            parentId: i === 0 ? null : String(Math.floor((i - 1) / 5) + 1),
+            thumbnail: i === 7 ? '/__missing-thumbnail.png' : thumbUrl(i + 1),
+          } : {}),
+        }))}
         enableMultiPageCanvas={canvasMode}
         canvasStorageKey={canvasMode ? `playground-${mode}` : undefined}
         onContentChange={(id) => { window.location.hash = `#/edit/${id}`; }}

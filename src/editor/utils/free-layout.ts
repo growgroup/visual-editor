@@ -483,17 +483,19 @@ export function setElementAuto(element: HTMLElement, iframeDoc: Document): boole
 /**
  * ページの最上位のセクション = 一括変換の対象。
  *
- * `#artboard > main` があればその直下、無ければ `#artboard` の直下。
+ * `main` があればその直下、無ければ `#artboard` の直下。
+ * main は直下とは限らない——構成ラフの殻は
+ * `#artboard > .wf-frame > .flex > .flex-1 > main` のように何段も挟むうえ、
+ * 隣に注釈の欄(aside)が並ぶ。**版面の帯だけ**を対象にしたいので main を探す。
+ *
  * artboard 自身は倒さない——倒すとセクションが重なり、ページの高さが 0 になる。
  * セクションは流し込みのまま積み、**それぞれの中だけ**を自由配置にする。
  */
 export function topLevelSections(iframeDoc: Document): HTMLElement[] {
   const artboard = iframeDoc.getElementById('artboard');
   if (!artboard) return [];
-  const main = Array.from(artboard.children).find(
-    (c) => (c as HTMLElement).tagName === 'MAIN',
-  ) as HTMLElement | undefined;
-  const root = main ?? artboard;
+  const main = artboard.querySelector('main');
+  const root = (main as HTMLElement | null) ?? artboard;
   return layoutChildren(root);
 }
 

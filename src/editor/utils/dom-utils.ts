@@ -8,6 +8,9 @@
 import type { ElementCapture, DOMTreeNode, MarqueeState } from '../types';
 import { removeConflictingClasses } from './tailwind-utils';
 import { debugLog } from './debug';
+// 目印クラスの定義は free-layout.ts 側が正本。ここでは選択枠の札を出すためだけに読む
+// (循環importになるが、使うのは関数の中だけなので評価順の問題は起きない)
+import { FREELAYOUT_CLASS } from './free-layout';
 
 // ========================================
 // buildDomTree キャッシュ（Phase 2 最適化）
@@ -1317,6 +1320,14 @@ function drawSelectionBox(
       badge.textContent = `${isRoot ? '部品' : '部品の中'} ${partRoot.getAttribute('data-part') ?? ''}${version ? ` v${version}` : ''}${slotName ? ` › ${slotName}` : ''}`;
       selectionBox.appendChild(badge);
     }
+  }
+  // 自由配置の器は、選んだときに「ここは流し込みではない」と分かる札を出す。
+  // 部品の札(左上)とぶつからないよう右上に置く
+  if (mode !== 'member' && element.classList.contains(FREELAYOUT_CLASS)) {
+    const badge = iframeDoc.createElement('div');
+    badge.className = 'freelayout-badge';
+    badge.textContent = '自由配置';
+    selectionBox.appendChild(badge);
   }
   selectionBox.style.cssText = `
     left: ${relativeLeft}px;

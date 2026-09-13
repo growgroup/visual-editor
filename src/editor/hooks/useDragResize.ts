@@ -49,6 +49,7 @@ import {
   type GuideCandidates,
   type MovingRect,
 } from '../utils/smart-guides';
+import { computeFreeBounds } from '../utils/free-layout';
 import { extractElementInfo } from '../utils/style-utils';
 import { convertInlineStylesToTailwind } from '../utils/tailwind-utils';
 import { isAspectRatioLocked } from '../utils/aspect-lock';
@@ -335,6 +336,13 @@ export function useDragResize(
   // 案内はセッション中1回だけ。ドラッグのたびに帯が出ると操作の邪魔になる
   const reorderHintShownRef = useRef(false);
 
+  // 自由配置(gg-freelayout)の器の中で動かせる範囲。ドラッグ開始時に1回だけ採る。
+  // 「器の外には出さない」という約束をここで守る。器の外へ出た要素は、器の高さが
+  // 固定されているぶん見えなくなる(overflow)ことがあり、消えたように見えるため。
+  // 群で掴んだときは各要素の許容範囲の**共通部分**を使う。個別に丸めると
+  // 群の相対位置が崩れる(端に着いた要素だけ止まり、隊列がばらける)
+  const freeBoundsRef = useRef<{ dxMin: number; dxMax: number; dyMin: number; dyMax: number } | null>(null);
+
   // editorMode も zoom と同じ理由で ref に写す。
   // iframe に張ったリスナーのクロージャは古い値を掴んだままになるため
   const editorModeRef = useRef(editorMode);
@@ -378,6 +386,7 @@ export function useDragResize(
     reorderRef.current = null;
     reorderIndexRef.current = -1;
     dragBlockedRef.current = false;
+    freeBoundsRef.current = null;
   }, [dragStateRef]);
 
   /**
@@ -988,6 +997,8 @@ export function useDragResize(
           // 以後のフレームは基準に delta を足すだけなので、要素数に関係なく軽い
           dragBaseRectRef.current = unionOverlayRect(iframeDoc, movingElements);
           guideCandidatesRef.current = collectGuideCandidates(iframeDoc, movingElements);
+          // 自由配置の器の中なら、器からはみ出さない範囲を先に決めておく
+          freeBoundsRef.current = isWebpage ? computeFreeBounds(targets, iframeDoc) : null;
         }
       }
 
@@ -1057,6 +1068,14 @@ export function useDragResize(
         drawSmartGuides(iframeDoc, guideX, guideY);
       } else {
         clearSmartGuides(iframeDoc);
+      }
+
+      // 自由配置の器の中では、器の外へ出さない。
+      // スナップのあとに丸めるのは、吸着で器の外へ引っ張られるのを防ぐため
+      const bounds = freeBoundsRef.current;
+      if (bounds) {
+        snappedDx = Math.min(Math.max(snappedDx, bounds.dxMin), Math.max(bounds.dxMin, bounds.dxMax));
+        snappedDy = Math.min(Math.max(snappedDy, bounds.dyMin), Math.max(bounds.dyMin, bounds.dyMax));
       }
 
       // 単一選択も複数選択も、全要素に「同一の delta」を加算する（群ごと移動）。

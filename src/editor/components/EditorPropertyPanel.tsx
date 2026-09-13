@@ -104,6 +104,8 @@ import {
   pxValue,
   MIN_ELEMENT_SIZE,
 } from "../utils/geometry";
+import { setElementAbsolute, setElementAuto } from "../utils/free-layout";
+import { extractElementInfo } from "../utils/style-utils";
 import { convertInlineStylesToTailwind } from "../utils/tailwind-utils";
 import {
   isAspectRatioLocked,
@@ -860,6 +862,30 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
     const slot = root === el ? null : (el.closest("[data-slot]") as HTMLElement | null);
     return { root, isRoot: root === el, slotName: slot && root.contains(slot) && slot !== root ? slot.getAttribute("data-slot") : null };
   }, [selectedElement, getIframeDoc]);
+  /**
+   * 配置の切替(Figma の「絶対位置」トグル)。webpage だけに出す。
+   *
+   * slide は開いた時点で全部が絶対配置なので、このトグルには意味がない。
+   * webpage は流し込みが既定で、ここが「この要素だけ流れから外す」入口になる。
+   */
+  const setPositionMode = useCallback(
+    (mode: "auto" | "absolute") => {
+      const doc = getIframeDoc();
+      const el = selectedElement?.id
+        ? doc?.querySelector<HTMLElement>(`[data-element-id="${selectedElement.id}"]`)
+        : null;
+      if (!doc || !el) return;
+      const changed = mode === "absolute" ? setElementAbsolute(el, doc) : setElementAuto(el, doc);
+      if (!changed) return;
+      notifyIframeChange();
+      // 枠とパネルの数値をその場で追従させる(X/Y が使えるようになった/なくなったの反映)
+      refreshSelectionOverlay(doc);
+      const info = extractElementInfo(el, doc);
+      if (info) setSelectedElement(info);
+    },
+    [getIframeDoc, selectedElement?.id, notifyIframeChange, setSelectedElement],
+  );
+
   const selectedPart = useMemo(() => (selectedPartRoot ? partInfoOf(selectedPartRoot.root) : null), [selectedPartRoot]);
   const selectedPartLabel = useMemo(() => {
     if (!selectedPart) return "";
@@ -1387,7 +1413,11 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
 
               {/* 位置 X/Y
                   LiveGeom で包むことで、ここだけがドラッグ中のフレーム更新を受ける。
-                  raw が var()/% 等の場合は実測 px で上書きしない（liveOrRaw 参照）。 */}
+                  raw が var()/% 等の場合は実測 px で上書きしない（liveOrRaw 参照）。
+
+                  webpage では上に「配置: 自動 / 絶対」を出す。流し込みの要素に
+                  left/top を書いても見た目は動かないので、絶対でないときは
+                  X/Y を触れなくして「効かない入力」を無くす。 */}
               <div>
                 <Label className="text-[10px] text-gray-500 mb-1 block">
                   位置
@@ -1397,39 +1427,74 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                     const live = geometry?.members.find(
                       (m) => m.id === selectedElement.id,
                     );
+                    // 流し込みの要素かどうかは computed position が正。
+                    // 計測がまだなら従来どおり編集できる状態にしておく
+                    const isAbsolute = live ? live.canMove : true;
+                    const lockedHint =
+                      "絶対配置ではないため、X / Y を直接指定できません（上の「配置」を絶対にすると指定できます）";
                     return (
-                      <div className="grid grid-cols-2 gap-2">
-                        <VariableAwareUnitInput
-                          value={liveOrRaw(
-                            selectedElement.rawLeft,
-                            live?.styleLeft,
-                            selectedElement.x,
-                          )}
-                          onChange={(val) => updateElementStyle({ left: val })}
-                          units={POSITION_UNITS}
-                          defaultUnit="px"
-                          category="spacing"
-                          label="X"
-                          compact
-                          hideVariableLink
-                          conversionContext={conversionContext}
-                        />
-                        <VariableAwareUnitInput
-                          value={liveOrRaw(
-                            selectedElement.rawTop,
-                            live?.styleTop,
-                            selectedElement.y,
-                          )}
-                          onChange={(val) => updateElementStyle({ top: val })}
-                          units={POSITION_UNITS}
-                          defaultUnit="px"
-                          category="spacing"
-                          label="Y"
-                          compact
-                          hideVariableLink
-                          conversionContext={conversionContext}
-                        />
-                      </div>
+                      <>
+                        {editorMode === "webpage" && (
+                          <div className="mb-2 flex items-center gap-2">
+                            <span className="text-[10px] text-gray-500 shrink-0">配置</span>
+                            <div className="flex rounded overflow-hidden border border-[#4a4a4a]">
+                              <button
+                                type="button"
+                                onClick={() => setPositionMode("auto")}
+                                className={`px-2 h-6 text-[10px] ${!isAbsolute ? "bg-[#0d99ff] text-white" : "bg-[#383838] text-gray-400 hover:bg-[#4a4a4a]"}`}
+                                title="流し込み（親の並びに従う）"
+                              >
+                                自動
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPositionMode("absolute")}
+                                className={`px-2 h-6 text-[10px] ${isAbsolute ? "bg-[#0d99ff] text-white" : "bg-[#383838] text-gray-400 hover:bg-[#4a4a4a]"}`}
+                                title="絶対配置（今の位置のまま流れから外し、X / Y で動かせるようにする）"
+                              >
+                                絶対
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        <div
+                          className="grid grid-cols-2 gap-2"
+                          title={editorMode === "webpage" && !isAbsolute ? lockedHint : undefined}
+                        >
+                          <VariableAwareUnitInput
+                            value={liveOrRaw(
+                              selectedElement.rawLeft,
+                              live?.styleLeft,
+                              selectedElement.x,
+                            )}
+                            onChange={(val) => updateElementStyle({ left: val })}
+                            units={POSITION_UNITS}
+                            defaultUnit="px"
+                            category="spacing"
+                            label="X"
+                            compact
+                            hideVariableLink
+                            conversionContext={conversionContext}
+                            disabled={editorMode === "webpage" && !isAbsolute}
+                          />
+                          <VariableAwareUnitInput
+                            value={liveOrRaw(
+                              selectedElement.rawTop,
+                              live?.styleTop,
+                              selectedElement.y,
+                            )}
+                            onChange={(val) => updateElementStyle({ top: val })}
+                            units={POSITION_UNITS}
+                            defaultUnit="px"
+                            category="spacing"
+                            label="Y"
+                            compact
+                            hideVariableLink
+                            conversionContext={conversionContext}
+                            disabled={editorMode === "webpage" && !isAbsolute}
+                          />
+                        </div>
+                      </>
                     );
                   }}
                 </LiveGeom>

@@ -415,6 +415,25 @@ export const EDITOR_IFRAME_STYLES = `
     z-index: 40;
   }
   .selection-box.selection-in-part .part-badge { background: rgba(123, 97, 255, 0.85); }
+  /* 自由配置(gg-freelayout)の器の札。部品の札は左上なので、ぶつからないよう右上に置く */
+  .selection-box .freelayout-badge {
+    position: absolute;
+    top: calc(-44px * var(--ov));
+    right: 0;
+    padding: calc(2px * var(--ov)) calc(6px * var(--ov));
+    border-radius: calc(3px * var(--ov));
+    background: #f2994a;
+    color: #fff;
+    font-size: calc(10px * var(--ov));
+    line-height: 1.4;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 40;
+  }
+  /* 自由配置の器は、選んでいなくても薄い枠で範囲が分かるようにする
+     (中の要素だけを触っているとき、どこまでが自由配置かを見失わないため) */
+  .gg-freelayout.selected { outline: calc(1px * var(--overlay-scale, 1)) dashed rgba(242, 153, 74, 0.8); outline-offset: calc(-1px * var(--overlay-scale, 1)); }
   /* 選んでいる部品のスロット(編集できる範囲)は点線。中を選んでいるときは部品の外周を薄い点線で示す */
   [data-part].selected [data-slot] { outline: calc(1px * var(--overlay-scale, 1)) dashed rgba(123, 97, 255, 0.75); outline-offset: calc(-1px * var(--overlay-scale, 1)); }
   [data-part]:not(.selected):has(.selected) { outline: calc(1px * var(--overlay-scale, 1)) dashed rgba(123, 97, 255, 0.55); outline-offset: calc(2px * var(--overlay-scale, 1)); }

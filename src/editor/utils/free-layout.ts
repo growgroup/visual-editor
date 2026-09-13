@@ -525,6 +525,52 @@ export function disablePageFreeLayout(iframeDoc: Document): { sections: number; 
   return { sections, elements };
 }
 
+// ────────────────────────────────────────────────────────────
+// ドラッグの範囲
+// ────────────────────────────────────────────────────────────
+
+/**
+ * 自由配置の器の中で動かせる delta の範囲を求める。
+ *
+ * 掴んでいる要素のうち、器(gg-freelayout)の直下にいるものだけが対象。
+ * 対象が1つも無ければ null = 制限なし(従来どおりどこへでも動かせる)。
+ *
+ * 群で掴んだときは各要素の許容範囲の**共通部分**を返す。要素ごとに丸めると
+ * 端に着いた要素だけが止まり、群の相対位置が崩れる。
+ *
+ * 座標系は origin と同じ「offsetParent の padding box 基準」。
+ * clientWidth/clientHeight がちょうど padding box の内寸なので、
+ * 左上 0 〜 右下 (client - offset寸法) が器に収まる範囲になる。
+ */
+export function computeFreeBounds(
+  targets: { element: HTMLElement; origin: { left: number; top: number } }[],
+  iframeDoc: Document,
+): { dxMin: number; dxMax: number; dyMin: number; dyMax: number } | null {
+  const win = iframeDoc.defaultView;
+  if (!win) return null;
+  let dxMin = -Infinity;
+  let dxMax = Infinity;
+  let dyMin = -Infinity;
+  let dyMax = Infinity;
+  let found = false;
+
+  for (const { element, origin } of targets) {
+    const container = element.offsetParent as HTMLElement | null;
+    if (!container || typeof container.classList?.contains !== 'function') continue;
+    if (!isFreeLayoutContainer(container)) continue;
+    if (typeof element.offsetWidth !== 'number') continue;
+    found = true;
+    const maxLeft = container.clientWidth - element.offsetWidth;
+    const maxTop = container.clientHeight - element.offsetHeight;
+    dxMin = Math.max(dxMin, -origin.left);
+    dxMax = Math.min(dxMax, maxLeft - origin.left);
+    dyMin = Math.max(dyMin, -origin.top);
+    dyMax = Math.min(dyMax, maxTop - origin.top);
+  }
+
+  return found ? { dxMin, dxMax, dyMin, dyMax } : null;
+}
+
 /** ページのどこかに自由配置の器があるか(メニューの出し分けに使う) */
 export function hasFreeLayout(iframeDoc: Document): boolean {
   const artboard = iframeDoc.getElementById('artboard');

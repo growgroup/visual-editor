@@ -361,6 +361,10 @@
 .gg-editor-ui .ed-canvas-marquee { position: absolute; z-index: 20; pointer-events: none; border: 1px solid var(--ed-accent); background: color-mix(in srgb, var(--ed-accent) 12%, transparent); }
 .gg-editor-ui .ed-frame-ring-active { box-shadow: 0 0 0 1.5px var(--ed-accent-strong); }
 .gg-editor-ui .ed-frame-ring-hover { box-shadow: 0 0 0 1px var(--ed-accent-strong); opacity: 0.55; }
+/* 縮小の途中(倍率 0.4 未満)は、画像が読めている紙面の iframe を止めて、下に敷いた画像を見せる。
+   iframe を外して(メモリを返して)しまうのは操作が止まってから ── その間もラスタは止まっている。
+   属性 1 つ(キャンバスの容器の data-canvas-preview-image)の書き換えで 26 枚がいっぺんに切り替わる */
+.gg-editor-ui [data-canvas-preview-image="1"] [data-page-preview][data-image-ready="1"] iframe { visibility: hidden; }
 .gg-editor-ui .ed-frame-skeleton { position: absolute; inset: 0; padding: 6% 8%; display: flex; flex-direction: column; gap: 3%; background: #fff; }
 .gg-editor-ui .ed-frame-skeleton-bar { display: block; height: 2.5%; min-height: 8px; border-radius: 999px; background: #eceff3; }
 .gg-editor-ui .ed-frame-skeleton-note { font-size: 40px; color: #9aa3b2; }

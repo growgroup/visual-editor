@@ -63,6 +63,12 @@ const LABEL_HEIGHT = 20;
 const COARSE_ZOOM_MS = 150;
 /** 紙面を画像に落とすかの判定を、操作が止まってから何 ms 後に見るか(全体表示の 240ms の動きを跨がない) */
 const PREVIEW_MODE_SETTLE_MS = 300;
+/**
+ * この倍率より小さいところにいる間は、紙面の画像(thumbnail)を裏で先に読んでおく。
+ * 読めていない画像は縮小の途中で使えない(空白のフレームになるので iframe を見せ続ける)。
+ * 1 ページを大きく開いて編集しているときは読まない(利用側に 26 枚の画像を作らせない)
+ */
+const PREVIEW_IMAGE_PRELOAD_ZOOM = 1.2;
 
 // ------------------------------------------------------------
 // フレームの白地 + 見るだけの紙面(転写層の中。紙面の座標)
@@ -74,6 +80,8 @@ interface FrameShellProps {
   passThrough: boolean;
   /** 大きく縮小している間は紙面を画像で描く(この層の zoom には依存しない真偽値) */
   imageMode: boolean;
+  /** 画像を裏で先に読んでおく(縮小の途中で切り替えられるように) */
+  preloadImage: boolean;
   rootRef: React.RefObject<HTMLDivElement | null>;
   onMouseDown: (e: React.MouseEvent, id: string) => void;
   onHover: (id: string | null) => void;
@@ -83,7 +91,7 @@ interface FrameShellProps {
  * 倍率を props に持たない(持たせるとホイール 1 段ごとに 26 枚が React を通る)。
  * 枠線はこの要素には無い ── 画面の座標の canvas(CanvasFrameDecor)が描く
  */
-const FrameShell = memo(function FrameShell({ page, isActive, passThrough, imageMode, rootRef, onMouseDown, onHover }: FrameShellProps) {
+const FrameShell = memo(function FrameShell({ page, isActive, passThrough, imageMode, preloadImage, rootRef, onMouseDown, onHover }: FrameShellProps) {
   return (
     <div
       data-page-frame={page.id}
@@ -100,7 +108,7 @@ const FrameShell = memo(function FrameShell({ page, isActive, passThrough, image
       onMouseEnter={() => onHover(page.id)}
       onMouseLeave={() => onHover(null)}
     >
-      <PageFramePreview page={page} rootRef={rootRef} imageMode={imageMode} />
+      <PageFramePreview page={page} rootRef={rootRef} imageMode={imageMode} preloadImage={preloadImage} />
     </div>
   );
 });
@@ -268,6 +276,13 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
       const el = containerRef.current;
       const pct = String(Math.round(z * 100));
       if (el && el.getAttribute('data-canvas-zoom') !== pct) el.setAttribute('data-canvas-zoom', pct);
+      // 縮小の途中でも 0.4 を割ったら、画像が読めている紙面は iframe を止めて画像を前に出す
+      // (CSS が拾う。属性 1 つの書き換えで 26 枚がいっぺんに切り替わり、React は通らない)。
+      // iframe を外してメモリを返すのは操作が止まってから(下の imageMode)。
+      // 外す向き(画像 → iframe)もここではやらない ── 止まってから 0.5 以上で判定する
+      if (el && z < PREVIEW_IMAGE_ZOOM_OUT && el.getAttribute('data-canvas-preview-image') !== '1') {
+        el.setAttribute('data-canvas-preview-image', '1');
+      }
       // 粗い倍率: 150ms に 1 回まで。末尾のタイマーで操作の終わりに必ず追いつく
       if (coarseTimer) clearTimeout(coarseTimer);
       const elapsed = performance.now() - coarseAt;
@@ -352,15 +367,22 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
   // 判定は操作が止まってからしか動かさない。縮小の途中で 26 枚の iframe を差し替えると、
   // 軽くするための切替そのものが重いフレームを作る
   const [imageMode, setImageMode] = useState(() => viewStore.get().canvasZoom < PREVIEW_IMAGE_ZOOM_OUT);
+  const imageModeRef = useRef(imageMode);
+  imageModeRef.current = imageMode;
   useEffect(() => {
     if (isInteracting) return;
     const timer = setTimeout(() => {
       const z = viewStore.get().canvasZoom;
       // ヒステリシス: 画像 → iframe は 0.5 以上、iframe → 画像は 0.4 未満(境目で行き来しない)
-      setImageMode((prev) => (prev ? z < PREVIEW_IMAGE_ZOOM : z < PREVIEW_IMAGE_ZOOM_OUT));
+      const next = imageModeRef.current ? z < PREVIEW_IMAGE_ZOOM : z < PREVIEW_IMAGE_ZOOM_OUT;
+      if (next !== imageModeRef.current) setImageMode(next);
+      // iframe に戻す向きに決まったら、縮小の途中で立てた掛け金も外す(iframe がまた見える)
+      if (!next) containerRef.current?.removeAttribute('data-canvas-preview-image');
     }, PREVIEW_MODE_SETTLE_MS);
     return () => clearTimeout(timer);
   }, [isInteracting, coarseZoom, viewStore]);
+  // 画像を裏で先に読んでおくか(粗い倍率なので、段ごとには変わらない真偽値)
+  const preloadImage = coarseZoom < PREVIEW_IMAGE_PRELOAD_ZOOM;
 
   const cursor = isPanning ? 'grabbing' : isSpaceHeld || activeTool === 'move' ? 'grab' : undefined;
   // 行の隙間(画面上)に名前が収まらない倍率では名前を出さない。出すと下の行の名前が
@@ -393,6 +415,7 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
             isActive={page.id === activePageId}
             passThrough={passThrough}
             imageMode={imageMode}
+            preloadImage={preloadImage}
             rootRef={containerRef}
             onMouseDown={handleFrameMouseDown}
             onHover={handleHover}

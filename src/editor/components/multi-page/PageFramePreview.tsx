@@ -44,9 +44,14 @@ interface PageFramePreviewProps {
   rootRef: React.RefObject<HTMLDivElement | null>;
   /** キャンバスが大きく縮小されている(親が操作の終わりに決める。段ごとには変わらない) */
   imageMode?: boolean;
+  /**
+   * 画像を裏で先に読んでおく。縮小の途中(倍率 0.4 未満)で iframe を止めて画像を前に出すのは
+   * CSS の仕事だが、そのとき画像が読めていないと空白のフレームになる。だから先に読ませる
+   */
+  preloadImage?: boolean;
 }
 
-export const PageFramePreview = memo(function PageFramePreview({ page, rootRef, imageMode = false }: PageFramePreviewProps) {
+export const PageFramePreview = memo(function PageFramePreview({ page, rootRef, imageMode = false, preloadImage = false }: PageFramePreviewProps) {
   const { editorMode, ensurePageHtml, setPageHeight, previewStyles, requestPreviewSlot, releasePreviewSlot, documentAttributes } = useMultiPageCanvas();
   const documentAttributesRef = useRef(documentAttributes);
   documentAttributesRef.current = documentAttributes;
@@ -185,10 +190,12 @@ export const PageFramePreview = memo(function PageFramePreview({ page, rootRef, 
   }, [granted, loaded, page.error, page.id, releasePreviewSlot]);
 
   /**
-   * 画像 → iframe に戻る途中は、本文が描けるまで画像を下に敷いたままにする。
-   * 敷かないと 26 枚が「画像 → 骨組み → 本文」と一度白く抜ける
+   * 画像を出す(または iframe の下に敷いておく)か。敷いておく理由は 2 つ:
+   * - 画像 → iframe に戻る途中、本文が描けるまで下に見せる(26 枚が一度白く抜けない)
+   * - 縮小の途中で 0.4 を割ったとき、CSS が iframe を止めるだけで画像に切り替わる
+   *   (読めていない画像は data-image-ready が付かないので、iframe を見せたまま)
    */
-  const showImageBehind = !useImage && !!page.thumbnail && !imageFailed && !loaded;
+  const showImage = !!page.thumbnail && !imageFailed && (useImage || preloadImage || !loaded);
 
   return (
     <div
@@ -196,9 +203,11 @@ export const PageFramePreview = memo(function PageFramePreview({ page, rootRef, 
       className="absolute inset-0 overflow-hidden"
       data-page-preview={page.id}
       data-preview-mode={useImage ? 'image' : 'iframe'}
+      // 画像が読めている = 縮小の途中でも iframe を止めて前に出せる(skin.css が拾う)
+      data-image-ready={showImage && imageLoaded ? '1' : undefined}
       style={{ background: '#fff' }}
     >
-      {(useImage || showImageBehind) && (
+      {showImage && (
         <img
           src={page.thumbnail}
           alt=""
@@ -206,7 +215,12 @@ export const PageFramePreview = memo(function PageFramePreview({ page, rootRef, 
           draggable={false}
           decoding="async"
           className="absolute inset-0 block"
-          style={{ width: '100%', height: '100%', objectFit: 'fill', pointerEvents: 'none' }}
+          style={{
+            width: '100%', height: '100%', objectFit: 'fill', pointerEvents: 'none',
+            // iframe と同じ理由。無いと倍率が変わるたびに 26 枚の画像がラスタライズし直され、
+            // 画像に落としたのに縮小 p95 が 19〜23ms のままになる(付けると 16ms 台。実測)
+            willChange: 'transform',
+          }}
           onLoad={(e) => {
             setImageLoaded(true);
             // 画像しか出していないページは iframe が高さを測れない。画像はページと同じ縦横比
@@ -240,7 +254,7 @@ export const PageFramePreview = memo(function PageFramePreview({ page, rootRef, 
           }}
         />
       ) : (
-        !showImageBehind && (
+        !showImage && (
           <div className="ed-frame-skeleton" aria-hidden="true">
             {page.error ? (
               <span className="ed-frame-skeleton-note">読み込めませんでした</span>

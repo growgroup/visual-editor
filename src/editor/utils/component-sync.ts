@@ -19,6 +19,7 @@ import {
   resolveInstance,
 } from './component-renderer';
 import { detectOverrides } from './override-detection';
+import { debugLog } from './debug';
 
 // ============================================================
 // Types
@@ -360,7 +361,7 @@ export function propagateMasterChanges(
   // Find all DOM elements for this master
   const domElements = findInstancesByMaster(iframeDoc, master.id);
 
-  console.log('[propagateMasterChanges] Found DOM elements for master:', {
+  debugLog('[propagateMasterChanges] Found DOM elements for master:', {
     masterId: master.id,
     domElementsCount: domElements.length,
   });
@@ -369,13 +370,13 @@ export function propagateMasterChanges(
   const domElementMap = new Map<string, HTMLElement>();
   for (const el of domElements) {
     const instanceId = getInstanceIdFromElement(el);
-    console.log('[propagateMasterChanges] DOM element instanceId:', instanceId);
+    debugLog('[propagateMasterChanges] DOM element instanceId:', instanceId);
     if (instanceId) {
       domElementMap.set(instanceId, el);
     }
   }
 
-  console.log('[propagateMasterChanges] Processing instances:', {
+  debugLog('[propagateMasterChanges] Processing instances:', {
     totalInstances: instances.length,
     instanceIds: instances.map(i => i.id),
     domMapKeys: Array.from(domElementMap.keys()),
@@ -385,13 +386,13 @@ export function propagateMasterChanges(
   for (const instance of instances) {
     // Skip detached instances
     if (instance.isDetached) {
-      console.log('[propagateMasterChanges] Skipping detached instance:', instance.id);
+      debugLog('[propagateMasterChanges] Skipping detached instance:', instance.id);
       continue;
     }
 
     // Skip instances for other masters
     if (instance.masterComponentId !== master.id) {
-      console.log('[propagateMasterChanges] Skipping instance for other master:', instance.id);
+      debugLog('[propagateMasterChanges] Skipping instance for other master:', instance.id);
       continue;
     }
 
@@ -400,11 +401,11 @@ export function propagateMasterChanges(
       const domEl = domElementMap.get(instance.id);
       if (!domEl) {
         // Instance not in DOM, skip
-        console.log('[propagateMasterChanges] DOM element not found for instance:', instance.id);
+        debugLog('[propagateMasterChanges] DOM element not found for instance:', instance.id);
         continue;
       }
 
-      console.log('[propagateMasterChanges] Found DOM element for instance:', instance.id);
+      debugLog('[propagateMasterChanges] Found DOM element for instance:', instance.id);
 
       // Validate variant still exists
       let variantId = instance.variantId;
@@ -423,15 +424,15 @@ export function propagateMasterChanges(
       let detectedOverrides: ComponentOverride[] = [];
       if (effectiveVariant) {
         // Debug: Log what we're comparing
-        console.log('[propagateMasterChanges] === Override Detection Debug ===');
-        console.log('[propagateMasterChanges] DOM element:', {
+        debugLog('[propagateMasterChanges] === Override Detection Debug ===');
+        debugLog('[propagateMasterChanges] DOM element:', {
           tagName: domEl.tagName,
           elementId: domEl.getAttribute('data-element-id'),
           textContent: domEl.textContent?.substring(0, 100),
           innerHTML: domEl.innerHTML?.substring(0, 200),
           childrenCount: domEl.children.length,
         });
-        console.log('[propagateMasterChanges] Master rootElement:', {
+        debugLog('[propagateMasterChanges] Master rootElement:', {
           tagName: effectiveVariant.rootElement.tagName,
           id: effectiveVariant.rootElement.id,
           textContent: effectiveVariant.rootElement.textContent?.substring(0, 100),
@@ -442,7 +443,7 @@ export function propagateMasterChanges(
 
         try {
           detectedOverrides = detectOverrides(domEl, effectiveVariant.rootElement);
-          console.log('[propagateMasterChanges] Detected DOM overrides:', {
+          debugLog('[propagateMasterChanges] Detected DOM overrides:', {
             instanceId: instance.id,
             count: detectedOverrides.length,
             overrides: detectedOverrides.map(o => ({
@@ -477,7 +478,7 @@ export function propagateMasterChanges(
       }
       const mergedOverrides = Array.from(overrideMap.values());
 
-      console.log('[propagateMasterChanges] Merged overrides:', {
+      debugLog('[propagateMasterChanges] Merged overrides:', {
         instanceId: instance.id,
         existing: existingOverrides.length,
         detected: detectedOverrides.length,
@@ -536,7 +537,7 @@ export function propagateMasterChanges(
           });
         };
         applyIdMappings(newEl);
-        console.log('[propagateMasterChanges] Applied ID mappings for duplicated instance:', {
+        debugLog('[propagateMasterChanges] Applied ID mappings for duplicated instance:', {
           instanceId: instance.id,
           mappingsCount: idMappings.size,
         });
@@ -563,7 +564,7 @@ export function propagateMasterChanges(
           newEl.style.setProperty(prop, value);
         }
 
-        console.log('[propagateMasterChanges] Preserved position styles:', {
+        debugLog('[propagateMasterChanges] Preserved position styles:', {
           instanceId: instance.id,
           preservedStyles: styleObj,
         });
@@ -585,7 +586,7 @@ export function propagateMasterChanges(
     }
   }
 
-  console.log(
+  debugLog(
     `[propagateMasterChanges] Updated ${result.updatedCount} instances, failed ${result.failedCount}`
   );
 

@@ -17,6 +17,7 @@ import type {
   CSSVariableDefinition,
   CSSVariableCollection,
 } from '../../types/css-variables';
+import { debugLog } from '../../editor/utils/debug';
 
 // ============================================
 // スコープタイプ定義
@@ -184,7 +185,7 @@ export async function getCSSVariables(
     const data = readDoc(key);
 
     if (!data) {
-      console.log(`[CSSVariables] No variables found for ${scope}:`, resourceId);
+      debugLog(`[CSSVariables] No variables found for ${scope}:`, resourceId);
       return null;
     }
 
@@ -240,7 +241,7 @@ export async function saveCSSVariables(
     };
 
     writeDoc(key, data);
-    console.log(`[CSSVariables] Saved variables for ${scope}:`, resourceId, 'count:', variables.length);
+    debugLog(`[CSSVariables] Saved variables for ${scope}:`, resourceId, 'count:', variables.length);
   } catch (error) {
     console.error('[CSSVariables] Error saving variables:', error);
     throw error;
@@ -298,7 +299,7 @@ export async function deleteCSSVariablesCollection(websiteId: string): Promise<v
     const key = getCSSVariablesKey(websiteId);
     const store = getStore();
     if (store) store.removeItem(key);
-    console.log('[CSSVariables] Deleted variables for website:', websiteId);
+    debugLog('[CSSVariables] Deleted variables for website:', websiteId);
   } catch (error) {
     console.error('[CSSVariables] Error deleting variables:', error);
     throw error;

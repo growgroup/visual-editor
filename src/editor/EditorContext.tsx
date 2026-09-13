@@ -80,6 +80,7 @@ import {
   useMultiPageCanvasOptional,
 } from './contexts/MultiPageCanvasContext';
 import type { CSSVariableDefinition } from '../types/css-variables';
+import { debugLog } from './utils/debug';
 
 // 型の再エクスポート
 export type { ContentListItem, ArtboardState, EditorMode, ViewMode };
@@ -363,7 +364,7 @@ function EditorContextAggregator({ children }: EditorContextAggregatorProps) {
       const iframe = refs.iframeRef.current;
       const iframeDoc = iframe?.contentDocument || iframe?.contentWindow?.document;
       if (iframeDoc && history.html !== refs.iframeHtmlRef.current) {
-        console.log('[EditorContext] Syncing iframe after undo/redo');
+        debugLog('[EditorContext] Syncing iframe after undo/redo');
         const artboardEl = iframeDoc.getElementById('artboard');
         if (artboardEl) {
           artboardEl.innerHTML = history.html;
@@ -385,7 +386,7 @@ function EditorContextAggregator({ children }: EditorContextAggregatorProps) {
           if (currentIframe && currentIframeDoc?.body) {
             currentIframe.focus();
             currentIframeDoc.body.focus();
-            console.log('[EditorContext] Focus restored to iframe and body after undo/redo');
+            debugLog('[EditorContext] Focus restored to iframe and body after undo/redo');
           }
         };
         restoreFocusToIframe();

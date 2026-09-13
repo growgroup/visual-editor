@@ -7,6 +7,7 @@
 
 import { useCallback, useRef, useEffect } from 'react';
 import { useEditorContext } from '../EditorContext';
+import { debugLog } from '../utils/debug';
 
 interface UseFocusManagementReturn {
   /**
@@ -49,7 +50,7 @@ export function useFocusManagement(): UseFocusManagementReturn {
     const iframe = iframeRef.current;
     const iframeDoc = getIframeDoc();
     if (!iframeDoc) {
-      console.log('[FocusManagement] Cannot restore focus: iframe doc not available');
+      debugLog('[FocusManagement] Cannot restore focus: iframe doc not available');
       return;
     }
 
@@ -59,7 +60,7 @@ export function useFocusManagement(): UseFocusManagementReturn {
       // まずiframe要素自体にフォーカス（親ドキュメントの観点から）
       if (iframe) iframe.focus();
       editingElement.focus();
-      console.log('[FocusManagement] Restored focus to editing element');
+      debugLog('[FocusManagement] Restored focus to editing element');
       return;
     }
 
@@ -70,7 +71,7 @@ export function useFocusManagement(): UseFocusManagementReturn {
     }
     if (iframeDoc.body) {
       iframeDoc.body.focus();
-      console.log('[FocusManagement] Restored focus to iframe and body');
+      debugLog('[FocusManagement] Restored focus to iframe and body');
     }
   }, [iframeRef, getIframeDoc]);
 
@@ -139,7 +140,7 @@ export function useFocusManagement(): UseFocusManagementReturn {
           relatedTarget.closest('[data-dropdown-menu]');
 
         if (isDialogOrPopover) {
-          console.log('[FocusManagement] Focus moved to dialog/popover, allowing');
+          debugLog('[FocusManagement] Focus moved to dialog/popover, allowing');
           return;
         }
 
@@ -151,7 +152,7 @@ export function useFocusManagement(): UseFocusManagementReturn {
           relatedTarget.getAttribute('contenteditable') === 'true';
 
         if (isInputField) {
-          console.log('[FocusManagement] Focus moved to input field, allowing');
+          debugLog('[FocusManagement] Focus moved to input field, allowing');
           return;
         }
 
@@ -170,7 +171,7 @@ export function useFocusManagement(): UseFocusManagementReturn {
       focusRecoveryTimerRef.current = setTimeout(() => {
         // まだフォーカスがエディタ外にあれば復元
         if (!isEditorFocused()) {
-          console.log('[FocusManagement] Focus lost, attempting recovery');
+          debugLog('[FocusManagement] Focus lost, attempting recovery');
           restoreFocus();
         }
       }, 30); // 30msに短縮してフォーカス復元を高速化

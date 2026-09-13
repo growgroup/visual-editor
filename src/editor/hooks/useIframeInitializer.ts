@@ -17,6 +17,7 @@ import {
 } from '../utils/dom-utils';
 import { generateEditableHtml } from '../utils/html-utils';
 import { extractElementInfo } from '../utils/style-utils';
+import { debugLog } from '../utils/debug';
 
 /**
  * iframeの初期化とイベントハンドラ設定を行うHook
@@ -506,7 +507,7 @@ export function useIframeInitializer() {
           // 別の幅で崩れ、デザインツールへの取り込みで意味を失う。
           if (editorMode !== 'webpage') {
             const count = convertToAbsolutePositioning(iframeDoc);
-            console.log('[Editor] 絶対配置へ変換:', count, '要素');
+            debugLog('[Editor] 絶対配置へ変換:', count, '要素');
           }
 
           // 変更を通知

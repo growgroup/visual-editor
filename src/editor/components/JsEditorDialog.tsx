@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '../../components/ui/button';
 import { Textarea } from '../../components/ui/textarea';
 import { Braces, Trash2, RefreshCw, AlertTriangle } from 'lucide-react';
+import { debugLog } from '../utils/debug';
 
 export interface JsEditorDialogProps {
   isOpen: boolean;

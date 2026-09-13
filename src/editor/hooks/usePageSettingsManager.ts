@@ -6,6 +6,7 @@ import type { PageSettings, ProjectPageSettings } from '../types/page-settings';
 import type { HtmlImportResult } from '../components';
 import { buildDomTree, getArtboardContent } from '../utils/dom-utils';
 import { makeChildrenEditable } from '../utils/html-utils';
+import { debugLog } from '../utils/debug';
 
 interface UsePageSettingsManagerProps {
   parentId?: string;
@@ -116,12 +117,12 @@ export function usePageSettingsManager({
 
           // CSSがStorageにある場合
           if (pageData.settings.customCssUrl) {
-            console.log('[loadPageSettings] Fetching CSS from Storage:', pageData.settings.customCssUrl);
+            debugLog('[loadPageSettings] Fetching CSS from Storage:', pageData.settings.customCssUrl);
             try {
               const response = await fetch(pageData.settings.customCssUrl);
               if (response.ok) {
                 customCss = await response.text();
-                console.log(`[loadPageSettings] CSS fetched: ${customCss.length} chars`);
+                debugLog(`[loadPageSettings] CSS fetched: ${customCss.length} chars`);
               }
             } catch (e) {
               console.error('[loadPageSettings] Failed to fetch CSS from Storage:', e);
@@ -130,12 +131,12 @@ export function usePageSettingsManager({
 
           // JSがStorageにある場合
           if (pageData.settings.customJsUrl) {
-            console.log('[loadPageSettings] Fetching JS from Storage:', pageData.settings.customJsUrl);
+            debugLog('[loadPageSettings] Fetching JS from Storage:', pageData.settings.customJsUrl);
             try {
               const response = await fetch(pageData.settings.customJsUrl);
               if (response.ok) {
                 customJs = await response.text();
-                console.log(`[loadPageSettings] JS fetched: ${customJs.length} chars`);
+                debugLog(`[loadPageSettings] JS fetched: ${customJs.length} chars`);
               }
             } catch (e) {
               console.error('[loadPageSettings] Failed to fetch JS from Storage:', e);
@@ -177,7 +178,7 @@ export function usePageSettingsManager({
             setImportedJs(customJs);
           }
 
-          console.log('[loadPageSettings] Loaded settings:', {
+          debugLog('[loadPageSettings] Loaded settings:', {
             ...loadedSettings,
             customCss: customCss.length + ' chars',
             customJs: customJs.length + ' chars',
@@ -219,7 +220,7 @@ export function usePageSettingsManager({
         }
         if (styleElement.textContent !== importedCss) {
           styleElement.textContent = importedCss;
-          console.log('[applyStylesToIframe] Applied CSS:', importedCss.length, 'chars');
+          debugLog('[applyStylesToIframe] Applied CSS:', importedCss.length, 'chars');
         }
       }
 
@@ -231,7 +232,7 @@ export function usePageSettingsManager({
         const safeJs = `;try{${importedJs}}catch(e){console.error('[imported-scripts] Error:',e);}`;
         // 既にスクリプトが存在し、同じ内容であればスキップ
         if (existingScript?.textContent === safeJs) {
-          console.log('[applyStylesToIframe] JS already applied, skipping');
+          debugLog('[applyStylesToIframe] JS already applied, skipping');
           return;
         }
         // 既存のスクリプトを削除
@@ -243,7 +244,7 @@ export function usePageSettingsManager({
         scriptElement.id = 'imported-scripts';
         scriptElement.textContent = safeJs;
         iframeDoc.body.appendChild(scriptElement);
-        console.log('[applyStylesToIframe] Applied JS:', importedJs.length, 'chars');
+        debugLog('[applyStylesToIframe] Applied JS:', importedJs.length, 'chars');
       }
     };
 
@@ -275,11 +276,11 @@ export function usePageSettingsManager({
         iframeDoc.head.appendChild(styleElement);
       }
       styleElement.textContent = css;
-      console.log('[handleSaveCss] Updated CSS:', css.length, 'chars');
+      debugLog('[handleSaveCss] Updated CSS:', css.length, 'chars');
     } else if (styleElement) {
       // CSSが空の場合はスタイル要素を削除
       styleElement.remove();
-      console.log('[handleSaveCss] Removed empty CSS');
+      debugLog('[handleSaveCss] Removed empty CSS');
     }
 
     // 状態を更新
@@ -298,7 +299,7 @@ export function usePageSettingsManager({
       const styleElement = iframeDoc.getElementById('imported-styles');
       if (styleElement) {
         styleElement.remove();
-        console.log('[handleClearCss] Cleared imported CSS');
+        debugLog('[handleClearCss] Cleared imported CSS');
       }
     }
     setImportedCss('');
@@ -338,11 +339,11 @@ export function usePageSettingsManager({
       const safeJs = `;try{${js}}catch(e){console.error('[imported-scripts] Error:',e);}`;
       newScriptElement.textContent = safeJs;
       iframeDoc.body.appendChild(newScriptElement);
-      console.log('[handleSaveJs] Updated JS:', js.length, 'chars');
+      debugLog('[handleSaveJs] Updated JS:', js.length, 'chars');
     } else if (scriptElement) {
       // JSが空の場合はスクリプト要素を削除
       scriptElement.remove();
-      console.log('[handleSaveJs] Removed empty JS');
+      debugLog('[handleSaveJs] Removed empty JS');
     }
 
     // 状態を更新
@@ -361,7 +362,7 @@ export function usePageSettingsManager({
       const scriptElement = iframeDoc.getElementById('imported-scripts');
       if (scriptElement) {
         scriptElement.remove();
-        console.log('[handleClearJs] Cleared imported JS');
+        debugLog('[handleClearJs] Cleared imported JS');
       }
     }
     setImportedJs('');
@@ -461,13 +462,13 @@ export function usePageSettingsManager({
         if (settings.customJs) firestoreSettings.customJs = settings.customJs;
 
         await api.patch(apiPath, { settings: firestoreSettings });
-        console.log('[handleSavePageSettings] Saved settings to Firestore:', firestoreSettings);
+        debugLog('[handleSavePageSettings] Saved settings to Firestore:', firestoreSettings);
       } catch (error) {
         console.error('[handleSavePageSettings] Failed to save settings to Firestore:', error);
       }
     }
 
-    console.log('[handleSavePageSettings] Saved settings:', settings);
+    debugLog('[handleSavePageSettings] Saved settings:', settings);
   }, [getIframeDoc, notifyIframeChange, parentId, contentId, editorMode, getIdToken]);
 
   // 現在のページ設定を保存（メイン保存ボタンから呼ばれる）
@@ -492,7 +493,7 @@ export function usePageSettingsManager({
 
     // CSS/JSが空の場合は保存不要
     if (!currentCss && !currentJs && !pageSettings.title && !pageSettings.description) {
-      console.log('[handleSaveCurrentSettings] No settings to save');
+      debugLog('[handleSaveCurrentSettings] No settings to save');
       return;
     }
 
@@ -525,7 +526,7 @@ export function usePageSettingsManager({
       if (currentJs) firestoreSettings.customJs = currentJs;
 
       await api.patch(apiPath, { settings: firestoreSettings });
-      console.log('[handleSaveCurrentSettings] Saved settings to Firestore:', {
+      debugLog('[handleSaveCurrentSettings] Saved settings to Firestore:', {
         customCss: currentCss.length + ' chars',
         customJs: currentJs.length + ' chars',
       });
@@ -581,7 +582,7 @@ export function usePageSettingsManager({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
 
-      console.log('[handleExport] Downloaded:', filename, 'format:', format);
+      debugLog('[handleExport] Downloaded:', filename, 'format:', format);
     } catch (error) {
       console.error('[handleExport] Export failed:', error);
     }
@@ -643,7 +644,7 @@ export function usePageSettingsManager({
         styleElement.id = 'imported-styles';
         styleElement.textContent = result.css;
         iframeDoc.head.appendChild(styleElement);
-        console.log('[handleHtmlImport] Injected CSS:', result.css.length, 'chars');
+        debugLog('[handleHtmlImport] Injected CSS:', result.css.length, 'chars');
 
         // CSS状態を保存（編集用）
         setImportedCss(result.css);
@@ -667,7 +668,7 @@ export function usePageSettingsManager({
         const safeJs = `;try{${result.js}}catch(e){console.error('[imported-scripts] Error:',e);}`;
         scriptElement.textContent = safeJs;
         iframeDoc.body.appendChild(scriptElement);
-        console.log('[handleHtmlImport] Injected JS:', result.js.length, 'chars');
+        debugLog('[handleHtmlImport] Injected JS:', result.js.length, 'chars');
 
         // JS状態を保存（編集用）- 元のJSを保存
         setImportedJs(result.js);
@@ -677,11 +678,11 @@ export function usePageSettingsManager({
 
       // インポートされた要素に data-editable と data-element-id を付与
       const count = makeChildrenEditable(artboard);
-      console.log('[handleHtmlImport] Made', count, 'elements editable');
+      debugLog('[handleHtmlImport] Made', count, 'elements editable');
 
       // リソース情報をログ
       if (result.resources) {
-        console.log('[handleHtmlImport] Resources:', {
+        debugLog('[handleHtmlImport] Resources:', {
           images: result.resources.images?.length || 0,
           stylesheets: result.resources.stylesheets?.length || 0,
           scripts: result.resources.scripts?.length || 0,

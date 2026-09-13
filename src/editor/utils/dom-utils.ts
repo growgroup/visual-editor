@@ -7,6 +7,7 @@
 
 import type { ElementCapture, DOMTreeNode, MarqueeState } from '../types';
 import { removeConflictingClasses } from './tailwind-utils';
+import { debugLog } from './debug';
 
 // ========================================
 // buildDomTree キャッシュ（Phase 2 最適化）
@@ -481,7 +482,7 @@ export function convertSingleElementToAbsolute(iframeDoc: Document, element: HTM
 
   // インライン要素はスキップ
   if (isInlineElement(element, computedStyle)) {
-    console.log('[convertSingleElementToAbsolute] Skipping inline element:', element.tagName);
+    debugLog('[convertSingleElementToAbsolute] Skipping inline element:', element.tagName);
     return false;
   }
 
@@ -566,7 +567,7 @@ export function convertSingleElementToAbsolute(iframeDoc: Document, element: HTM
     element.style.transform = preservedTransform;
   }
 
-  console.log('[convertSingleElementToAbsolute] Converted:', {
+  debugLog('[convertSingleElementToAbsolute] Converted:', {
     tagName: element.tagName,
     left: Math.round(left * 100) / 100,
     top: Math.round(top * 100) / 100,
@@ -601,7 +602,7 @@ export function convertToAbsolutePositioning(iframeDoc: Document): number {
 
   // ズームスケールを取得
   const scale = getArtboardScale(iframeDoc);
-  console.log('[convertToAbsolutePositioning] Scale:', scale);
+  debugLog('[convertToAbsolutePositioning] Scale:', scale);
 
   // artboardの現在の高さをキャプチャして固定（絶対配置後も高さを維持するため）
   const artboard = iframeDoc.getElementById('artboard');
@@ -613,7 +614,7 @@ export function convertToAbsolutePositioning(iframeDoc: Document): number {
       artboard.setAttribute('data-original-height', artboard.style.height || 'auto');
     }
     artboard.style.height = `${Math.round(artboardHeight)}px`;
-    console.log('[convertToAbsolutePositioning] Set artboard height:', artboardHeight);
+    debugLog('[convertToAbsolutePositioning] Set artboard height:', artboardHeight);
   }
 
   // 1. まず全要素の現在の位置・サイズをキャプチャ（インライン要素は除外）
@@ -864,7 +865,7 @@ export function convertToAbsolutePositioning(iframeDoc: Document): number {
   }
 
   captures.forEach(({ element }) => element.removeAttribute('data-gg-pre-overflow'));
-  console.log('[convertToAbsolutePositioning] Converted', captures.length, 'elements');
+  debugLog('[convertToAbsolutePositioning] Converted', captures.length, 'elements');
   return captures.length;
 }
 
@@ -885,11 +886,11 @@ export function restoreArtboardAutoHeight(iframeDoc: Document): void {
       artboard.style.height = originalHeight;
     }
     artboard.removeAttribute('data-original-height');
-    console.log('[restoreArtboardAutoHeight] Restored artboard height to:', originalHeight);
+    debugLog('[restoreArtboardAutoHeight] Restored artboard height to:', originalHeight);
   } else {
     // data-original-heightがない場合は単純に高さを削除
     artboard.style.removeProperty('height');
-    console.log('[restoreArtboardAutoHeight] Removed artboard height style');
+    debugLog('[restoreArtboardAutoHeight] Removed artboard height style');
   }
 }
 
@@ -980,20 +981,20 @@ export function buildDomTree(
 
     // HTMLが変わっていなければキャッシュを返す
     if (cached && cached.html === currentHtml) {
-      console.log('[buildDomTree] Cache hit, returning cached tree with', cached.tree.length, 'root nodes');
+      debugLog('[buildDomTree] Cache hit, returning cached tree with', cached.tree.length, 'root nodes');
       return cached.tree;
     }
 
     // 新規計算
     const tree = buildDomTreeInternal(iframeDoc, root);
     domTreeCache.set(iframeDoc, { html: currentHtml, tree });
-    console.log('[buildDomTree] Cache miss, built tree with', tree.length, 'root nodes from', root.id || root.tagName);
+    debugLog('[buildDomTree] Cache miss, built tree with', tree.length, 'root nodes from', root.id || root.tagName);
     return tree;
   }
 
   // キャッシュを使用しない場合
   const nodes = buildDomTreeInternal(iframeDoc, root);
-  console.log('[buildDomTree] Built tree (no cache) with', nodes.length, 'root nodes from', root.id || root.tagName);
+  debugLog('[buildDomTree] Built tree (no cache) with', nodes.length, 'root nodes from', root.id || root.tagName);
   return nodes;
 }
 

@@ -9,6 +9,7 @@ import { readHTMLMessage } from 'fig-kiwi';
 import { generateElementId } from './dom-utils';
 import { parseFigmaClipboardToJson, extractNodes, type FigmaNode } from './figma-kiwi-decoder';
 import { cacheFigKiwiSchema } from './figma-export';
+import { debugLog } from './debug';
 
 // Type definitions for Figma data structures
 // Based on fig-kiwi schema-defs
@@ -254,7 +255,7 @@ export function parseFigmaClipboard(html: string): FigmaPasteResult {
       // Cache the schema for later use in export
       if (parsed?.schema) {
         cacheFigKiwiSchema(parsed.schema);
-        console.log('[figma-paste] Cached fig-kiwi schema for export');
+        debugLog('[figma-paste] Cached fig-kiwi schema for export');
       }
     } catch (decodeError) {
       console.warn('[figma-paste] fig-kiwi decode failed, trying custom decoder:', decodeError);
@@ -267,12 +268,12 @@ export function parseFigmaClipboard(html: string): FigmaPasteResult {
       // Use custom decoder with extended type support
       try {
         const customResult = parseFigmaClipboardToJson(html);
-        console.log('[figma-paste] Custom decoder result:', customResult.message);
-        console.log('[figma-paste] Schema has', customResult.schema.definitions.length, 'definitions');
+        debugLog('[figma-paste] Custom decoder result:', customResult.message);
+        debugLog('[figma-paste] Schema has', customResult.schema.definitions.length, 'definitions');
 
         // Extract nodes from custom decoder result
         const customNodes = extractNodes(customResult.message);
-        console.log('[figma-paste] Extracted', customNodes.length, 'nodes from custom decoder');
+        debugLog('[figma-paste] Extracted', customNodes.length, 'nodes from custom decoder');
 
         // Convert FigmaNode to NodeChange format
         nodeChanges = convertFigmaNodes(customNodes);
@@ -294,7 +295,7 @@ export function parseFigmaClipboard(html: string): FigmaPasteResult {
       nodeChanges = message.nodeChanges || [];
     }
 
-    console.log('[figma-paste] Parsed nodes:', nodeChanges.length);
+    debugLog('[figma-paste] Parsed nodes:', nodeChanges.length);
 
     // Convert to SVG
     const svg = convertNodesToSvg(nodeChanges);
@@ -586,7 +587,7 @@ function nodeToSvgElement(node: NodeChange, defs: string[]): string {
 
     default:
       // Fallback to rectangle for unknown types
-      console.log(`[figma-paste] Unknown node type: ${type}`);
+      debugLog(`[figma-paste] Unknown node type: ${type}`);
       return wrapWithTransform(
         `<rect x="0" y="0" width="${width}" height="${height}" ${styleStr} data-name="${escapeXml(name)}" data-type="${type}"/>`
       );
@@ -850,7 +851,7 @@ function buildNodeHierarchy(nodes: NodeChange[]): HierarchyNode[] {
 
   // Check if nodes have parentIndex with valid guid
   const hasParentIndex = nodes.some(n => n.parentIndex?.guid !== undefined);
-  console.log('[figma-paste] Has parentIndex.guid field:', hasParentIndex);
+  debugLog('[figma-paste] Has parentIndex.guid field:', hasParentIndex);
 
   if (hasParentIndex) {
     return buildHierarchyFromParentIndex(nodes);
@@ -863,7 +864,7 @@ function buildNodeHierarchy(nodes: NodeChange[]): HierarchyNode[] {
  * Build hierarchy using Figma's parentIndex field (accurate method)
  */
 function buildHierarchyFromParentIndex(nodes: NodeChange[]): HierarchyNode[] {
-  console.log('[figma-paste] Building hierarchy from parentIndex for', nodes.length, 'nodes');
+  debugLog('[figma-paste] Building hierarchy from parentIndex for', nodes.length, 'nodes');
 
   // Create hierarchy nodes and map by GUID
   const nodeMap = new Map<string, HierarchyNodeWithBounds>();
@@ -882,7 +883,7 @@ function buildHierarchyFromParentIndex(nodes: NodeChange[]): HierarchyNode[] {
     const guidKey = guid ? `${guid.sessionID}:${guid.localID}` : 'no-guid';
     const parentKey = parentGuid ? `${parentGuid.sessionID}:${parentGuid.localID}` : 'no-parent';
 
-    console.log(`[figma-paste] Node: ${node.type} "${node.name}" guid=${guidKey} parent=${parentKey} pos=(${x.toFixed(0)},${y.toFixed(0)}) size=${width.toFixed(0)}x${height.toFixed(0)}`);
+    debugLog(`[figma-paste] Node: ${node.type} "${node.name}" guid=${guidKey} parent=${parentKey} pos=(${x.toFixed(0)},${y.toFixed(0)}) size=${width.toFixed(0)}x${height.toFixed(0)}`);
 
     const hNode: HierarchyNodeWithBounds = {
       node,
@@ -902,7 +903,7 @@ function buildHierarchyFromParentIndex(nodes: NodeChange[]): HierarchyNode[] {
     }
   }
 
-  console.log('[figma-paste] Node map has', nodeMap.size, 'entries');
+  debugLog('[figma-paste] Node map has', nodeMap.size, 'entries');
 
   // Second pass: build parent-child relationships
   const roots: HierarchyNodeWithBounds[] = [];
@@ -916,26 +917,26 @@ function buildHierarchyFromParentIndex(nodes: NodeChange[]): HierarchyNode[] {
       const parent = nodeMap.get(parentKey);
 
       if (parent) {
-        console.log(`[figma-paste]   ${nodeName} → child of ${parent.node.type} "${parent.node.name}"`);
+        debugLog(`[figma-paste]   ${nodeName} → child of ${parent.node.type} "${parent.node.name}"`);
         parent.children.push(hNode);
         childCount++;
       } else {
         // Parent not found in copied nodes - this is a root
-        console.log(`[figma-paste]   ${nodeName} → ROOT (parent ${parentKey} not in selection)`);
+        debugLog(`[figma-paste]   ${nodeName} → ROOT (parent ${parentKey} not in selection)`);
         hNode.relativeX = 0;
         hNode.relativeY = 0;
         roots.push(hNode);
       }
     } else {
       // No parent - this is a root
-      console.log(`[figma-paste]   ${nodeName} → ROOT (no parentIndex)`);
+      debugLog(`[figma-paste]   ${nodeName} → ROOT (no parentIndex)`);
       hNode.relativeX = 0;
       hNode.relativeY = 0;
       roots.push(hNode);
     }
   }
 
-  console.log(`[figma-paste] Result: ${roots.length} roots, ${childCount} children linked`);
+  debugLog(`[figma-paste] Result: ${roots.length} roots, ${childCount} children linked`);
 
   // Debug: Print tree structure
   printHierarchyTree(roots);
@@ -947,7 +948,7 @@ function buildHierarchyFromParentIndex(nodes: NodeChange[]): HierarchyNode[] {
  * Build hierarchy using containment-based detection (fallback method)
  */
 function buildHierarchyFromContainment(nodes: NodeChange[]): HierarchyNode[] {
-  console.log('[figma-paste] Building hierarchy from containment (fallback)');
+  debugLog('[figma-paste] Building hierarchy from containment (fallback)');
 
   // Sort by area descending - larger containers processed first
   const sorted = [...nodes].sort((a, b) => {
@@ -1014,9 +1015,9 @@ function buildHierarchyFromContainment(nodes: NodeChange[]): HierarchyNode[] {
  * Debug helper: Print hierarchy tree
  */
 function printHierarchyTree(roots: HierarchyNodeWithBounds[]) {
-  console.log('[figma-paste] ========================================');
-  console.log('[figma-paste] HIERARCHY STRUCTURE:', roots.length, 'root(s)');
-  console.log('[figma-paste] ========================================');
+  debugLog('[figma-paste] ========================================');
+  debugLog('[figma-paste] HIERARCHY STRUCTURE:', roots.length, 'root(s)');
+  debugLog('[figma-paste] ========================================');
 
   function countNodes(node: HierarchyNodeWithBounds): number {
     return 1 + node.children.reduce((sum, c) => sum + countNodes(c as HierarchyNodeWithBounds), 0);
@@ -1028,7 +1029,7 @@ function printHierarchyTree(roots: HierarchyNodeWithBounds[]) {
     const sizeStr = node.width > 0 && node.height > 0
       ? `${node.width.toFixed(0)}x${node.height.toFixed(0)}`
       : 'no-size';
-    console.log(`[figma-paste] ${indent}├─ ${node.node.type} "${node.node.name}"${imageMarker} [${sizeStr}] (${node.relativeX.toFixed(0)},${node.relativeY.toFixed(0)})`);
+    debugLog(`[figma-paste] ${indent}├─ ${node.node.type} "${node.node.name}"${imageMarker} [${sizeStr}] (${node.relativeX.toFixed(0)},${node.relativeY.toFixed(0)})`);
     for (const child of node.children) {
       printTree(child as HierarchyNodeWithBounds, indent + '│  ');
     }
@@ -1040,7 +1041,7 @@ function printHierarchyTree(roots: HierarchyNodeWithBounds[]) {
   for (const root of roots) {
     totalNodes += countNodes(root);
     printTree(root);
-    console.log('[figma-paste] ----------------------------------------');
+    debugLog('[figma-paste] ----------------------------------------');
   }
 
   // Count nodes with image fills
@@ -1053,11 +1054,11 @@ function printHierarchyTree(roots: HierarchyNodeWithBounds[]) {
     nodesWithImages += countImagesInTree(root);
   }
 
-  console.log(`[figma-paste] Summary: ${totalNodes} nodes, ${nodesWithImages} with image fills, ${roots.length} root(s)`);
+  debugLog(`[figma-paste] Summary: ${totalNodes} nodes, ${nodesWithImages} with image fills, ${roots.length} root(s)`);
   if (roots.length > 1) {
     console.warn('[figma-paste] ⚠️ Multiple roots detected - elements will stack vertically');
   }
-  console.log('[figma-paste] ========================================');
+  debugLog('[figma-paste] ========================================');
 }
 
 /**
@@ -1075,7 +1076,7 @@ function hierarchyNodeToElement(
 
   // Skip invisible nodes - but still process children in case they're visible
   if (node.visible === false) {
-    console.log(`[figma-paste] Skip invisible node: ${node.type} "${node.name}"`);
+    debugLog(`[figma-paste] Skip invisible node: ${node.type} "${node.name}"`);
     // Still process children - they might be visible even if parent is marked invisible
     const visibleChildren: HTMLElement[] = [];
     for (const child of hNode.children) {
@@ -1092,7 +1093,7 @@ function hierarchyNodeToElement(
   // Skip nodes without valid size (but not containers which may have zero size themselves)
   const isContainer = ['FRAME', 'GROUP', 'COMPONENT', 'INSTANCE', 'SECTION'].includes(node.type || '');
   if (!isContainer && (!node.size || node.size.x <= 0 || node.size.y <= 0)) {
-    console.log(`[figma-paste] Skip zero-size node: ${node.type} "${node.name}"`);
+    debugLog(`[figma-paste] Skip zero-size node: ${node.type} "${node.name}"`);
     return null;
   }
 
@@ -1340,7 +1341,7 @@ function hierarchyNodeToElement(
       }
     }
   } else {
-    console.log(`[figma-paste] Skipping children for ${node.type} "${node.name}" (will render as instance)`);
+    debugLog(`[figma-paste] Skipping children for ${node.type} "${node.name}" (will render as instance)`);
   }
 
   return el;
@@ -1420,7 +1421,7 @@ function getBackgroundCss(paints: Paint[] | undefined): BackgroundCssResult {
           backgroundPosition = 'center';
       }
 
-      console.log(`[figma-paste] IMAGE fill detected: hash=${detectedHash?.substring(0, 16) || 'none'} scaleMode=${scaleMode}`);
+      debugLog(`[figma-paste] IMAGE fill detected: hash=${detectedHash?.substring(0, 16) || 'none'} scaleMode=${scaleMode}`);
     }
   }
 
@@ -1827,7 +1828,7 @@ export function processFigmaPaste(html: string, doc: Document): FigmaPasteProces
   // If decode failed (schema version mismatch), signal to fallback to image
   if (!result.success) {
     if (result.error === 'DECODE_FAILED') {
-      console.log('[figma-paste] Decode failed, should fallback to image paste');
+      debugLog('[figma-paste] Decode failed, should fallback to image paste');
       return { elements: [], shouldFallbackToImage: true };
     }
     console.warn('[figma-paste] Failed to process Figma paste:', result.error);
@@ -1842,22 +1843,22 @@ export function processFigmaPaste(html: string, doc: Document): FigmaPasteProces
   // Collect image hashes and node IDs from all nodes
   const imageInfo = collectImageInfo(result.nodes);
   if (imageInfo.hashes.length > 0) {
-    console.log(`[figma-paste] Found ${imageInfo.hashes.length} image hashes:`, imageInfo.hashes);
+    debugLog(`[figma-paste] Found ${imageInfo.hashes.length} image hashes:`, imageInfo.hashes);
   }
   if (imageInfo.nodeIds.length > 0) {
-    console.log(`[figma-paste] Found ${imageInfo.nodeIds.length} image node IDs:`, imageInfo.nodeIds);
+    debugLog(`[figma-paste] Found ${imageInfo.nodeIds.length} image node IDs:`, imageInfo.nodeIds);
   }
 
   // Filter out only document structure nodes - keep everything else for hierarchy building
   // IMPORTANT: We must NOT filter nodes before building hierarchy, or children become orphaned
   const SKIP_NODE_TYPES = ['DOCUMENT', 'CANVAS', 'PAGE'];
-  console.log('[figma-paste] Total nodes from clipboard:', result.nodes.length);
+  debugLog('[figma-paste] Total nodes from clipboard:', result.nodes.length);
 
   // Only remove document structure nodes - keep all content nodes including containers
   // The hierarchy builder needs parent nodes to properly nest children
   const allContentNodes = result.nodes.filter(n => {
     if (n.type && SKIP_NODE_TYPES.includes(n.type)) {
-      console.log(`[figma-paste]   SKIP: ${n.type} "${n.name}" (structure node)`);
+      debugLog(`[figma-paste]   SKIP: ${n.type} "${n.name}" (structure node)`);
       return false;
     }
     return true;
@@ -1868,7 +1869,7 @@ export function processFigmaPaste(html: string, doc: Document): FigmaPasteProces
     return { elements: [], shouldFallbackToImage: true };
   }
 
-  console.log('[figma-paste] Content nodes for hierarchy:', allContentNodes.length);
+  debugLog('[figma-paste] Content nodes for hierarchy:', allContentNodes.length);
 
   // Convert ALL nodes to DOM elements - hierarchy builder handles parent-child nesting
   // Filtering of invisible/zero-size nodes happens during element conversion, not before
@@ -1881,7 +1882,7 @@ export function processFigmaPaste(html: string, doc: Document): FigmaPasteProces
 
   // Log generated elements
   for (const el of elements) {
-    console.log('[figma-paste] Generated element:',
+    debugLog('[figma-paste] Generated element:',
       el.style.width, 'x', el.style.height,
       'with', el.children.length, 'nested children');
   }
@@ -1924,7 +1925,7 @@ function deepExtractHash(value: unknown, maxDepth: number): string | null {
       if (obj[key] !== undefined) {
         const result = deepExtractHash(obj[key], maxDepth - 1);
         if (result) {
-          console.log(`[figma-paste] Found hash via key: ${key}`);
+          debugLog(`[figma-paste] Found hash via key: ${key}`);
           return result;
         }
       }
@@ -1934,7 +1935,7 @@ function deepExtractHash(value: unknown, maxDepth: number): string | null {
       if (['hash', 'value', 'ref', 'data', 'bytes', 'imageHash', 'imageRef'].includes(k)) continue;
       const result = deepExtractHash(v, maxDepth - 1);
       if (result) {
-        console.log(`[figma-paste] Found hash via deep search at key: ${k}`);
+        debugLog(`[figma-paste] Found hash via deep search at key: ${k}`);
         return result;
       }
     }
@@ -1956,7 +1957,7 @@ function extractImageHashFromPaint(paint: Record<string, unknown>): string | nul
 
     const hash = deepExtractHash(field, 4); // search up to 4 levels deep
     if (hash) {
-      console.log(`[figma-paste] Extracted hash from paint.${key}: ${hash.substring(0, 20)}...`);
+      debugLog(`[figma-paste] Extracted hash from paint.${key}: ${hash.substring(0, 20)}...`);
       return hash;
     }
   }
@@ -1993,7 +1994,7 @@ function collectImageInfo(nodes: NodeChange[]): ImageCollectionResult {
         const nodeId = `${node.guid.sessionID}:${node.guid.localID}`;
         instanceNodeIds.add(nodeId);
         nodeIds.add(nodeId);
-        console.log(`[figma-paste] INSTANCE/COMPONENT "${node.name}" will be rendered as single image: ${nodeId}`);
+        debugLog(`[figma-paste] INSTANCE/COMPONENT "${node.name}" will be rendered as single image: ${nodeId}`);
       }
     }
   }
@@ -2018,7 +2019,7 @@ function collectImageInfo(nodes: NodeChange[]): ImageCollectionResult {
 
     // Skip children of INSTANCE/COMPONENT nodes (they're rendered as part of the parent)
     if (childrenOfInstances.has(nodeId)) {
-      console.log(`[figma-paste] Skipping child of instance: "${node.name}"`);
+      debugLog(`[figma-paste] Skipping child of instance: "${node.name}"`);
       continue;
     }
 
@@ -2034,15 +2035,15 @@ function collectImageInfo(nodes: NodeChange[]): ImageCollectionResult {
         if (paint.type === 'IMAGE') {
           // Deep-inspect the `image` field
           const imageField = anyPaint.image;
-          console.log(`[figma-paste] IMAGE paint on "${node.name}": image field type=${typeof imageField}, isUint8Array=${imageField instanceof Uint8Array}`);
+          debugLog(`[figma-paste] IMAGE paint on "${node.name}": image field type=${typeof imageField}, isUint8Array=${imageField instanceof Uint8Array}`);
 
           if (imageField && typeof imageField === 'object') {
             if (imageField instanceof Uint8Array) {
-              console.log(`[figma-paste]   image = <Uint8Array(${imageField.length})> hex=${bytesToHex(imageField).substring(0, 40)}...`);
+              debugLog(`[figma-paste]   image = <Uint8Array(${imageField.length})> hex=${bytesToHex(imageField).substring(0, 40)}...`);
             } else {
               // Log nested object structure for debugging
               const imgObj = imageField as Record<string, unknown>;
-              console.log(`[figma-paste]   image object keys: [${Object.keys(imgObj).join(', ')}]`);
+              debugLog(`[figma-paste]   image object keys: [${Object.keys(imgObj).join(', ')}]`);
               logObjectDeep(imgObj, 'image', 2);
             }
           }
@@ -2050,23 +2051,23 @@ function collectImageInfo(nodes: NodeChange[]): ImageCollectionResult {
           // Extract hash using recursive deep search
           const hash = extractImageHashFromPaint(anyPaint);
           if (hash) {
-            console.log(`[figma-paste]   => extracted hash: "${hash.substring(0, 40)}${hash.length > 40 ? '...' : ''}"`);
+            debugLog(`[figma-paste]   => extracted hash: "${hash.substring(0, 40)}${hash.length > 40 ? '...' : ''}"`);
             hashes.add(hash);
           } else {
-            console.log(`[figma-paste]   => NO hash extracted from paint`);
+            debugLog(`[figma-paste]   => NO hash extracted from paint`);
           }
 
           // Collect node GUID for fallback rendering
           if (node.guid) {
             nodeIds.add(nodeId);
-            console.log(`[figma-paste]   => node ID for rendering: ${nodeId}`);
+            debugLog(`[figma-paste]   => node ID for rendering: ${nodeId}`);
           }
         }
       }
     }
   }
 
-  console.log(`[figma-paste] collectImageInfo: ${hashes.size} hashes, ${nodeIds.size} node IDs (${instanceNodeIds.size} instances)`);
+  debugLog(`[figma-paste] collectImageInfo: ${hashes.size} hashes, ${nodeIds.size} node IDs (${instanceNodeIds.size} instances)`);
   return {
     hashes: Array.from(hashes),
     nodeIds: Array.from(nodeIds),
@@ -2080,13 +2081,13 @@ function logObjectDeep(obj: Record<string, unknown>, prefix: string, maxDepth: n
   if (maxDepth <= 0) return;
   for (const [k, v] of Object.entries(obj)) {
     if (v instanceof Uint8Array) {
-      console.log(`[figma-paste]   ${prefix}.${k} = <Uint8Array(${v.length})> hex=${bytesToHex(v).substring(0, 40)}...`);
+      debugLog(`[figma-paste]   ${prefix}.${k} = <Uint8Array(${v.length})> hex=${bytesToHex(v).substring(0, 40)}...`);
     } else if (typeof v === 'object' && v !== null) {
       const nested = v as Record<string, unknown>;
-      console.log(`[figma-paste]   ${prefix}.${k} = {${Object.keys(nested).join(', ')}}`);
+      debugLog(`[figma-paste]   ${prefix}.${k} = {${Object.keys(nested).join(', ')}}`);
       logObjectDeep(nested, `${prefix}.${k}`, maxDepth - 1);
     } else {
-      console.log(`[figma-paste]   ${prefix}.${k} = ${JSON.stringify(v)}`.substring(0, 120));
+      debugLog(`[figma-paste]   ${prefix}.${k} = ${JSON.stringify(v)}`.substring(0, 120));
     }
   }
 }
@@ -2126,7 +2127,7 @@ export async function fetchAndApplyFigmaImages(
 
   // Strategy 1: Try image fills API with hash matching
   if (hasHashes) {
-    console.log(`[figma-paste] Strategy 1: Fetching ${imageHashes.length} images by hash...`);
+    debugLog(`[figma-paste] Strategy 1: Fetching ${imageHashes.length} images by hash...`);
     try {
       const response = await fetch('/api/figma/images', {
         method: 'POST',
@@ -2138,11 +2139,11 @@ export async function fetchAndApplyFigmaImages(
         const data = await response.json();
         if (data.success && data.images) {
           const imageMap = data.images as Record<string, string>;
-          console.log(`[figma-paste] Strategy 1: Got ${Object.keys(imageMap).length} image URLs`);
+          debugLog(`[figma-paste] Strategy 1: Got ${Object.keys(imageMap).length} image URLs`);
 
           // Also log all available image refs for debugging
           if (data.allImageRefs) {
-            console.log(`[figma-paste] All available image refs in file:`, data.allImageRefs);
+            debugLog(`[figma-paste] All available image refs in file:`, data.allImageRefs);
           }
 
           appliedCount += applyImagesByHash(rootElement, imageMap);
@@ -2159,7 +2160,7 @@ export async function fetchAndApplyFigmaImages(
   // Strategy 2: Fall back to node rendering if hash matching didn't cover all elements
   const remainingElements = Array.from(rootElement.querySelectorAll('[data-needs-image]'));
   if (remainingElements.length > 0 && hasNodeIds) {
-    console.log(`[figma-paste] Strategy 2: Rendering ${remainingElements.length} nodes via API...`);
+    debugLog(`[figma-paste] Strategy 2: Rendering ${remainingElements.length} nodes via API...`);
     try {
       // Collect node IDs from remaining elements
       const nodeIdsToRender: string[] = [];
@@ -2181,7 +2182,7 @@ export async function fetchAndApplyFigmaImages(
           const data = await response.json();
           if (data.success && data.images) {
             const nodeImageMap = data.images as Record<string, string>;
-            console.log(`[figma-paste] Strategy 2: Got ${Object.keys(nodeImageMap).length} rendered images`);
+            debugLog(`[figma-paste] Strategy 2: Got ${Object.keys(nodeImageMap).length} rendered images`);
             appliedCount += applyImagesByNodeId(rootElement, nodeImageMap);
           }
         } else {
@@ -2194,7 +2195,7 @@ export async function fetchAndApplyFigmaImages(
     }
   }
 
-  console.log(`[figma-paste] Total applied: ${appliedCount} images`);
+  debugLog(`[figma-paste] Total applied: ${appliedCount} images`);
   return { applied: appliedCount, errors };
 }
 
@@ -2210,7 +2211,7 @@ function applyImagesByHash(rootElement: HTMLElement | Document, imageMap: Record
     if (hash && imageMap[hash]) {
       applyImageToElement(el as HTMLElement, imageMap[hash]);
       applied++;
-      console.log(`[figma-paste] Applied image by hash: ${hash.substring(0, 16)}... → ${el.getAttribute('data-name') || 'unnamed'}`);
+      debugLog(`[figma-paste] Applied image by hash: ${hash.substring(0, 16)}... → ${el.getAttribute('data-name') || 'unnamed'}`);
     }
   }
 
@@ -2229,7 +2230,7 @@ function applyImagesByNodeId(rootElement: HTMLElement | Document, nodeImageMap: 
     if (nodeId && nodeImageMap[nodeId]) {
       applyImageToElement(el as HTMLElement, nodeImageMap[nodeId]);
       applied++;
-      console.log(`[figma-paste] Applied image by node render: ${nodeId} → ${el.getAttribute('data-name') || 'unnamed'}`);
+      debugLog(`[figma-paste] Applied image by node render: ${nodeId} → ${el.getAttribute('data-name') || 'unnamed'}`);
     }
   }
 

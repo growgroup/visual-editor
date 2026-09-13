@@ -32,6 +32,9 @@ import { useMultiPageCanvasOptional } from "../contexts/MultiPageCanvasContext";
 import { applyDocumentAttributes } from "./multi-page/PageFramePreview";
 import { setupEmbeddedCanvasBridge } from "../utils/embedded-canvas-bridge";
 import { endContentSwitch } from "../autosave";
+import { showPartDropIndicator, clearPartDropIndicator, findFlowInsertion } from "../utils/drop-target";
+import { debugLog } from '../utils/debug';
+import { useEditorComponents } from "../contexts/EditorComponentsContext";
 import type {
   DOMTreeNode,
   DragState,
@@ -189,6 +192,9 @@ export function EditorCanvas() {
   const setHtmlRef = useRef(setHtml);
   const clearHistoryRef = useRef(clearHistory);
   const editorModeRef = useRef(editorMode);
+  // 部品モードか(io に loadParts があるか)。挿入位置の印を出してよいかの判定に使う
+  const { partsMode } = useEditorComponents();
+  const partsModeRef = useRef(partsMode);
 
   // Webページモード用のコンテンツ高さ追跡
   const [contentHeight, setContentHeight] = useState(WEBPAGE_MIN_HEIGHT);
@@ -208,6 +214,7 @@ export function EditorCanvas() {
     setHtmlRef.current = setHtml;
     clearHistoryRef.current = clearHistory;
     editorModeRef.current = editorMode;
+    partsModeRef.current = partsMode;
     contentHeightRef.current = contentHeight;
   }, [
     activeTool,
@@ -218,6 +225,7 @@ export function EditorCanvas() {
     setHtml,
     clearHistory,
     editorMode,
+    partsMode,
     contentHeight,
   ]);
 
@@ -467,7 +475,7 @@ export function EditorCanvas() {
     const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
     if (!iframeDoc) return;
 
-    console.log("[Canvas] iframe loaded, initializing...");
+    debugLog("[Canvas] iframe loaded, initializing...");
 
     // 最初のペイントより先に現在の倍率を当ててから見せる。
     // initLayout はフォント待ち等で数百msかかるため、その後に適用すると
@@ -481,7 +489,7 @@ export function EditorCanvas() {
     // これにより、iframeがリロードされたり状態が変わるたびに
     // 古いリスナーを削除せずに新しいリスナーが追加される問題を防ぐ
     if (cleanupFunctionsRef.current.length > 0) {
-      console.log("[Canvas] Cleaning up", cleanupFunctionsRef.current.length, "previous listeners");
+      debugLog("[Canvas] Cleaning up", cleanupFunctionsRef.current.length, "previous listeners");
       cleanupFunctionsRef.current.forEach(cleanup => {
         try {
           cleanup();
@@ -634,7 +642,7 @@ export function EditorCanvas() {
           if (iframe) iframe.focus();
           if (iframeDoc.body) {
             iframeDoc.body.focus();
-            console.log('[Canvas] Focus restored after background click');
+            debugLog('[Canvas] Focus restored after background click');
           }
         });
       }
@@ -667,10 +675,28 @@ export function EditorCanvas() {
     // 7. ドラッグ&ドロップ（画像アップロード用）
     let dragCounter = 0;
 
+    // 部品のドラッグか(ファイルのドラッグと見分ける)。
+    // dragover 中は getData が使えないので types だけで判定する
+    const isPartDrag = (e: DragEvent) =>
+      !!e.dataTransfer?.types.includes("application/x-editor-component");
+
+    // 挿入位置の横棒を出してよい場面か。
+    // FrontendVisualEditor の drop 処理が insertIntoFlow(フローに差し込む)を使うのは
+    // 「部品モード かつ Web ページモード」のときだけで、それ以外(スライド、および
+    // Firestore のコンポーネント)は落とした座標に絶対配置する。条件を揃えないと
+    // 「横棒の位置と実際に入る位置が違う」という一番たちの悪いズレ方をする
+    const canShowFlowIndicator = () =>
+      partsModeRef.current && editorModeRef.current === "webpage";
+
+    // 前回の挿入先。同じなら描き直さない(dragover は毎秒数十回来るので、
+    // 毎回 DOM を差し替えると強制レイアウトが走り、印もちらつく)
+    let lastTarget: { parent: Element; before: Element | null } | null = null;
+
     const handleDragEnter = (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       dragCounter++;
+      // 画像のオーバーレイはファイルのときだけ。部品は挿入位置の横棒で示す
       if (e.dataTransfer?.types.includes("Files")) {
         window.parent.postMessage({ type: "IFRAME_DRAG_ENTER" }, "*");
       }
@@ -681,6 +707,17 @@ export function EditorCanvas() {
       e.stopPropagation();
       if (e.dataTransfer?.types.includes("Files")) {
         e.dataTransfer.dropEffect = "copy";
+        return;
+      }
+      if (isPartDrag(e)) {
+        e.dataTransfer!.dropEffect = "copy";
+        if (!canShowFlowIndicator()) return;
+        // 落とす先を紙面の中に描く。実際の挿入と同じ関数で位置を出しているので、
+        // 印の場所とずれない(drop-target.ts)
+        const next = findFlowInsertion(iframeDoc, e.clientX, e.clientY);
+        if (lastTarget && lastTarget.parent === next.parent && lastTarget.before === next.before) return;
+        lastTarget = next;
+        showPartDropIndicator(iframeDoc, e.clientX, e.clientY);
       }
     };
 
@@ -689,19 +726,33 @@ export function EditorCanvas() {
       e.stopPropagation();
       dragCounter--;
       if (dragCounter === 0) {
+        lastTarget = null;
+        clearPartDropIndicator(iframeDoc);
         window.parent.postMessage({ type: "IFRAME_DRAG_LEAVE" }, "*");
       }
+    };
+
+    // ドラッグが途中で捨てられた(Esc・パネルの上で離した)ときも印を残さない。
+    // dragend が起きるのはドラッグ「元」= 親ドキュメントのパネル項目なので、
+    // iframe ではなく親の document で受ける
+    const handleDragEnd = () => {
+      dragCounter = 0;
+      lastTarget = null;
+      clearPartDropIndicator(iframeDoc);
     };
 
     const handleDrop = (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       dragCounter = 0;
+      lastTarget = null;
+      // 印は挿入より先に消す。残っていると履歴と保存HTMLに混ざる
+      clearPartDropIndicator(iframeDoc);
 
       // コンポーネントのドロップをチェックして親ウィンドウに転送
       const componentData = e.dataTransfer?.getData('application/x-editor-component');
       if (componentData) {
-        console.log('[EditorCanvas] Component drop detected, forwarding to parent:', componentData);
+        debugLog('[EditorCanvas] Component drop detected, forwarding to parent:', componentData);
         window.parent.postMessage(
           {
             type: "IFRAME_COMPONENT_DROP",
@@ -756,12 +807,15 @@ export function EditorCanvas() {
     iframeDoc.addEventListener("dragenter", handleDragEnter);
     iframeDoc.addEventListener("dragover", handleDragOver);
     iframeDoc.addEventListener("dragleave", handleDragLeave);
+    document.addEventListener("dragend", handleDragEnd);
     iframeDoc.addEventListener("drop", handleDrop);
     cleanupFunctions.push(() => {
       iframeDoc.removeEventListener("dragenter", handleDragEnter);
       iframeDoc.removeEventListener("dragover", handleDragOver);
       iframeDoc.removeEventListener("dragleave", handleDragLeave);
+      document.removeEventListener("dragend", handleDragEnd);
       iframeDoc.removeEventListener("drop", handleDrop);
+      clearPartDropIndicator(iframeDoc);
     });
 
     // [修正] ここにあった「iframe内のpasteを親へpostMessageして画像を挿入する」
@@ -769,7 +823,7 @@ export function EditorCanvas() {
     // 直接 paste リスナーを張っており、2系統が同時に走るため1回の貼り付けで
     // 画像が2枚入っていた。ペーストの処理は FrontendVisualEditor の1本に集約する。
 
-    console.log("[Canvas] Drag/drop handlers registered");
+    debugLog("[Canvas] Drag/drop handlers registered");
 
     // 9. レイアウトモードに応じた初期化とDOMツリー構築
     const initLayout = async () => {
@@ -818,17 +872,17 @@ export function EditorCanvas() {
           // 別の幅で崩れ、デザインツールへの取り込みで意味を失う。
         if (editorModeRef.current !== "webpage") {
           const converted = convertToAbsolutePositioning(iframeDoc);
-          console.log('[Canvas] 絶対配置へ一括変換:', converted, '要素');
+          debugLog('[Canvas] 絶対配置へ一括変換:', converted, '要素');
         }
 
         // ここまでが「開いただけ」の姿。以後の変化=ユーザーの編集、と
         // 切り分けるための指紋を全要素に刻む(保存時の変換ノイズ巻き戻しに使う)
         const stamped = stampBaselines(iframeDoc);
-        console.log('[Canvas] 書き戻し用ベースライン:', stamped, '要素');
+        debugLog('[Canvas] 書き戻し用ベースライン:', stamped, '要素');
 
         const artboardEl = iframeDoc.getElementById("artboard");
         const tree = buildDomTree(iframeDoc, artboardEl || undefined);
-        console.log("[Canvas] Built DOM tree with", tree.length, "root nodes");
+        debugLog("[Canvas] Built DOM tree with", tree.length, "root nodes");
 
         setDomTreeRef.current(tree);
         const firstLevelIds = new Set<string>(
@@ -844,7 +898,7 @@ export function EditorCanvas() {
         // 変換後の姿を「変更なし」の基準にする。これをしないと開いただけで
         // 未保存扱いになり、サムネイル移動のたびに確認ダイアログが出る
         setOriginalHtml(initializedHtml);
-        console.log(
+        debugLog(
           "[Canvas] History reset with initialized HTML from artboard"
         );
 
@@ -879,7 +933,7 @@ export function EditorCanvas() {
         resizeObserver.observe(artboardEl);
         cleanupFunctions.push(() => resizeObserver.disconnect());
 
-        console.log(
+        debugLog(
           "[Canvas] Webpage mode: content height tracking initialized on artboard"
         );
       }
@@ -888,11 +942,11 @@ export function EditorCanvas() {
     // 重要: クリーンアップ関数をrefに保存して、
     // 次のiframeロード時やアンマウント時にクリーンアップできるようにする
     cleanupFunctionsRef.current = cleanupFunctions;
-    console.log("[Canvas] Registered", cleanupFunctions.length, "cleanup functions");
+    debugLog("[Canvas] Registered", cleanupFunctions.length, "cleanup functions");
 
     // iframeの読み込み完了をマーク（CSS変数注入等のトリガー用）
     setIframeReady(true);
-    console.log("[Canvas] iframe ready, setIframeReady(true) called");
+    debugLog("[Canvas] iframe ready, setIframeReady(true) called");
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -924,7 +978,7 @@ export function EditorCanvas() {
       // 重要: アンマウント時にすべてのイベントリスナーをクリーンアップ
       // これにより、メモリリークとゴーストリスナーを防ぐ
       if (cleanupFunctionsRef.current.length > 0) {
-        console.log("[Canvas] Unmounting: cleaning up", cleanupFunctionsRef.current.length, "listeners");
+        debugLog("[Canvas] Unmounting: cleaning up", cleanupFunctionsRef.current.length, "listeners");
         cleanupFunctionsRef.current.forEach(cleanup => {
           try {
             cleanup();
@@ -1005,7 +1059,7 @@ export function EditorCanvas() {
       refreshSelectionOverlay(iframeDoc);
     });
 
-    console.log(
+    debugLog(
       `[Canvas] Applied zoom: ${zoom}%, wrapper transform: scale(${currentScale})`
     );
   }, [zoom, editorMode, contentHeight, viewportWidth, getIframeDoc]);
@@ -1071,7 +1125,7 @@ export function EditorCanvas() {
       : SLIDE_HEIGHT;
     recalculateViewportUnits(iframeDoc, canvasWidth, canvasHeight);
 
-    console.log(`[Canvas] Viewport width changed to ${viewportWidth}px, recalculated viewport units with canvas dimensions: ${canvasWidth}x${canvasHeight}`);
+    debugLog(`[Canvas] Viewport width changed to ${viewportWidth}px, recalculated viewport units with canvas dimensions: ${canvasWidth}x${canvasHeight}`);
   }, [viewportWidth, editorMode, getIframeDoc, calculateFitZoom, setFitZoom]);
 
   return (

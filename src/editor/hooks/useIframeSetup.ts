@@ -11,6 +11,7 @@ import { useEditorContext } from '../EditorContext';
 import { buildDomTree, isInlineElement } from '../utils/dom-utils';
 import { EDITOR_IFRAME_STYLES } from '../constants';
 import { isLockedInsidePart } from '../parts';
+import { debugLog } from '../utils/debug';
 
 interface UseIframeSetupReturn {
   /**
@@ -145,7 +146,7 @@ export function useIframeSetup(): UseIframeSetupReturn {
    */
   const initializeIframeDocument = useCallback(
     (iframeDoc: Document) => {
-      console.log('[IframeSetup] Initializing iframe document...');
+      debugLog('[IframeSetup] Initializing iframe document...');
 
       // スタイルを注入
       const style = iframeDoc.createElement('style');
@@ -158,7 +159,7 @@ export function useIframeSetup(): UseIframeSetupReturn {
 
       // 全要素にdata-editableとdata-element-idを付与
       const elementCount = initializeEditableElements(iframeDoc);
-      console.log('[IframeSetup] Initialized', elementCount, 'editable elements');
+      debugLog('[IframeSetup] Initialized', elementCount, 'editable elements');
 
       // DOMツリーを構築
       const newTree = buildDomTree(iframeDoc);

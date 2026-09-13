@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { debugLog } from '../utils/debug';
 
 /**
  * ブラウザのネイティブズーム（ピンチ、Ctrl+ホイール、キーボードショートカット等）を防止するフック
@@ -67,7 +68,7 @@ export function useBrowserZoomPrevention(): void {
       // e.key ではなく e.code を使用して物理キーを判定する
       // preventDefault のみでブラウザのデフォルト動作を止め、自前のハンドラーは動くようにする
       if (isCmdOrCtrl && e.altKey && (e.code === 'KeyC' || e.code === 'KeyV')) {
-        console.log('[preventBrowserShortcuts] Preventing browser default for Cmd/Ctrl+Alt+C/V', {
+        debugLog('[preventBrowserShortcuts] Preventing browser default for Cmd/Ctrl+Alt+C/V', {
           key: e.key,
           code: e.code,
         });

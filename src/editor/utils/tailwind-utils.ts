@@ -5,6 +5,7 @@
  */
 
 import { twMerge } from 'tailwind-merge';
+import { debugLog } from './debug';
 import {
   TAILWIND_CONFLICT_GROUPS,
   ENUM_MAPPINGS,
@@ -63,7 +64,7 @@ export function cssToTailwindClass(
   // CSS変数参照はstyle属性に直接設定
   if (value.startsWith('var(')) {
     // DEBUG: var() を検出した時のログ
-    console.log('[DEBUG tailwind-utils] cssToTailwindClass detected var():', {
+    debugLog('[DEBUG tailwind-utils] cssToTailwindClass detected var():', {
       property,
       value,
       result: { className: null, styleValue: value },
@@ -421,7 +422,7 @@ export function applyTailwindStyles(
   styles: Record<string, string>
 ): void {
   // DEBUG: applyTailwindStyles 開始時のログ
-  console.log('[DEBUG tailwind-utils] applyTailwindStyles called:', {
+  debugLog('[DEBUG tailwind-utils] applyTailwindStyles called:', {
     elementId: element.id,
     elementTagName: element.tagName,
     inputStyles: styles,
@@ -492,7 +493,7 @@ export function applyTailwindStyles(
   });
 
   // DEBUG: applyTailwindStyles 最終適用結果のログ
-  console.log('[DEBUG tailwind-utils] applyTailwindStyles completed:', {
+  debugLog('[DEBUG tailwind-utils] applyTailwindStyles completed:', {
     elementId: element.id,
     classesToAdd,
     stylesToApply,

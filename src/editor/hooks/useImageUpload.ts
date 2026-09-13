@@ -17,6 +17,7 @@ import {
 } from '../../lib/firebase/storage';
 import { buildDomTree } from '../utils/dom-utils';
 import { findInsertionParent, findSlideRoot } from '../utils/slide-root';
+import { debugLog } from '../utils/debug';
 
 interface UploadResult {
   storageUrl: string;
@@ -177,15 +178,15 @@ export function useImageUpload(options: UseImageUploadOptions = {}) {
     clipboardData: DataTransfer,
     insertOptions?: { x?: number; y?: number }
   ): Promise<UploadResult | null> => {
-    console.log('[useImageUpload] uploadFromClipboard called');
+    debugLog('[useImageUpload] uploadFromClipboard called');
     // クリップボードから画像を探す
     const items = Array.from(clipboardData.items);
-    console.log('[useImageUpload] Clipboard items:', items.map(i => ({ type: i.type, kind: i.kind })));
+    debugLog('[useImageUpload] Clipboard items:', items.map(i => ({ type: i.type, kind: i.kind })));
 
     for (const item of items) {
       if (item.type.startsWith('image/')) {
         const file = item.getAsFile();
-        console.log('[useImageUpload] Got file from clipboard item:', file);
+        debugLog('[useImageUpload] Got file from clipboard item:', file);
         if (file) {
           return uploadFromFile(file, insertOptions);
         }

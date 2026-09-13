@@ -42,6 +42,7 @@ async function persistDataUrl(dataUrl: string, fileName: string): Promise<string
 }
 
 import type { PageResourceUpload } from '../../types/page';
+import { debugLog } from '../../editor/utils/debug';
 
 // ============================================
 // 内部ヘルパー
@@ -161,7 +162,7 @@ export async function uploadPageResource(
 
 // ファイル削除（ローカルではリモート実体が無いため no-op）
 export async function deletePageResource(storagePath: string): Promise<void> {
-  console.log('[storage] deletePageResource is a no-op in local mode:', storagePath);
+  debugLog('[storage] deletePageResource is a no-op in local mode:', storagePath);
 }
 
 // ファイル情報取得（ローカルではメタデータを保持しないためスタブを返す）
@@ -264,7 +265,7 @@ export async function uploadFigmaImage(
 // コンポーネントの画像ファイルを削除（ローカルでは no-op）
 export async function deleteFigmaComponentImages(componentId: string): Promise<void> {
   const basePath = `components/${componentId}/figma-images/`;
-  console.log(`[storage] deleteFigmaComponentImages is a no-op in local mode: ${basePath}`);
+  debugLog(`[storage] deleteFigmaComponentImages is a no-op in local mode: ${basePath}`);
 }
 
 // 画像ファイルサイズの推定（Base64から）

@@ -93,6 +93,8 @@ import {
 import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
+import { clearPartDropIndicator } from './utils/drop-target';
+import { debugLog } from './utils/debug';
 
 /**
  * 自動保存のデバウンス(ms)。
@@ -416,7 +418,7 @@ function FrontendVisualEditorInner({
   useEffect(() => {
     // iframeが準備できていない場合は何もしない
     if (!iframeReady) {
-      console.log('[applyCssVariablesToIframe] Waiting for iframe to be ready...');
+      debugLog('[applyCssVariablesToIframe] Waiting for iframe to be ready...');
       return;
     }
     if (!cssString) return;
@@ -438,9 +440,9 @@ function FrontendVisualEditorInner({
 
     if (styleElement.textContent !== cssString) {
       styleElement.textContent = cssString;
-      console.log('[applyCssVariablesToIframe] Applied CSS variables:', variables.length, 'variables');
-      console.log('[applyCssVariablesToIframe] CSS String:', cssString);
-      console.log('[applyCssVariablesToIframe] Variables:', variables.map(v => ({ name: v.name, cssName: v.cssName, value: v.value })));
+      debugLog('[applyCssVariablesToIframe] Applied CSS variables:', variables.length, 'variables');
+      debugLog('[applyCssVariablesToIframe] CSS String:', cssString);
+      debugLog('[applyCssVariablesToIframe] Variables:', variables.map(v => ({ name: v.name, cssName: v.cssName, value: v.value })));
     }
   }, [cssString, variables.length, getIframeDoc, iframeReady]);
 
@@ -467,7 +469,7 @@ function FrontendVisualEditorInner({
             ? `/api/websites/${parentId}/pages/${contentId}`
             : `/api/presentations/${parentId}/slides/${contentId}`;
           await api.patch(apiPath, { layoutMode });
-          console.log('[FrontendVisualEditor] Saved layout mode:', layoutMode);
+          debugLog('[FrontendVisualEditor] Saved layout mode:', layoutMode);
         } catch (error) {
           console.error('[FrontendVisualEditor] Failed to save layout mode:', error);
         }
@@ -1123,7 +1125,7 @@ function FrontendVisualEditorInner({
         }
       } else if (event.data?.type === 'IFRAME_PASTE_IMAGE') {
         // iframe内でペーストされた画像を処理
-        console.log('[FrontendVisualEditor] Received IFRAME_PASTE_IMAGE message', event.data);
+        debugLog('[FrontendVisualEditor] Received IFRAME_PASTE_IMAGE message', event.data);
         const { dataUrl, fileName, fileType } = event.data;
         if (dataUrl && fileType?.startsWith('image/')) {
           try {
@@ -1138,12 +1140,14 @@ function FrontendVisualEditorInner({
       } else if (event.data?.type === 'IFRAME_COMPONENT_DROP') {
         // iframe内にドロップされたコンポーネントを処理
         setIsDraggingOver(false);
+        // 印は挿入より先に消す。残したまま挿入すると履歴と保存HTMLに混ざる
+        clearPartDropIndicator(iframeRef.current?.contentDocument);
         const { componentData, x, y } = event.data;
-        console.log('[FrontendVisualEditor] Received IFRAME_COMPONENT_DROP:', componentData, 'at', x, y);
+        debugLog('[FrontendVisualEditor] Received IFRAME_COMPONENT_DROP:', componentData, 'at', x, y);
         if (componentData && contentId) {
           try {
             const { componentId } = JSON.parse(componentData);
-            console.log('[FrontendVisualEditor] Parsed componentId:', componentId);
+            debugLog('[FrontendVisualEditor] Parsed componentId:', componentId);
             if (componentId && partsMode) {
               // 部品モード: 実体化してフローへ(iframe 内の座標がそのまま来る)
               const iframeDoc = iframeRef.current?.contentDocument;
@@ -1175,11 +1179,11 @@ function FrontendVisualEditorInner({
             } else if (componentId) {
               // インスタンスを作成
               const instance = createInstance(componentId, undefined, contentId);
-              console.log('[FrontendVisualEditor] Created instance:', instance);
+              debugLog('[FrontendVisualEditor] Created instance:', instance);
               if (instance) {
                 // マスターコンポーネントを取得
                 const master = getMasterComponent(componentId);
-                console.log('[FrontendVisualEditor] Master component:', master);
+                debugLog('[FrontendVisualEditor] Master component:', master);
                 if (master && iframeRef.current) {
                   const iframeDoc = iframeRef.current.contentDocument;
                   if (iframeDoc) {
@@ -1207,7 +1211,7 @@ function FrontendVisualEditorInner({
                       element.classList.add('selected');
                     }
 
-                    console.log('[FrontendVisualEditor] Component instance created via iframe message:', instance.id);
+                    debugLog('[FrontendVisualEditor] Component instance created via iframe message:', instance.id);
                   }
                 } else {
                   console.error('[FrontendVisualEditor] Master component not found for id:', componentId);
@@ -1228,16 +1232,23 @@ function FrontendVisualEditorInner({
   }, [uploadFromFile, contentId, createInstance, getMasterComponent, iframeRef, notifyIframeChange, setSelectedElement, setSelectedElementIds, partsMode, materializePartInstance, editorMode]);
 
   // ドラッグ&ドロップハンドラ
+  //
+  // [不具合の修正] 以前は「部品のドラッグ」と「ファイルのドラッグ」を同じ条件で扱い、
+  // 部品をパネルからキャンバスへ運ぶ間じゅう「ここに画像をドロップ」の青いオーバーレイが
+  // 紙面を覆っていた。落とせる場所が分からなくなるうえ、画像を入れる操作だと誤解させる。
+  // 画像用のオーバーレイは Files のときだけ出し、部品は紙面の中に出す挿入位置の横棒
+  // (drop-target.ts の印)で示す。
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
     dragCounterRef.current++;
 
-    // コンポーネントまたはファイルがドラッグされているか確認
-    if (e.dataTransfer.types.includes('application/x-editor-component') ||
-        e.dataTransfer.types.includes('Files')) {
+    if (e.dataTransfer.types.includes('Files')) {
       setIsDraggingOver(true);
+      e.dataTransfer.dropEffect = 'copy';
+    } else if (e.dataTransfer.types.includes('application/x-editor-component')) {
+      // 落とせることは dropEffect で示すだけ。オーバーレイは出さない
       e.dataTransfer.dropEffect = 'copy';
     }
   }, []);
@@ -1246,7 +1257,6 @@ function FrontendVisualEditorInner({
     e.preventDefault();
     e.stopPropagation();
 
-    // コンポーネントまたはファイルがドラッグされているか確認
     if (e.dataTransfer.types.includes('application/x-editor-component') ||
         e.dataTransfer.types.includes('Files')) {
       e.dataTransfer.dropEffect = 'copy';
@@ -1256,14 +1266,17 @@ function FrontendVisualEditorInner({
   const handleDragLeave = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     dragCounterRef.current--;
-    
+
     // カウンターが0になったら本当に外に出た
     if (dragCounterRef.current === 0) {
       setIsDraggingOver(false);
+      // 紙面の外に出たら挿入位置の印も消す(iframe 側の dragleave が
+      // 来ないまま外へ抜ける経路があるため、ここでも必ず落とす)
+      clearPartDropIndicator(iframeRef.current?.contentDocument);
     }
-  }, []);
+  }, [iframeRef]);
 
   const handleDrop = useCallback(async (e: React.DragEvent) => {
     e.preventDefault();
@@ -1272,14 +1285,16 @@ function FrontendVisualEditorInner({
     // ドラッグ状態をリセット
     dragCounterRef.current = 0;
     setIsDraggingOver(false);
+    // 印は履歴に載る前に消す(notifyIframeChange より必ず先)
+    clearPartDropIndicator(iframeRef.current?.contentDocument);
 
     // コンポーネントのドロップをチェック
     const componentData = e.dataTransfer.getData('application/x-editor-component');
-    console.log('[FrontendVisualEditor] Drop event - componentData:', componentData);
+    debugLog('[FrontendVisualEditor] Drop event - componentData:', componentData);
     if (componentData) {
       try {
         const { componentId, variantId } = JSON.parse(componentData);
-        console.log('[FrontendVisualEditor] Parsed componentId:', componentId, 'variantId:', variantId, 'contentId:', contentId, 'iframeRef:', !!iframeRef.current);
+        debugLog('[FrontendVisualEditor] Parsed componentId:', componentId, 'variantId:', variantId, 'contentId:', contentId, 'iframeRef:', !!iframeRef.current);
         if (componentId && iframeRef.current && contentId) {
           const iframeDoc = iframeRef.current.contentDocument;
           if (iframeDoc) {
@@ -1288,6 +1303,28 @@ function FrontendVisualEditorInner({
             // 縮小表示されている。画面座標をそのまま使うとスライド左上を原点にできないので、
             // スライドのルート要素の実測矩形を基準に、スライド内座標へ換算する。
             const iframeRect = iframeRef.current.getBoundingClientRect();
+
+            // [不具合の修正] いま編集していないページの紙面に落としたときに、
+            // 黙って現在ページの末尾へ入れてしまうのを止める。
+            //
+            // キャンバス表示では、紙面の枠(`[data-page-preview]`)の中の iframe に
+            // `pointer-events: none` が掛かっている。そのため別ページの紙面に落としても
+            // drop はその iframe ではなく親ドキュメント側に来て、この関数が受ける。
+            // ここは「現在ページの iframe」を基準に座標を出すので、別ページの上で
+            // 落とすと換算結果が紙面の外になり、挿入先が見つからず末尾送りになっていた。
+            // 落とした場所と違うページに黙って入るのは気づけないので、入れずに捨てる。
+            // (どのページに落としたかを見て、そのページを開いてから入れるのが本筋だが、
+            //  それはマルチフレーム側の担当なので、ここでは誤挿入を防ぐに留める)
+            const insideLiveFrame =
+              e.clientX >= iframeRect.left &&
+              e.clientX <= iframeRect.right &&
+              e.clientY >= iframeRect.top &&
+              e.clientY <= iframeRect.bottom;
+            if (!insideLiveFrame) {
+              console.warn('[FrontendVisualEditor] いま編集しているページの外に落とされたため、部品を入れませんでした');
+              return;
+            }
+
             // 親の座標 → iframe の座標。iframe が外側の transform で縮んでいる
             // (マルチフレーム)ときは実測の倍率で割る。単独表示では 1
             const outerScale = iframeRect.width / (iframeRef.current.clientWidth || iframeRect.width) || 1;
@@ -1341,7 +1378,7 @@ function FrontendVisualEditorInner({
 
             // インスタンスを作成（バリアントIDが指定されていれば使用）
             // Pass position directly to createInstance to avoid React state batching race condition
-            console.log('[FrontendVisualEditor] Creating instance for component:', componentId, 'variant:', variantId);
+            debugLog('[FrontendVisualEditor] Creating instance for component:', componentId, 'variant:', variantId);
             const instance = createInstance(
               componentId,
               variantId,
@@ -1352,11 +1389,11 @@ function FrontendVisualEditorInner({
               undefined,  // initialPropertyValues
               { x, y }    // initialPosition
             );
-            console.log('[FrontendVisualEditor] Created instance:', instance);
+            debugLog('[FrontendVisualEditor] Created instance:', instance);
             if (instance) {
               // マスターコンポーネントを取得
               const master = getMasterComponent(componentId);
-              console.log('[FrontendVisualEditor] Master component:', master);
+              debugLog('[FrontendVisualEditor] Master component:', master);
               if (master) {
                 // インスタンスをHTMLにレンダリング (position will be applied from instance.position)
                 const { renderInstance } = await import('./utils/component-renderer');
@@ -1379,7 +1416,7 @@ function FrontendVisualEditorInner({
                   element.classList.add('selected');
                 }
 
-                console.log('[FrontendVisualEditor] Component instance created:', instance.id);
+                debugLog('[FrontendVisualEditor] Component instance created:', instance.id);
               } else {
                 console.error('[FrontendVisualEditor] Master component not found for id:', componentId);
               }
@@ -1427,7 +1464,7 @@ function FrontendVisualEditorInner({
   const handlePaste = useCallback(async (e: Event) => {
     if (handledPasteRef.current.has(e)) return;
     handledPasteRef.current.add(e);
-    console.log('[FrontendVisualEditor] handlePaste triggered');
+    debugLog('[FrontendVisualEditor] handlePaste triggered');
     const clipboardEvent = e as ClipboardEvent;
 
     // テキスト編集中は通常のペーストを許可
@@ -1478,14 +1515,14 @@ function FrontendVisualEditorInner({
       }
 
       const items = Array.from(clipboardEvent.clipboardData.items);
-      console.log('[FrontendVisualEditor] Clipboard items:', items.map(i => ({ type: i.type, kind: i.kind })));
+      debugLog('[FrontendVisualEditor] Clipboard items:', items.map(i => ({ type: i.type, kind: i.kind })));
 
       // デバッグ: クリップボードの内容を詳細ログ
       debugClipboard(clipboardEvent.clipboardData);
 
       // コンテンツタイプを最初に判定（Excel/Wordは画像より優先）
       const contentType = detectContentType(clipboardEvent.clipboardData);
-      console.log('[FrontendVisualEditor] Detected content type:', contentType);
+      debugLog('[FrontendVisualEditor] Detected content type:', contentType);
 
       // 画像の場合（純粋な画像ペーストのみ、Excel/Wordは除外済み）
       if (contentType === 'image') {
@@ -1517,7 +1554,7 @@ function FrontendVisualEditorInner({
           }
         }
 
-        console.log('[FrontendVisualEditor] Calling uploadFromClipboard for image');
+        debugLog('[FrontendVisualEditor] Calling uploadFromClipboard for image');
         await uploadFromClipboard(clipboardEvent.clipboardData, { x: 100, y: 100 });
         return;
       }
@@ -1526,44 +1563,44 @@ function FrontendVisualEditorInner({
       if (canHandleRichPaste(clipboardEvent.clipboardData)) {
         e.preventDefault();
         e.stopPropagation();
-        console.log('[FrontendVisualEditor] Calling pasteRichContent for:', contentType);
+        debugLog('[FrontendVisualEditor] Calling pasteRichContent for:', contentType);
         const result = await pasteRichContent(clipboardEvent.clipboardData);
-        console.log('[FrontendVisualEditor] Rich paste result:', result);
+        debugLog('[FrontendVisualEditor] Rich paste result:', result);
 
         // Figmaなどでデコード失敗した場合は画像としてフォールバック
         if (result.shouldFallbackToImage) {
-          console.log('[FrontendVisualEditor] Rich paste failed, falling back to image upload');
+          debugLog('[FrontendVisualEditor] Rich paste failed, falling back to image upload');
           const imageResult = await uploadFromClipboard(clipboardEvent.clipboardData, { x: 100, y: 100 });
 
           // 画像もない場合はプレーンテキストとしてペースト
           if (!imageResult) {
-            console.log('[FrontendVisualEditor] No image found, falling back to plain text');
+            debugLog('[FrontendVisualEditor] No image found, falling back to plain text');
             const plainText = clipboardEvent.clipboardData.getData('text/plain');
             if (plainText) {
               // プレーンテキストとして強制的に処理
               const textResult = await pasteRichContent(clipboardEvent.clipboardData, 'plain-text');
-              console.log('[FrontendVisualEditor] Plain text paste result:', textResult);
+              debugLog('[FrontendVisualEditor] Plain text paste result:', textResult);
             }
           }
         }
         return;
       }
     } else {
-      console.log('[FrontendVisualEditor] No clipboardData available');
+      debugLog('[FrontendVisualEditor] No clipboardData available');
     }
   }, [getIframeDoc, uploadFromClipboard, canHandleRichPaste, pasteRichContent, debugClipboard, detectContentType]);
 
   // メインドキュメントとiframe両方にペーストイベントを登録
   useEffect(() => {
-    console.log('[FrontendVisualEditor] Registering paste event listeners');
+    debugLog('[FrontendVisualEditor] Registering paste event listeners');
 
     // デバッグ用：ウィンドウレベルでキャプチャフェーズでリスナー追加
     const debugPasteHandler = (e: ClipboardEvent) => {
-      console.log('[FrontendVisualEditor] Window paste event captured (capture phase)', e);
-      console.log('[FrontendVisualEditor] Target:', e.target);
-      console.log('[FrontendVisualEditor] ClipboardData:', e.clipboardData);
+      debugLog('[FrontendVisualEditor] Window paste event captured (capture phase)', e);
+      debugLog('[FrontendVisualEditor] Target:', e.target);
+      debugLog('[FrontendVisualEditor] ClipboardData:', e.clipboardData);
       if (e.clipboardData) {
-        console.log('[FrontendVisualEditor] Items:', Array.from(e.clipboardData.items).map(i => ({ type: i.type, kind: i.kind })));
+        debugLog('[FrontendVisualEditor] Items:', Array.from(e.clipboardData.items).map(i => ({ type: i.type, kind: i.kind })));
       }
     };
     window.addEventListener('paste', debugPasteHandler, true); // capture phase
@@ -2545,7 +2582,7 @@ function FrontendVisualEditorInner({
                   
                   // 絶対配置に変換（トップレベルでimport済み）
                   const count = convertToAbsolutePositioning(iframeDoc);
-                  console.log('[Toast] Converted', count, 'elements to absolute positioning');
+                  debugLog('[Toast] Converted', count, 'elements to absolute positioning');
                   
                   // DOMツリーを再構築
                   const tree = buildDomTree(iframeDoc);
@@ -2661,7 +2698,7 @@ export function FrontendVisualEditor({
           ? await fromIo()
           : await getCSSVariablesList(effectiveParentId!, scope);
         setInitialVariables(variables);
-        console.log(`[FrontendVisualEditor] Loaded CSS variables (${fromIo ? 'io' : scope}):`, variables.length);
+        debugLog(`[FrontendVisualEditor] Loaded CSS variables (${fromIo ? 'io' : scope}):`, variables.length);
       } catch (error) {
         console.error('[FrontendVisualEditor] Failed to load CSS variables:', error);
       } finally {
@@ -2677,7 +2714,7 @@ export function FrontendVisualEditor({
     const toIo = io().saveVariables;
     if (toIo) {
       await toIo(variables);
-      console.log('[FrontendVisualEditor] Saved CSS variables (io):', variables.length);
+      debugLog('[FrontendVisualEditor] Saved CSS variables (io):', variables.length);
       return;
     }
     if (!effectiveParentId) {
@@ -2686,7 +2723,7 @@ export function FrontendVisualEditor({
     // editorModeに応じてスコープを決定
     const scope: CSSVariableScope = editorMode === 'webpage' ? 'website' : 'presentation';
     await saveCSSVariables(effectiveParentId, variables, { scope });
-    console.log(`[FrontendVisualEditor] Saved CSS variables (${scope}):`, variables.length);
+    debugLog(`[FrontendVisualEditor] Saved CSS variables (${scope}):`, variables.length);
   }, [effectiveParentId, editorMode]);
 
   // CSS変数をロードするコールバック

@@ -14,6 +14,7 @@ import type {
   ComponentInstance,
   OverridableProperties,
 } from '../../types/editor-components';
+import { debugLog } from './debug';
 
 /**
  * Find an element within the ComponentElement tree by ID
@@ -148,7 +149,7 @@ function detectSinglePropertyOverride(
   switch (type) {
     case 'text': {
       // Debug: Log text comparison attempt
-      console.log('[detectOverrides] Text comparison for element:', {
+      debugLog('[detectOverrides] Text comparison for element:', {
         elementId,
         masterHasInnerHTML: masterElement.innerHTML !== undefined,
         masterChildrenCount: masterElement.children.length,
@@ -160,7 +161,7 @@ function detectSinglePropertyOverride(
       // Skip text comparison for elements that use innerHTML (mixed content)
       // because the text is embedded in the HTML structure
       if (masterElement.innerHTML !== undefined) {
-        console.log('[detectOverrides] Skipping: element uses innerHTML');
+        debugLog('[detectOverrides] Skipping: element uses innerHTML');
         return null;
       }
 
@@ -171,7 +172,7 @@ function detectSinglePropertyOverride(
       if (masterElement.children.length === 0) {
         const masterText = masterElement.textContent || '';
 
-        console.log('[detectOverrides] Comparing text (leaf element):', {
+        debugLog('[detectOverrides] Comparing text (leaf element):', {
           elementId,
           instanceText,
           masterText,
@@ -179,7 +180,7 @@ function detectSinglePropertyOverride(
         });
 
         if (instanceText !== masterText) {
-          console.log('[detectOverrides] Text override detected:', {
+          debugLog('[detectOverrides] Text override detected:', {
             elementId,
             instanceText: instanceText.substring(0, 50),
             masterText: masterText.substring(0, 50),
@@ -196,7 +197,7 @@ function detectSinglePropertyOverride(
         // Text overrides should only be created at leaf elements (no children)
         // Creating a parent-level text override would destroy the child structure
         // when the override is applied (textContent replaces all children)
-        console.log('[detectOverrides] Skipping text override for element with children:', {
+        debugLog('[detectOverrides] Skipping text override for element with children:', {
           elementId,
           childrenCount: masterElement.children.length,
           reason: 'Text overrides at parent level would destroy child structure',
@@ -351,7 +352,7 @@ export function detectOverrides(
 
     // Debug: Log child matching
     if (componentElement.children.length > 0 || domChildren.length > 0) {
-      console.log('[detectOverrides] Child matching:', {
+      debugLog('[detectOverrides] Child matching:', {
         parentId: componentElement.id,
         domChildrenCount: domChildren.length,
         domChildrenIds: domChildren.map(dc => dc.getAttribute('data-element-id')),
@@ -375,7 +376,7 @@ export function detectOverrides(
       if (matchingDomChild) {
         processElement(matchingDomChild, componentChild);
       } else {
-        console.log('[detectOverrides] No matching DOM child for component child:', {
+        debugLog('[detectOverrides] No matching DOM child for component child:', {
           componentChildId: componentChild.id,
           componentChildTagName: componentChild.tagName,
           availableDomIds: domChildren.map(dc => dc.getAttribute('data-element-id')),
@@ -387,10 +388,10 @@ export function detectOverrides(
 
   processElement(instanceElement, masterElement);
 
-  console.log('[detectOverrides] ========== FINAL RESULT ==========');
-  console.log('[detectOverrides] Total overrides detected:', overrides.length);
+  debugLog('[detectOverrides] ========== FINAL RESULT ==========');
+  debugLog('[detectOverrides] Total overrides detected:', overrides.length);
   if (overrides.length > 0) {
-    console.log('[detectOverrides] Detected overrides:', overrides.map(o => ({
+    debugLog('[detectOverrides] Detected overrides:', overrides.map(o => ({
       type: o.type,
       targetElementId: o.targetElementId,
       value: typeof o.value === 'string' ? o.value.substring(0, 50) : o.value,

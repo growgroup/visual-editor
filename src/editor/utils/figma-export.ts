@@ -7,6 +7,7 @@
 
 import { readHTMLMessage, writeHTMLMessage } from 'fig-kiwi';
 import type { Schema } from 'kiwi-schema';
+import { debugLog } from './debug';
 
 /**
  * Cached schema from Figma paste (proper kiwi-schema Schema type)
@@ -18,7 +19,7 @@ let cachedFigKiwiSchema: Schema | null = null;
  */
 export function cacheFigKiwiSchema(schema: Schema): void {
   cachedFigKiwiSchema = schema;
-  console.log('[figma-export] Cached fig-kiwi schema with', schema.definitions.length, 'definitions');
+  debugLog('[figma-export] Cached fig-kiwi schema with', schema.definitions.length, 'definitions');
 }
 
 /**
@@ -505,8 +506,8 @@ export async function copyElementsToFigma(elements: HTMLElement[]): Promise<{
       allNodes.push(...nodes);
     }
 
-    console.log('[figma-export] Converted', allNodes.length, 'nodes');
-    console.log('[figma-export] First node:', JSON.stringify(allNodes[0], null, 2));
+    debugLog('[figma-export] Converted', allNodes.length, 'nodes');
+    debugLog('[figma-export] First node:', JSON.stringify(allNodes[0], null, 2));
 
     // Create message using fig-kiwi's expected format
     const message = {
@@ -527,7 +528,7 @@ export async function copyElementsToFigma(elements: HTMLElement[]): Promise<{
       message: message as any, // Type assertion needed due to fig-kiwi's strict types
     });
 
-    console.log('[figma-export] Generated clipboard HTML length:', clipboardHtml.length);
+    debugLog('[figma-export] Generated clipboard HTML length:', clipboardHtml.length);
 
     // Copy to clipboard
     await navigator.clipboard.write([
@@ -537,7 +538,7 @@ export async function copyElementsToFigma(elements: HTMLElement[]): Promise<{
       }),
     ]);
 
-    console.log('[figma-export] Copied to clipboard successfully');
+    debugLog('[figma-export] Copied to clipboard successfully');
 
     return {
       success: true,

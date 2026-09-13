@@ -85,28 +85,38 @@ export function layoutChildren(container: HTMLElement): HTMLElement[] {
 }
 
 /**
- * style プロパティに書くべき寸法を求める。
+ * style に書き戻すべき寸法を、いまの見た目のまま求める。
  *
- * getBoundingClientRect が返すのは常に border box。CSS の width/height が何を指すかは
- * box-sizing で変わるので、content-box の要素に border box の値を書くと
- * padding と border のぶん太る(実際に版面が数 px ずつ膨らむ)。
+ * 【computed をそのまま使う理由】
+ * getComputedStyle().width / height は **その要素の box-sizing と同じ物差し**で、
+ * 端数まで含めた使用値を返す(実測: border-box の要素は border box、
+ * content-box の要素は content box)。つまり style へそのまま書き戻せば寸法は 1px も動かない。
+ *
+ * 矩形(getBoundingClientRect)をズーム倍率で割り戻す方式は端数が合わず、
+ * 切り上げると枠線が半画素ずれる(画素比較で 3 行ぶんの差として見えた)。
+ * offsetWidth は整数に丸められるので、必要幅 1227.4px の文字列が 1227px で固定され、
+ * 最後の 1 文字だけ折り返す(dom-utils に同じ注記あり)。どちらも使わない。
+ *
+ * 万一 computed が px にならない(auto 等)ときだけ、矩形から割り戻した値に落とす。
  */
 function styleSizeFor(
   cs: CSSStyleDeclaration,
-  borderBoxWidth: number,
-  borderBoxHeight: number,
-): { width: number; height: number } {
-  if (cs.boxSizing === 'border-box') {
-    return { width: borderBoxWidth, height: borderBoxHeight };
-  }
+  fallbackBorderBoxWidth: number,
+  fallbackBorderBoxHeight: number,
+): { width: string; height: string } {
+  const usable = (v: string): boolean => /px$/.test(v) && Number.isFinite(parseFloat(v));
   const px = (v: string): number => parseFloat(v) || 0;
-  const insetX =
-    px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth);
-  const insetY =
-    px(cs.paddingTop) + px(cs.paddingBottom) + px(cs.borderTopWidth) + px(cs.borderBottomWidth);
+  const toStyleBox = (borderBox: number, axis: 'x' | 'y'): string => {
+    if (cs.boxSizing === 'border-box') return `${Math.ceil(borderBox)}px`;
+    const inset =
+      axis === 'x'
+        ? px(cs.paddingLeft) + px(cs.paddingRight) + px(cs.borderLeftWidth) + px(cs.borderRightWidth)
+        : px(cs.paddingTop) + px(cs.paddingBottom) + px(cs.borderTopWidth) + px(cs.borderBottomWidth);
+    return `${Math.max(0, Math.ceil(borderBox) - inset)}px`;
+  };
   return {
-    width: Math.max(0, borderBoxWidth - insetX),
-    height: Math.max(0, borderBoxHeight - insetY),
+    width: usable(cs.width) ? cs.width : toStyleBox(fallbackBorderBoxWidth, 'x'),
+    height: usable(cs.height) ? cs.height : toStyleBox(fallbackBorderBoxHeight, 'y'),
   };
 }
 
@@ -149,15 +159,16 @@ function preserveTransform(transform: string): string {
  */
 function freezeHeight(container: HTMLElement, win: Window): void {
   const cs = win.getComputedStyle(container);
-  // SVG など offset 系を持たない要素は矩形から割り戻す(NaN を書かないため)
-  const height =
-    typeof container.offsetHeight === 'number'
-      ? container.offsetHeight // border box(ズーム transform の影響を受けない)
-      : container.getBoundingClientRect().height;
-  if (!Number.isFinite(height) || height <= 0) return;
-  const { height: styleHeight } = styleSizeFor(cs, container.offsetWidth || 0, height);
+  // [computed の height をそのまま書く]
+  // getComputedStyle().height は **その要素の box-sizing と同じ物差し**で返る
+  // (実測: border-box の要素は border box、content-box の要素は content box)。
+  // つまり style.height へそのまま書き戻せば、box-sizing が何であれ寸法は変わらない。
+  // offsetHeight は整数に丸められるので使わない——214.4px の帯を 214px で固定すると
+  // 0.4px ぶん版面が詰まり、下にあるものが全部わずかにずれる(画素比較で見えた)
+  const h = parseFloat(cs.height);
+  if (!Number.isFinite(h) || h <= 0) return;
   capturePrestyle(container);
-  container.style.height = `${Math.round(styleHeight * 100) / 100}px`;
+  container.style.height = cs.height;
 }
 
 /**
@@ -201,11 +212,7 @@ export function enableFreeLayout(container: HTMLElement, iframeDoc: Document): n
     const cs = win.getComputedStyle(el);
     const rect = el.getBoundingClientRect();
     const useOffset = el.offsetParent === container && typeof el.offsetLeft === 'number';
-    // 幅は rect を切り上げる。offsetWidth の整数丸めだと必要幅 1227.4px の文字列が
-    // 1227px で固定されて最後の1文字だけ折り返す(dom-utils に同じ注記あり)
-    const borderBoxW = Math.ceil(rect.width / scale);
-    const borderBoxH = Math.ceil(rect.height / scale);
-    const size = styleSizeFor(cs, borderBoxW, borderBoxH);
+    const size = styleSizeFor(cs, rect.width / scale, rect.height / scale);
     let left: number;
     let top: number;
     if (useOffset) {
@@ -233,8 +240,8 @@ export function enableFreeLayout(container: HTMLElement, iframeDoc: Document): n
     p.el.style.position = 'absolute';
     p.el.style.left = `${Math.round(p.left * 100) / 100}px`;
     p.el.style.top = `${Math.round(p.top * 100) / 100}px`;
-    p.el.style.width = `${Math.round(p.size.width * 100) / 100}px`;
-    p.el.style.height = `${Math.round(p.size.height * 100) / 100}px`;
+    p.el.style.width = p.size.width;
+    p.el.style.height = p.size.height;
     // 絶対配置では margin は「位置のずれ」にしかならない。left/top に一本化する
     p.el.style.margin = '0';
     // 親が flex/grid のままでも子は絶対配置なので並びには乗らないが、
@@ -402,9 +409,7 @@ export function setElementAbsolute(element: HTMLElement, iframeDoc: Document): b
     parent.classList.add(FREELAYOUT_REL_CLASS);
   }
 
-  const borderBoxW = Math.ceil(rect.width / scale);
-  const borderBoxH = Math.ceil(rect.height / scale);
-  const size = styleSizeFor(cs, borderBoxW, borderBoxH);
+  const size = styleSizeFor(cs, rect.width / scale, rect.height / scale);
   const useOffset = element.offsetParent === parent && typeof element.offsetLeft === 'number';
   let left: number;
   let top: number;
@@ -424,8 +429,8 @@ export function setElementAbsolute(element: HTMLElement, iframeDoc: Document): b
   element.style.position = 'absolute';
   element.style.left = `${Math.round(left * 100) / 100}px`;
   element.style.top = `${Math.round(top * 100) / 100}px`;
-  element.style.width = `${Math.round(size.width * 100) / 100}px`;
-  element.style.height = `${Math.round(size.height * 100) / 100}px`;
+  element.style.width = size.width;
+  element.style.height = size.height;
   element.style.margin = '0';
   element.style.flex = 'none';
   element.style.flexGrow = '0';

@@ -1103,15 +1103,18 @@ function FrontendVisualEditorInner({
     return doc.querySelector<HTMLElement>(`[data-element-id="${selectedElement.id}"]`);
   }, [getIframeDoc, selectedElement?.id]);
 
-  /** 変換のあと、選択枠とレイヤーツリーを今の DOM に合わせ直す */
+  /**
+   * 変換のあとの後始末。
+   * notifyIframeChange が履歴の積み増しとレイヤーツリーの作り直しをやるので、
+   * ここでは選択枠だけを新しい位置へ合わせ直す(変換で矩形が変わるため)
+   */
   const afterFreeLayoutChange = useCallback(
     (doc: Document) => {
       notifyIframeChange();
-      setDomTree(buildDomTree(doc, doc.getElementById('artboard') || undefined));
       const el = selectedDomElement();
       if (el) requestAnimationFrame(() => updateSelectionBox(doc, el));
     },
-    [notifyIframeChange, setDomTree, selectedDomElement],
+    [notifyIframeChange, selectedDomElement],
   );
 
   const handleFreeLayoutOn = useCallback(() => {

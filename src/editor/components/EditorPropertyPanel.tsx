@@ -970,7 +970,10 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
   });
 
   const [openSections, setOpenSections] = useState<PanelSections>({
-    position: editorMode !== "webpage", // 流し込みのページでは詳細操作として畳む
+    // 以前は流し込みのページで畳んでいた(X/Y が効かず詳細操作だったため)。
+    // 自由配置の「配置: 自動 / 絶対」トグルがこの中に入り、流し込みを抜ける
+    // 入口になったので、webpage でも開いておく(畳んだままだと見つけられない)
+    position: true,
     layout: true, // レイアウトセクション
     appearance: true, // 外見セクション
     image: false, // 塗りに統合されたため非表示
@@ -1435,7 +1438,10 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                     return (
                       <>
                         {editorMode === "webpage" && (
-                          <div className="mb-2 flex items-center gap-2">
+                          <div
+                            className="mb-2 flex items-center gap-2"
+                            data-gg-position-mode={isAbsolute ? "absolute" : "auto"}
+                          >
                             <span className="text-[10px] text-gray-500 shrink-0">配置</span>
                             <div className="flex rounded overflow-hidden border border-[#4a4a4a]">
                               <button

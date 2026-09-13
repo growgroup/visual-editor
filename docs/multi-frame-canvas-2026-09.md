@@ -173,3 +173,14 @@ Playwright(headless Chromium、22 項目すべて合格。スクリプトは作�
 
 確認: Retina の 46% で撮った紙面の切り抜きが、サムネイルを止めた(iframe の)同じ切り抜きと画素まで一致。
 25% 未満で画像、28〜30% では画像のまま(ヒステリシス)、35% で iframe に戻る。DPR 1 では 46% でも画像のまま。
+
+### 1 ページ表示: ズームの will-change を操作中だけにした
+
+`applyCanvasZoomDom`(`utils/dom-utils.ts`)が `#artboard-wrapper` に `will-change: transform` を
+**付けっぱなし**にしていた。Chrome は will-change の層を倍率が変わっても作り直さないことがあるので、
+低い倍率で描いたラスタを高い倍率へ引き伸ばしたまま残す余地があった。ズームが止まって 200ms 後に外す
+(呼ばれるたびにタイマーを張り直すので、操作中は付いたまま)。外れた時点で今の倍率で描き直される。
+
+タイマーは wrapper ごとに `WeakMap` で持ち、`iframeDoc.defaultView.setTimeout` で張る
+(iframe が差し替わればタイマーごと消える)。マルチフレームのキャンバスの転写層は前から
+`isInteracting` の間だけ付けているので、同じ考え方に揃った。

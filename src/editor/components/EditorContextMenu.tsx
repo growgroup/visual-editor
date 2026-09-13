@@ -40,6 +40,10 @@ import {
   BetweenVerticalEnd,
   Rows3,
   Columns3,
+  Move,
+  AlignVerticalJustifyStart,
+  LayoutGrid,
+  AlignJustify,
 } from 'lucide-react';
 
 export interface ContextMenuPosition {
@@ -104,6 +108,19 @@ export interface ContextMenuProps {
   // 部品操作
   onDetachPart?: () => void;
   onUpdatePart?: () => void;
+  // 自由配置(webpage のみ。器の中だけを絶対配置にする)
+  /** 選んだ要素を器にして、子をすべて絶対配置にする */
+  onFreeLayoutOn?: () => void;
+  /** 器を流し込みへ戻す */
+  onFreeLayoutOff?: () => void;
+  /** 選んだ要素が既に自由配置の器か(項目の出し分け) */
+  isFreeLayoutContainer?: boolean;
+  /** ページの最上位セクションをまとめて自由配置にする */
+  onPageFreeLayoutOn?: () => void;
+  /** ページの自由配置をまとめて解除する */
+  onPageFreeLayoutOff?: () => void;
+  /** ページのどこかに自由配置の器があるか(解除項目の出し分け) */
+  pageHasFreeLayout?: boolean;
 }
 
 interface MenuItemProps {
@@ -191,6 +208,12 @@ export function EditorContextMenu({
   onDetachInstance,
   onResetOverrides,
   onPushOverridesToMain,
+  onFreeLayoutOn,
+  onFreeLayoutOff,
+  isFreeLayoutContainer,
+  onPageFreeLayoutOn,
+  onPageFreeLayoutOff,
+  pageHasFreeLayout,
 }: ContextMenuProps) {
   const { restoreFocus } = useEditorContext();
   if (!position) return null;
@@ -379,6 +402,45 @@ export function EditorContextMenu({
         onClick={() => handleAction(onEditHtml)}
         disabled={!hasSelection || selectionCount > 1}
       />
+
+      {/* 自由配置(webpage のみ渡される)。
+          「器の中だけ絶対配置」と「ページ全体」を同じ場所に並べ、
+          流し込みへ戻す道を必ず隣に置く(戻せないと怖くて使えない) */}
+      {(onFreeLayoutOn || onFreeLayoutOff || onPageFreeLayoutOn || onPageFreeLayoutOff) && (
+        <>
+          <MenuDivider />
+          <div className="px-3 pb-0.5 pt-1 text-[10px] text-gray-500">配置</div>
+          {isFreeLayoutContainer ? (
+            <MenuItem
+              icon={<AlignVerticalJustifyStart className="w-3.5 h-3.5" />}
+              label="流し込みに戻す"
+              onClick={() => handleAction(onFreeLayoutOff)}
+              disabled={!onFreeLayoutOff}
+            />
+          ) : (
+            <MenuItem
+              icon={<Move className="w-3.5 h-3.5" />}
+              label="子をすべて絶対配置にする"
+              onClick={() => handleAction(onFreeLayoutOn)}
+              disabled={!onFreeLayoutOn}
+            />
+          )}
+          <MenuItem
+            icon={<LayoutGrid className="w-3.5 h-3.5" />}
+            label="このページを自由配置にする…"
+            onClick={() => handleAction(onPageFreeLayoutOn)}
+            disabled={!onPageFreeLayoutOn}
+          />
+          {pageHasFreeLayout && (
+            <MenuItem
+              icon={<AlignJustify className="w-3.5 h-3.5" />}
+              label="ページを流し込みに戻す…"
+              onClick={() => handleAction(onPageFreeLayoutOff)}
+              disabled={!onPageFreeLayoutOff}
+            />
+          )}
+        </>
+      )}
 
       <MenuDivider />
 

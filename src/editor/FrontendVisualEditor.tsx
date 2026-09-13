@@ -916,7 +916,8 @@ function FrontendVisualEditorInner({
   }, [contentId]);
 
   // マルチフレームのキャンバス: フレーム名の「未保存」印と、見るだけの紙面の本文を同期する
-  const isDirtyForCanvas = hasChanges && canUndo;
+  // 共同編集中は保存の概念が書き戻し役へ移り、印が立ちっぱなしになるので出さない(代わりに接続状態を出す)
+  const isDirtyForCanvas = !collabPageActive && hasChanges && canUndo;
   useEffect(() => {
     if (!multiPageCanvas || !contentId) return;
     multiPageCanvas.updatePageFrame(contentId, { isDirty: isDirtyForCanvas });

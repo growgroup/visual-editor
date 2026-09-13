@@ -1301,6 +1301,22 @@ function drawSelectionBox(
   selectionBox.className =
     mode === 'member' ? 'selection-box selection-member' : 'selection-box';
   selectionBox.setAttribute('data-for-element', elementId);
+  // 部品(data-part)のインスタンスは枠を紫にして、名前と版を枠の上に出す(部品だと一目で分かる)。
+  // 部品の中のスロットを選んでいるときも、どの部品の中かを出す
+  const partRoot = element.hasAttribute('data-part') ? element : (element.parentElement?.closest('[data-part]') as HTMLElement | null) ?? null;
+  if (partRoot) {
+    const isRoot = partRoot === element;
+    selectionBox.classList.add(isRoot ? 'selection-part' : 'selection-in-part');
+    if (mode !== 'member') {
+      const badge = iframeDoc.createElement('div');
+      badge.className = 'part-badge';
+      const slot = isRoot ? null : (element.closest('[data-slot]') as HTMLElement | null);
+      const slotName = slot && partRoot.contains(slot) && slot !== partRoot ? slot.getAttribute('data-slot') : null;
+      const version = partRoot.getAttribute('data-part-v');
+      badge.textContent = `${isRoot ? '部品' : '部品の中'} ${partRoot.getAttribute('data-part') ?? ''}${version ? ` v${version}` : ''}${slotName ? ` › ${slotName}` : ''}`;
+      selectionBox.appendChild(badge);
+    }
+  }
   selectionBox.style.cssText = `
     left: ${relativeLeft}px;
     top: ${relativeTop}px;

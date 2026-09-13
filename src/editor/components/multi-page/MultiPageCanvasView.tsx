@@ -39,6 +39,7 @@ import { EditorCanvas } from '../EditorCanvas';
 import { PageFramePreview } from './PageFramePreview';
 import { CanvasRulers } from './CanvasRulers';
 import { cn } from '../../../lib/utils';
+import { ArrowUpRight } from 'lucide-react';
 
 /** フレーム名の高さ(px、画面上)。フレームの上端との間隔 */
 const LABEL_HEIGHT = 20;
@@ -108,23 +109,39 @@ const FrameChrome = memo(function FrameChrome({ page, zoom, labelsVisible, isSel
   const showLabel = labelsVisible && sw >= 28;
   return (
     <div className="absolute left-0 top-0" data-frame-chrome={page.id} style={{ transform: `translate(${sx}px, ${sy}px)` }}>
-      {/* フレーム名(Figma: フレームの左上、倍率に関係なく同じ大きさ) */}
+      {/* フレーム名(Figma: フレームの左上、倍率に関係なく同じ大きさ)+ 別タブで開く(href があるとき) */}
       {showLabel && (
-        <button
-          type="button"
-          data-frame-label={page.id}
-          className={cn('ed-frame-label', isSelected && 'ed-frame-label-active')}
-          style={{ top: -LABEL_HEIGHT, maxWidth: Math.max(28, sw) }}
-          title={`${page.index + 1}. ${page.title || page.id}${isSelected ? '(編集中)' : ''}。ダブルクリックでこのページを画面に合わせる`}
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={() => (isSelected ? onZoomTo(page.id) : onActivate(page.id))}
-          onDoubleClick={() => onZoomTo(page.id)}
-        >
-          <span className="ed-frame-label-index">{page.index + 1}</span>
-          <span className="ed-frame-label-title">{page.title || page.id}</span>
-          {page.isDirty && <span className="ed-frame-label-dirty" aria-label="未保存の変更" />}
-          {isBusy && <span className="ed-frame-label-loading" aria-label="読み込み中" />}
-        </button>
+        <div className="ed-frame-label-row" style={{ top: -LABEL_HEIGHT, maxWidth: Math.max(28, sw) }}>
+          <button
+            type="button"
+            data-frame-label={page.id}
+            className={cn('ed-frame-label', isSelected && 'ed-frame-label-active')}
+            title={`${page.index + 1}. ${page.title || page.id}${isSelected ? '(編集中)' : ''}。ダブルクリックでこのページを画面に合わせる`}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={() => (isSelected ? onZoomTo(page.id) : onActivate(page.id))}
+            onDoubleClick={() => onZoomTo(page.id)}
+          >
+            <span className="ed-frame-label-index">{page.index + 1}</span>
+            <span className="ed-frame-label-title">{page.title || page.id}</span>
+            {page.isDirty && <span className="ed-frame-label-dirty" aria-label="未保存の変更" />}
+            {isBusy && <span className="ed-frame-label-loading" aria-label="読み込み中" />}
+          </button>
+          {page.href && sw >= 96 && (
+            <a
+              className="ed-frame-label-link"
+              data-frame-link={page.id}
+              href={page.href}
+              target="_blank"
+              rel="noreferrer"
+              title="別タブで開く(編集しない表示)"
+              aria-label={`${page.title || page.id} を別タブで開く`}
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <ArrowUpRight aria-hidden="true" />
+            </a>
+          )}
+        </div>
       )}
       {/* リング(選択中 = 実線、ホバー = 淡い実線) */}
       {(isSelected || isHover) && (
@@ -138,6 +155,35 @@ const FrameChrome = memo(function FrameChrome({ page, zoom, labelsVisible, isSel
 });
 
 // ------------------------------------------------------------
+// 階層の線(親の下端の中央 → 子の上端の中央。転写層の中、紙面の座標)
+// ------------------------------------------------------------
+
+const TreeConnectors = memo(function TreeConnectors({ pages, gapY }: { pages: PageFrameLayout[]; gapY: number }) {
+  const byId = useMemo(() => new Map(pages.map((p) => [p.id, p] as const)), [pages]);
+  const d = useMemo(() => {
+    const parts: string[] = [];
+    pages.forEach((child) => {
+      const parent = child.parentId ? byId.get(child.parentId) : undefined;
+      if (!parent) return;
+      const x1 = parent.position.x + parent.size.width / 2;
+      const y1 = parent.position.y + parent.size.height;
+      const x2 = child.position.x + child.size.width / 2;
+      const y2 = child.position.y;
+      // 親の下から、子の行との隙間の真ん中まで下り、横へ移って子の上へ
+      const ym = y2 - gapY / 2;
+      parts.push(`M${x1} ${y1} V${ym} H${x2} V${y2}`);
+    });
+    return parts.join(' ');
+  }, [pages, byId, gapY]);
+  if (!d) return null;
+  return (
+    <svg className="ed-frame-connectors" data-canvas-connectors aria-hidden="true" width={1} height={1} style={{ overflow: 'visible' }}>
+      <path d={d} fill="none" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+});
+
+// ------------------------------------------------------------
 // キャンバス
 // ------------------------------------------------------------
 
@@ -146,6 +192,7 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
   const {
     pages,
     bounds,
+    layout,
     registerContainer,
     activatePage,
     activatingPageId,
@@ -270,6 +317,9 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
           willChange: isInteracting ? 'transform' : undefined,
         }}
       >
+        {/* 階層の線(フレームの下に描く。線の太さは倍率に関係なく一定 = non-scaling-stroke) */}
+        {layout === 'tree' && <TreeConnectors pages={pages} gapY={FRAME_GAP[canvas.editorMode].y} />}
+
         {pages.map((page) => (
           <FrameShell
             key={page.id}

@@ -5,6 +5,7 @@
  * 右クリックで要素操作メニューを表示
  */
 
+import { createPortal } from 'react-dom';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '../../components/ui/dropdown-menu';
 import { useEditorContext } from '../EditorContext';
 import {
@@ -201,11 +202,19 @@ export function EditorContextMenu({
     }
   };
 
+  // 見えない起点(右クリックの位置)。position は画面(viewport)の座標なので、document.body に出して
+  // position: fixed の基準を viewport にする。エディタの木の中に置くと、利用側がエディタを transform の付いた
+  // 器に入れているとき(構成ラフの殻の .wf-editor-main は translateZ(0))、fixed の基準がその器になり、
+  // メニューが右クリックの位置から器の左端ぶん(左パネルの幅 248px)ずれていた(実測)
+  const anchor = (
+    <DropdownMenuTrigger asChild>
+      <button tabIndex={-1} aria-label="要素の操作" style={{ position: 'fixed', left: position.x, top: position.y, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} />
+    </DropdownMenuTrigger>
+  );
+
   return (
     <DropdownMenu open onOpenChange={(open) => { if (!open) onClose(); }}>
-      <DropdownMenuTrigger asChild>
-        <button tabIndex={-1} aria-label="要素の操作" style={{ position: 'fixed', left: position.x, top: position.y, width: 1, height: 1, opacity: 0, pointerEvents: 'none' }} />
-      </DropdownMenuTrigger>
+      {typeof document === 'undefined' ? anchor : createPortal(anchor, document.body)}
       <DropdownMenuContent align="start" sideOffset={0} collisionPadding={8} className="w-60"
         onCloseAutoFocus={(e) => { e.preventDefault(); restoreFocus(); }}>
       {/* クリップボード操作 */}

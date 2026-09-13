@@ -375,6 +375,34 @@ export const EDITOR_IFRAME_STYLES = `
   .selection-box.selection-member .selection-outline {
     box-shadow: 0 0 0 calc(1px * var(--ov)) rgba(13, 153, 255, 0.75);
   }
+  /*
+   * 部品(data-part)のインスタンスは紫(Figma のコンポーネントと同じ色)。
+   * ルートを選んだら枠・ハンドル・サイズラベルが紫、中のスロットを選んだら枠は青のまま
+   * 「部品の中」の札だけ出す。札はパンくず(上 -22px)の左上に重ならないよう、その上に置く
+   */
+  .selection-box.selection-part .selection-outline { box-shadow: 0 0 0 var(--outline-w) #7b61ff; }
+  .selection-box.selection-part .resize-handle::after { border-color: #7b61ff; }
+  .selection-box.selection-part .size-label { background: #7b61ff; }
+  .selection-box.selection-member.selection-part .selection-outline { box-shadow: 0 0 0 calc(1px * var(--ov)) rgba(123, 97, 255, 0.8); }
+  .selection-box .part-badge {
+    position: absolute;
+    top: calc(-44px * var(--ov));
+    left: 0;
+    padding: calc(2px * var(--ov)) calc(6px * var(--ov));
+    border-radius: calc(3px * var(--ov));
+    background: #7b61ff;
+    color: #fff;
+    font-size: calc(10px * var(--ov));
+    line-height: 1.4;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', sans-serif;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 40;
+  }
+  .selection-box.selection-in-part .part-badge { background: rgba(123, 97, 255, 0.85); }
+  /* 選んでいる部品のスロット(編集できる範囲)は点線。中を選んでいるときは部品の外周を薄い点線で示す */
+  [data-part].selected [data-slot] { outline: calc(1px * var(--overlay-scale, 1)) dashed rgba(123, 97, 255, 0.75); outline-offset: calc(-1px * var(--overlay-scale, 1)); }
+  [data-part]:not(.selected):has(.selected) { outline: calc(1px * var(--overlay-scale, 1)) dashed rgba(123, 97, 255, 0.55); outline-offset: calc(2px * var(--overlay-scale, 1)); }
   .size-label {
     position: absolute;
     bottom: calc(-22px * var(--ov));

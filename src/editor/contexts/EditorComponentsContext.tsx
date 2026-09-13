@@ -45,6 +45,7 @@ import {
 } from '../../lib/firebase/editor-components';
 import { io } from '../../io';
 import type { EditorPartDef, EditorPartsLibrary } from '../../io';
+import { useMultiPageCanvasOptional } from './MultiPageCanvasContext';
 import {
   materializePart,
   partDefFromElement,
@@ -474,6 +475,13 @@ export function EditorComponentsProvider({
   websiteId,
   pageId,
 }: EditorComponentsProviderProps) {
+  // マルチフレームのキャンバス(あれば)。部品の定義を更新したあと、他ページの紙面を読み直させる。
+  // ref で持つ: キャンバスの値は高さの実測のたびに変わるので、コールバックの依存に入れない
+  const canvas = useMultiPageCanvasOptional();
+  const canvasRef = useRef(canvas);
+  canvasRef.current = canvas;
+  const pageIdRef = useRef(pageId);
+  pageIdRef.current = pageId;
   // State
   const [masterComponents, setMasterComponents] = useState<
     Map<string, MasterComponent>
@@ -870,6 +878,9 @@ export function EditorComponentsProvider({
       const saved = (save ? await save(next) : undefined) ?? next;
       upsertPartDef(saved);
       el.setAttribute('data-part-v', String(saved.version));
+      // 他ページのインスタンスは利用側(savePart)が書き換えている。キャンバスの見るだけの紙面にもその場で反映する
+      // (以前は読み直すまで前の姿のままだった)。編集中のページは今の DOM が正なので触らない
+      canvasRef.current?.invalidatePages({ except: [pageIdRef.current] });
       return saved;
     },
     [partDefs, upsertPartDef]
@@ -930,10 +941,12 @@ export function EditorComponentsProvider({
             m.set(id, next);
             return m;
           });
-          io().savePart?.(next).catch((err) => {
-            console.error('[EditorComponentsContext] 部品の保存に失敗:', err);
-            setError('部品の保存に失敗しました');
-          });
+          io().savePart?.(next)
+            .then(() => canvasRef.current?.invalidatePages({ except: [pageIdRef.current] }))
+            .catch((err) => {
+              console.error('[EditorComponentsContext] 部品の保存に失敗:', err);
+              setError('部品の保存に失敗しました');
+            });
         }
       }
     },

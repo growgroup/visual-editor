@@ -848,38 +848,52 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
     return getInstanceByDomId(selectedElement.id);
   }, [selectedElement?.id, getInstanceByDomId]);
 
-  // 部品(data-part)のインスタンスか(DOM の属性で判定)
-  const selectedPart = useMemo(() => {
+  // 部品(data-part)のインスタンスか(DOM の属性で判定)。ルートを選んでいても、中のスロットを選んでいても
+  // 「どの部品の中か」を出す(中を編集しているときに、部品だと分からずに直してしまうのを防ぐ)
+  const selectedPartRoot = useMemo(() => {
     if (!selectedElement?.id) return null;
     const doc = getIframeDoc();
-    return partInfoOf(doc?.querySelector(`[data-element-id="${selectedElement.id}"]`));
+    const el = doc?.querySelector(`[data-element-id="${selectedElement.id}"]`) as HTMLElement | null;
+    if (!el) return null;
+    const root = el.hasAttribute("data-part") ? el : (el.parentElement?.closest("[data-part]") as HTMLElement | null) ?? null;
+    if (!root) return null;
+    const slot = root === el ? null : (el.closest("[data-slot]") as HTMLElement | null);
+    return { root, isRoot: root === el, slotName: slot && root.contains(slot) && slot !== root ? slot.getAttribute("data-slot") : null };
   }, [selectedElement, getIframeDoc]);
+  const selectedPart = useMemo(() => (selectedPartRoot ? partInfoOf(selectedPartRoot.root) : null), [selectedPartRoot]);
   const selectedPartLabel = useMemo(() => {
     if (!selectedPart) return "";
     const def = getPartDef(selectedPart.id);
     return `${def?.name || selectedPart.id} v${selectedPart.version}`;
   }, [selectedPart, getPartDef]);
   const handleUpdatePartFromPanel = useCallback(async () => {
-    if (!selectedElement?.id) return;
-    const doc = getIframeDoc();
-    const el = doc?.querySelector(`[data-element-id="${selectedElement.id}"]`) as HTMLElement | null;
-    if (!el) return;
-    const def = await updatePartFromElement(el);
+    const root = selectedPartRoot?.root;
+    if (!root) return;
+    const def = await updatePartFromElement(root);
     if (def) notifyIframeChange(true);
-  }, [selectedElement?.id, getIframeDoc, updatePartFromElement, notifyIframeChange]);
+  }, [selectedPartRoot, updatePartFromElement, notifyIframeChange]);
   const handleDetachPartFromPanel = useCallback(() => {
-    if (!selectedElement?.id) return;
     const doc = getIframeDoc();
-    const el = doc?.querySelector(`[data-element-id="${selectedElement.id}"]`) as HTMLElement | null;
-    if (!doc || !el || !partInfoOf(el)) return;
-    detachPart(el);
-    unlockPartDescendants(el);
+    const root = selectedPartRoot?.root;
+    if (!doc || !root || !partInfoOf(root)) return;
+    detachPart(root);
+    unlockPartDescendants(root);
     notifyIframeChange(true);
     void import("../utils/style-utils").then(({ extractElementInfo }) => {
-      const info = extractElementInfo(el, doc);
+      const info = extractElementInfo(root, doc);
       if (info) setSelectedElement(info);
     });
-  }, [selectedElement?.id, getIframeDoc, notifyIframeChange, setSelectedElement]);
+  }, [selectedPartRoot, getIframeDoc, notifyIframeChange, setSelectedElement]);
+  // 中のスロットを選んでいるとき: 部品のルートを選び直す(移動・削除・「この姿で更新」の対象を部品全体にする)
+  const handleSelectPartRoot = useCallback(() => {
+    const doc = getIframeDoc();
+    const root = selectedPartRoot?.root;
+    if (!doc || !root) return;
+    void import("../utils/style-utils").then(({ extractElementInfo }) => {
+      const info = extractElementInfo(root, doc);
+      if (info) setSelectedElement(info);
+    });
+  }, [selectedPartRoot, getIframeDoc, setSelectedElement]);
 
   const selectedMaster = useMemo(() => {
     if (!selectedInstance) return null;
@@ -1287,29 +1301,44 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
             />
           )}
 
-          {/* 部品(data-part)のインスタンス */}
-          {selectedPart && (
-            <div className="space-y-2 rounded border border-[#444444] bg-[#2a2a2a] p-2 text-xs text-gray-300">
+          {/* 部品(data-part)のインスタンス。紙面の選択枠も紫になる(部品だと一目で分かるように) */}
+          {selectedPart && selectedPartRoot && (
+            <div className="ed-part-card space-y-2 rounded p-2 text-xs" data-part-card={selectedPart.id} data-part-inside={selectedPartRoot.isRoot ? undefined : "true"}>
               <div className="flex items-center gap-2">
-                <PartIcon className="h-3.5 w-3.5 text-purple-400" />
-                <span className="truncate font-medium">部品: {selectedPartLabel}</span>
+                <PartIcon className="h-3.5 w-3.5 ed-part-accent" />
+                <span className="truncate font-medium">部品 {selectedPartLabel}</span>
               </div>
-              <p className="text-[10px] leading-snug text-gray-500">
-                スロット(data-slot)の中だけ編集できます。「この姿で部品を更新」で定義が変わり、他ページへの反映は利用側(savePart)が行います。
+              <p className="text-[10px] leading-snug ed-part-note">
+                {selectedPartRoot.isRoot
+                  ? "スロット(点線の枠)の中だけ編集できます。外側を直したいときは切り離してください。"
+                  : `スロット「${selectedPartRoot.slotName ?? "—"}」の中を編集しています。ここの変更はこのページだけに残ります(定義には入りません)。`}
               </p>
-              <div className="flex gap-1">
+              <div className="flex flex-wrap gap-1">
+                {!selectedPartRoot.isRoot && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-[10px]"
+                    title="部品のルート要素を選ぶ(移動・削除・更新の対象を部品全体にする)"
+                    onClick={handleSelectPartRoot}
+                  >
+                    部品全体を選ぶ
+                  </Button>
+                )}
                 <Button
                   size="sm"
                   variant="outline"
                   className="h-6 px-2 text-[10px]"
+                  title="このインスタンスの今の姿を定義にする(版 +1)。他のページの同じ部品もその場で描き直されます"
                   onClick={() => void handleUpdatePartFromPanel()}
                 >
-                  この姿で更新
+                  この姿で更新(全ページ)
                 </Button>
                 <Button
                   size="sm"
                   variant="outline"
                   className="h-6 px-2 text-[10px]"
+                  title="部品から切り離して普通の HTML にする(以後、定義の更新が及ばない)"
                   onClick={handleDetachPartFromPanel}
                 >
                   切り離す

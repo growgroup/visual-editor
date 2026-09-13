@@ -21,6 +21,7 @@ import {
 } from './hooks/useKeyboardShortcuts';
 import type { MoveElementResult } from './hooks/useElementActions';
 import { EditorProvider, useEditorContext, type ContentListItem, type EditorMode } from './EditorContext';
+import type { DocumentAttributes } from './contexts/EditorArtboardContext';
 import { PptTitleBar, PptRibbon, PptThumbnails, PptStatusBar, initialPptTheme, PPT_PALETTES, type PptTheme } from './components/ppt/PptChrome';
 import { LeftPanel } from './components/shell/LeftPanel';
 import { useAltMeasure } from './hooks/useAltMeasure';
@@ -155,8 +156,18 @@ export interface FrontendVisualEditorProps {
   onContentChange?: (contentId: string) => void;
   /** キャンバスの表示位置(倍率・スクロール)を記憶するキー。省略時は parentId */
   canvasStorageKey?: string;
-  /** 外部から渡すコンテンツリスト（指定時はAPI取得をスキップ） */
+  /**
+   * 外部から渡すコンテンツリスト（指定時はAPI取得をスキップ）。
+   * parentId を渡すとキャンバスが階層のツリーで並び、href を渡すと「別タブで開く」が付き、
+   * revision を進めるとそのページの紙面が読み直される(ContentListItem を参照)
+   */
   contentList?: ContentListItem[];
+  /**
+   * 文書(`<html>`)に付ける属性。生きているエディタと見るだけの紙面の両方に、読み直さずに反映する。
+   * 利用側の CSS が `html[data-…]` で切り替える表示(構成ラフの注釈カラムの表示・非表示など)に使う。
+   * 値が null / undefined の属性は外す
+   */
+  documentAttributes?: DocumentAttributes;
   /**
    * 左パネルの「ページ」タブに差し込む中身。
    *
@@ -2577,6 +2588,7 @@ export function FrontendVisualEditor({
   headerExtra,
   onContentChange: onContentChangeProp,
   canvasStorageKey,
+  documentAttributes,
 }: FrontendVisualEditorProps) {
   const { getIdToken } = useAuth();
   const [contentList, setContentList] = useState<ContentListItem[]>(externalContentList || []);
@@ -2856,6 +2868,7 @@ export function FrontendVisualEditor({
       contentList={contentList}
       currentContentId={currentContentId}
       onContentChange={handleContentChange}
+      documentAttributes={documentAttributes}
       initialLayoutMode={currentLayoutMode}
       initialVariables={initialVariables}
       onSaveVariables={handleSaveVariables}

@@ -258,9 +258,46 @@
 .gg-editor-ui .ed-resize-handle:hover, .gg-editor-ui .ed-resize-handle:focus-visible { background-color: var(--ed-accent); }
 .gg-editor-ui .ed-layer-selected { box-shadow: inset 3px 0 var(--ed-accent); }
 .gg-editor-ui .ed-layer-selected :is(.text-white, .text-blue-100, .text-blue-200) { color: var(--ed-accent); }
-.gg-editor-ui [data-property-panel] input:not([type="color"]), .gg-editor-ui [data-property-panel] select { min-height: 28px; }
-.gg-editor-ui [data-property-panel] button[data-state] { min-height: 32px; }
+/* ── 右のプロパティパネル(Figma UI3 の寸法に寄せる) ──────────────
+   節は 1px の罫線で区切り、見出しは 13px/600・高さ 40px、中身は左右 16px。
+   入力は高さ 32px・角丸 6px・面の色(枠線は無し。ホバーで枠、フォーカスでアクセント)。
+   ラベルは 11px の補助色。数値の小さな入力(十字のパディング等)は 28px */
 .gg-editor-ui [data-property-panel] .ed-panel-heading { position: sticky; top: 0; z-index: 1; }
+.gg-editor-ui [data-property-panel] .p-3 { padding: 0; }
+.gg-editor-ui [data-property-panel] .p-3 > * { padding-left: 16px; padding-right: 16px; }
+.gg-editor-ui [data-property-panel] .p-3 > .mb-3 { min-height: 44px; margin-bottom: 0; }
+.gg-editor-ui [data-property-panel] .p-3 > [data-state] { border-top: 1px solid var(--ed-line); }
+.gg-editor-ui [data-property-panel] .p-3 > .ed-part-card { margin: 0 16px 12px; padding: 10px 12px; }
+.gg-editor-ui [data-property-panel] [data-state] > button[data-state] {
+  min-height: 40px; padding: 0; border-top: 0; font-size: 13px; font-weight: 600; color: var(--ed-text); border-radius: 0;
+}
+.gg-editor-ui [data-property-panel] [data-state] > button[data-state]:hover { background: transparent; color: var(--ed-text); }
+.gg-editor-ui [data-property-panel] [data-state] > button[data-state] > span:first-child > svg { width: 14px; height: 14px; color: var(--ed-muted); }
+.gg-editor-ui [data-property-panel] [data-state] > button[data-state] > svg:last-child { width: 14px; height: 14px; color: var(--ed-muted); }
+.gg-editor-ui [data-property-panel] [data-state] > div[data-state="open"] { padding-bottom: 16px; }
+.gg-editor-ui [data-property-panel] label, .gg-editor-ui [data-property-panel] .ed-prop-label { font-size: 11px; line-height: 1.4; color: var(--ed-muted); font-weight: 500; }
+.gg-editor-ui [data-property-panel] :is(input:not([type="color"]):not([type="checkbox"]):not([type="range"]), select, [role="combobox"]):not(.group *) {
+  min-height: 32px; height: 32px; border-radius: 6px; background: var(--ed-surface); border: 1px solid transparent !important;
+  color: var(--ed-text); font-size: 12px; padding-left: 8px; padding-right: 8px; box-shadow: none;
+}
+.gg-editor-ui [data-property-panel] :is(input:not([type="color"]):not([type="checkbox"]):not([type="range"]), select, [role="combobox"]):not(.group *):hover { border-color: var(--ed-line-strong) !important; }
+.gg-editor-ui [data-property-panel] :is(input:not([type="color"]):not([type="checkbox"]):not([type="range"]), select, [role="combobox"]):not(.group *):focus-visible,
+.gg-editor-ui [data-property-panel] :is(input:not([type="color"]):not([type="checkbox"]):not([type="range"]), select, [role="combobox"]):not(.group *):focus-within { border-color: var(--ed-accent) !important; outline: none; box-shadow: none; }
+/* 数値のスクラブ入力(CompactNumberInput。器 .group が枠) */
+.gg-editor-ui [data-property-panel] .group.h-5 { height: 28px; min-width: 40px; border-radius: 6px; background: var(--ed-surface); border-color: transparent; }
+.gg-editor-ui [data-property-panel] .group.h-5:hover { border-color: var(--ed-line-strong); }
+.gg-editor-ui [data-property-panel] .group.h-5:focus-within { border-color: var(--ed-accent); }
+.gg-editor-ui [data-property-panel] .group.h-5 input { font-size: 12px; color: var(--ed-text); }
+.gg-editor-ui [data-property-panel] .group.h-5 input:focus { box-shadow: none; }
+/* 配置・書式のトグル(h-7 w-7)は 32px の角丸 6px。押下は面の色で示す */
+.gg-editor-ui [data-property-panel] button.h-7.w-7, .gg-editor-ui [data-property-panel] button.h-7 { height: 32px; min-width: 32px; border-radius: 6px; }
+.gg-editor-ui [data-property-panel] button.h-7.w-7 svg { width: 14px; height: 14px; }
+.gg-editor-ui [data-property-panel] button[data-state]:not([role="checkbox"]):not([role="switch"]) { min-height: 32px; }
+.gg-editor-ui [data-property-panel] button[role="checkbox"] { width: 16px; height: 16px; min-height: 16px; border-radius: 4px; border: 1px solid var(--ed-line-strong); background: var(--ed-surface); }
+.gg-editor-ui [data-property-panel] button[role="checkbox"][data-state="checked"] { background: var(--ed-accent-strong); border-color: var(--ed-accent-strong); color: #fff; }
+.gg-editor-ui [data-property-panel] input[type="color"] { width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--ed-line-strong); padding: 0; }
+.gg-editor-ui [data-property-panel] .grid.grid-cols-2 { gap: 8px; }
+.gg-editor-ui [data-property-panel] .space-y-2 > * + *, .gg-editor-ui [data-property-panel] .space-y-3 > * + * { margin-top: 10px; }
 /* ポータル自身も配色スコープ。利用側にToasterがある場合もその設定を奪わない。 */
 .gg-editor-ui[data-editor-surface="popup"], .gg-editor-ui[data-editor-surface="dialog"], .gg-editor-ui[data-editor-surface="tooltip"] {
   color: var(--ed-text); background-color: var(--ed-panel-raised); border-color: var(--ed-line); border-radius: 12px; box-shadow: var(--ed-shadow); z-index: 10000;
@@ -290,11 +327,28 @@
 /* ── マルチフレームのキャンバス(Figma 風) ──────────────
    フレーム名とリングは画面座標に置く(倍率に関係なく同じ太さ・同じ文字サイズ)。
    見るだけの紙面の骨組み(スケルトン)だけは転写層の中にあるので、フレームの寸法に対する % で描く */
+.gg-editor-ui .ed-frame-label-row { position: absolute; left: 0; height: 20px; display: inline-flex; align-items: center; gap: 2px; max-width: 100%; }
 .gg-editor-ui .ed-frame-label {
-  position: absolute; left: 0; height: 20px; display: inline-flex; align-items: center; gap: 6px;
+  height: 20px; min-width: 0; display: inline-flex; align-items: center; gap: 6px;
   padding: 0 6px 0 4px; border-radius: 4px; font-size: 11px; line-height: 1; white-space: nowrap;
   color: var(--ed-muted); pointer-events: auto; cursor: pointer; overflow: hidden; text-overflow: ellipsis;
 }
+/* 別タブで開く(編集しない表示)。名前の右。ホバー・編集中のときだけ見せる */
+.gg-editor-ui .ed-frame-label-link {
+  display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; width: 18px; height: 18px;
+  border-radius: 4px; color: var(--ed-muted); pointer-events: auto; opacity: 0; transition: opacity .12s;
+}
+.gg-editor-ui .ed-frame-label-link svg { width: 12px; height: 12px; }
+.gg-editor-ui .ed-frame-label-row:hover .ed-frame-label-link, .gg-editor-ui .ed-frame-label-active + .ed-frame-label-link, .gg-editor-ui .ed-frame-label-link:focus-visible { opacity: 1; }
+.gg-editor-ui .ed-frame-label-link:hover { color: var(--ed-text); background: var(--ed-panel); box-shadow: 0 0 0 1px var(--ed-line); }
+/* 階層の線(ツリー配置)。転写層の中にあるが、線の太さは non-scaling-stroke で画面上 1.5px */
+.gg-editor-ui .ed-frame-connectors { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
+.gg-editor-ui .ed-frame-connectors path { stroke: var(--ed-line-strong); stroke-width: 1.5px; stroke-linejoin: round; }
+/* 部品(data-part)のカード。紙面の紫の選択枠と同じ色 */
+.gg-editor-ui .ed-part-card { border: 1px solid color-mix(in srgb, #7b61ff 45%, var(--ed-line)); background: color-mix(in srgb, #7b61ff 8%, var(--ed-panel)); color: var(--ed-text); }
+.gg-editor-ui .ed-part-accent { color: #7b61ff; }
+.gg-editor-ui[data-editor-theme="dark"] .ed-part-accent { color: #a99cff; }
+.gg-editor-ui .ed-part-note { color: var(--ed-muted); }
 .gg-editor-ui .ed-frame-label:hover { color: var(--ed-text); background: var(--ed-panel); box-shadow: 0 0 0 1px var(--ed-line); }
 .gg-editor-ui .ed-frame-label-active, .gg-editor-ui .ed-frame-label-active:hover { color: var(--ed-accent); font-weight: 600; }
 .gg-editor-ui .ed-frame-label-index { font-variant-numeric: tabular-nums; opacity: 0.7; }

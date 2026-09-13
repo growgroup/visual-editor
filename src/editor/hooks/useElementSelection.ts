@@ -24,6 +24,7 @@ import {
 import { extractElementInfo } from "../utils/style-utils";
 import { MARQUEE_DRAG_THRESHOLD } from "../constants";
 import type { DragState, ResizeState, MarqueeState } from "../types";
+import { debugLog } from '../utils/debug';
 
 /**
  * mousedown で保留し、mouseup で意味を確定するクリック情報
@@ -453,7 +454,7 @@ export function useElementSelection(
 
       // 真のインライン要素（テキストフロー内）はドラッグしない
       if (isTrueInlineInTextFlow(element, iframeDoc)) {
-        console.log(
+        debugLog(
           "[startElementDrag] Skipping true inline element:",
           element.tagName,
           element.getAttribute("data-element-id"),
@@ -918,14 +919,15 @@ export function useElementSelection(
           if (editingElement.classList.contains("selected")) {
             updateSelectionBox(iframeDoc, editingElement);
           }
-          console.log("[Canvas] Text editing exited via click elsewhere");
+          debugLog("[Canvas] Text editing exited via click elsewhere");
         }
 
         // 描画モード・テキストモードでは選択しない
         const bodyClasses = iframeDoc.body.classList;
         if (
           bodyClasses.contains("draw-mode") ||
-          bodyClasses.contains("text-mode")
+          bodyClasses.contains("text-mode") ||
+          bodyClasses.contains("comment-mode")
         )
           return;
 
@@ -1030,7 +1032,7 @@ export function useElementSelection(
                 centerY,
               };
               iframeDoc.body.classList.add("rotating");
-              console.log("[Canvas] Rotation started:", handleType);
+              debugLog("[Canvas] Rotation started:", handleType);
             } else if (handleType === "radius") {
               // 角丸ハンドル
               const borderRadius =
@@ -1057,7 +1059,7 @@ export function useElementSelection(
                 centerX: 0,
                 centerY: 0,
               };
-              console.log("[Canvas] Border radius resize started");
+              debugLog("[Canvas] Border radius resize started");
             } else {
               // 通常のリサイズハンドル
               resizeStateRef.current = {
@@ -1082,7 +1084,7 @@ export function useElementSelection(
                 centerX: 0,
                 centerY: 0,
               };
-              console.log("[Canvas] Resize started:", handleType);
+              debugLog("[Canvas] Resize started:", handleType);
             }
           }
           return;
@@ -1129,7 +1131,7 @@ export function useElementSelection(
                     e,
                     iframeDoc,
                   );
-                  console.log(
+                  debugLog(
                     "[Canvas] Multi-element drag via selection-box:",
                     existingIds,
                     started ? "started" : "blocked",
@@ -1138,7 +1140,7 @@ export function useElementSelection(
               } else {
                 // 単一選択時：対象要素をドラッグ
                 startElementDrag(targetEl, e, iframeDoc);
-                console.log(
+                debugLog(
                   "[Canvas] Drag via selection-box for:",
                   forElementId,
                 );
@@ -1212,7 +1214,7 @@ export function useElementSelection(
           if (marqueeGeomRef) marqueeGeomRef.current = { ...geom };
           setMarqueeStateRef.current(geom);
           marqueeStartPendingRef.current = true;
-          console.log(
+          debugLog(
             "[Canvas] Marquee pending (blank) at",
             e.clientX,
             e.clientY,
@@ -1251,7 +1253,7 @@ export function useElementSelection(
         }
 
         if (target.getAttribute("contenteditable") === "true") {
-          console.log("[Canvas] Skip - contenteditable active");
+          debugLog("[Canvas] Skip - contenteditable active");
           return;
         }
 
@@ -1287,7 +1289,7 @@ export function useElementSelection(
               .filter((el) => el !== null);
             if (selectedElements.length > 0) {
               const started = startGroupDrag(selectedElements, e, iframeDoc);
-              console.log(
+              debugLog(
                 "[Canvas] Group drag:",
                 existingIds.length,
                 started ? "started" : "blocked",
@@ -1295,21 +1297,21 @@ export function useElementSelection(
             }
           } else {
             startElementDrag(target, e, iframeDoc);
-            console.log("[Canvas] Single drag start:", elementId);
+            debugLog("[Canvas] Single drag start:", elementId);
           }
           return;
         }
 
         if (e.shiftKey) {
           // 未選択 + Shift → 追加するかは mouseup で確定（ここでは動かさない）
-          console.log("[Canvas] Shift add pending:", elementId);
+          debugLog("[Canvas] Shift add pending:", elementId);
           return;
         }
 
         // 未選択 + 素クリック → その場で単独選択してドラッグ開始（モード非依存）
         selectSingle(iframeDoc, target);
         startElementDrag(target, e, iframeDoc);
-        console.log("[Canvas] Select + drag start:", elementId);
+        debugLog("[Canvas] Select + drag start:", elementId);
       };
 
       /**
@@ -1421,7 +1423,8 @@ export function useElementSelection(
         if (bodyClasses.contains("gg-cropping")) return;
         if (
           bodyClasses.contains("draw-mode") ||
-          bodyClasses.contains("text-mode")
+          bodyClasses.contains("text-mode") ||
+          bodyClasses.contains("comment-mode")
         )
           return;
 
@@ -1452,7 +1455,7 @@ export function useElementSelection(
           deepElement.classList.add("selected");
           setSelectedElementIdsRef.current([elementId]);
           enableTextEditing(deepElement);
-          console.log(
+          debugLog(
             "[Canvas] Text editing started via double-click:",
             elementId,
           );

@@ -183,7 +183,22 @@ export const EDITOR_IFRAME_STYLES = `
   body.text-mode [data-editable="true"] {
     pointer-events: none;
   }
-  body:not(.draw-mode):not(.text-mode):not(.move-mode) [data-editable="true"] {
+  /* コメントの範囲指定中: 要素は反応せず、紙面のドラッグが範囲になる */
+  body.comment-mode {
+    cursor: crosshair !important;
+  }
+  body.comment-mode [data-editable="true"] {
+    pointer-events: none;
+  }
+  body.comment-mode .selection-box,
+  body.comment-mode .hover-preview {
+    display: none !important;
+  }
+  /* 範囲の枠の上からも新しい範囲を描けるように(ピンはクリックでスレッドを開く) */
+  body.comment-mode .gg-comment-layer [data-comment-rect] {
+    pointer-events: none !important;
+  }
+  body:not(.draw-mode):not(.text-mode):not(.move-mode):not(.comment-mode) [data-editable="true"] {
     pointer-events: auto !important;
     cursor: pointer;
   }

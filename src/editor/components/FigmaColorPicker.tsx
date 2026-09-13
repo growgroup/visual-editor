@@ -53,6 +53,7 @@ import { useEditorVariables } from "../EditorContext";
 import { isEyeDropperSupported, pickScreenColor } from "../utils/eyedropper";
 import type { CSSVariableDefinition } from "../../types/css-variables";
 import { isVariableReference, extractVariableName, generateVarReference } from "../../types/css-variables";
+import { debugLog } from '../utils/debug';
 
 // 塗りのタイプ
 export type FillType = "solid" | "linear" | "radial" | "image" | "variable" | "none";
@@ -794,7 +795,7 @@ export function FigmaColorPicker({
   // 変数選択ハンドラ
   const handleVariableSelect = useCallback((variable: CSSVariableDefinition) => {
     const varRef = generateVarReference(variable);
-    console.log('[DEBUG FigmaColorPicker] handleVariableSelect:', {
+    debugLog('[DEBUG FigmaColorPicker] handleVariableSelect:', {
       variable: { id: variable.id, name: variable.name, cssName: variable.cssName },
       generatedVarReference: varRef,
       hasOnVariableSelect: !!onVariableSelect,

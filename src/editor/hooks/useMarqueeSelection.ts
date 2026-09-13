@@ -18,6 +18,7 @@ import {
 import { extractElementInfo } from '../utils/style-utils';
 import { MARQUEE_DRAG_THRESHOLD } from '../constants';
 import type { MarqueeState } from '../types';
+import { debugLog } from '../utils/debug';
 
 interface UseMarqueeSelectionOptions {
   /** マーキー選択の開始保留フラグ */
@@ -305,7 +306,7 @@ export function useMarqueeSelection(
           window.postMessage({ type: 'ELEMENT_DESELECTED' }, '*');
         }
 
-        console.log(
+        debugLog(
           '[Canvas] Marquee selected',
           selectedIds.length,
           additive ? '(additive)' : '',

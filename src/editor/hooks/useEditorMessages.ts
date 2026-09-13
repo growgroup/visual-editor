@@ -9,6 +9,7 @@ import { useEditorContext } from '../EditorContext';
 import { buildDomTree, updateSelectionBox } from '../utils/dom-utils';
 import { extractElementInfo } from '../utils/style-utils';
 import type { DOMTreeNode } from '../types';
+import { debugLog } from '../utils/debug';
 
 /**
  * postMessageの受信と処理を行うHook
@@ -55,7 +56,7 @@ export function useEditorMessages() {
 
       // DOMツリー更新
       if (event.data?.type === 'DOM_TREE_UPDATED') {
-        console.log('[EditorMessages] DOM_TREE_UPDATED received:', event.data.tree?.length, 'nodes');
+        debugLog('[EditorMessages] DOM_TREE_UPDATED received:', event.data.tree?.length, 'nodes');
         if (event.data.tree && Array.isArray(event.data.tree)) {
           setDomTree(event.data.tree);
           // 初期状態で最初のレベルを展開
@@ -71,7 +72,7 @@ export function useEditorMessages() {
         const iframeDoc = getIframeDoc();
         if (iframeDoc) {
           const tree = buildDomTree(iframeDoc);
-          console.log('[EditorMessages] Rebuilt DOM tree:', tree.length, 'nodes');
+          debugLog('[EditorMessages] Rebuilt DOM tree:', tree.length, 'nodes');
           setDomTree(tree);
         }
       }

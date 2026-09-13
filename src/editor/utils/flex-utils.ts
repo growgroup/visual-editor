@@ -3,6 +3,8 @@
  * Concrete5-style element reordering in auto-layout containers
  */
 
+import { debugLog } from './debug';
+
 /**
  * Information about a flex container
  */
@@ -479,7 +481,7 @@ export function endAutoLayoutDrag(
   const { element, ghost, originalParent, originalIndex, scale } = state;
 
   // Debug logging
-  console.log('[endAutoLayoutDrag] Starting:', {
+  debugLog('[endAutoLayoutDrag] Starting:', {
     elementTag: element?.tagName,
     elementId: element?.id,
     elementClass: element?.className,
@@ -519,7 +521,7 @@ export function endAutoLayoutDrag(
   // Get the current parent of the element (should match originalParent in most cases)
   const currentParent = element.parentElement;
 
-  console.log('[endAutoLayoutDrag] Before DOM operation:', {
+  debugLog('[endAutoLayoutDrag] Before DOM operation:', {
     elementInDOM: element.isConnected,
     currentParentTag: currentParent?.tagName,
     currentParentId: currentParent?.id,
@@ -545,7 +547,7 @@ export function endAutoLayoutDrag(
     dropInfo.container.id === 'artboard'
   );
 
-  console.log('[endAutoLayoutDrag] isSameParent:', isSameParent, 'isValidDropLocation:', isValidDropLocation);
+  debugLog('[endAutoLayoutDrag] isSameParent:', isSameParent, 'isValidDropLocation:', isValidDropLocation);
 
   if (!isValidDropLocation && dropInfo) {
     // Drop location is outside artboard - keep element in original position
@@ -554,16 +556,16 @@ export function endAutoLayoutDrag(
   } else if (dropInfo && isSameParent && originalParent) {
     // Same parent - reorder within the same container
     const targetIndex = dropInfo.index;
-    console.log('[endAutoLayoutDrag] Same parent reorder:', { targetIndex, originalIndex });
+    debugLog('[endAutoLayoutDrag] Same parent reorder:', { targetIndex, originalIndex });
     if (targetIndex !== originalIndex) {
       moved = reorderFlexChild(originalParent, element, targetIndex);
-      console.log('[endAutoLayoutDrag] reorderFlexChild result:', moved);
+      debugLog('[endAutoLayoutDrag] reorderFlexChild result:', moved);
     }
     // If targetIndex === originalIndex, no move needed (element stays in place)
   } else if (dropInfo && dropInfo.container && isValidDropLocation) {
     // Different parent but valid location - move to new container
     // Safety check: don't move into self or descendants
-    console.log('[endAutoLayoutDrag] Different parent move:', {
+    debugLog('[endAutoLayoutDrag] Different parent move:', {
       containerTag: dropInfo.container.tagName,
       containerId: dropInfo.container.id,
       isElementSelf: dropInfo.container === element,
@@ -571,15 +573,15 @@ export function endAutoLayoutDrag(
     });
     if (dropInfo.container !== element && !element.contains(dropInfo.container)) {
       moved = moveElementToContainer(element, dropInfo);
-      console.log('[endAutoLayoutDrag] moveElementToContainer result:', moved);
+      debugLog('[endAutoLayoutDrag] moveElementToContainer result:', moved);
     } else {
       console.warn('[flex-utils] Prevented moving element into itself or descendant');
     }
   } else {
-    console.log('[endAutoLayoutDrag] No dropInfo or container, element stays in place');
+    debugLog('[endAutoLayoutDrag] No dropInfo or container, element stays in place');
   }
 
-  console.log('[endAutoLayoutDrag] After DOM operation:', {
+  debugLog('[endAutoLayoutDrag] After DOM operation:', {
     elementInDOM: element.isConnected,
     hasParent: !!element.parentElement,
     parentTag: element.parentElement?.tagName,
@@ -1142,7 +1144,7 @@ function moveElementToContainer(
 ): boolean {
   const { container, position, index, referenceElement } = dropInfo;
 
-  console.log('[moveElementToContainer] Called:', {
+  debugLog('[moveElementToContainer] Called:', {
     elementTag: element.tagName,
     elementId: element.id,
     containerTag: container?.tagName,

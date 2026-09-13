@@ -325,8 +325,12 @@
 .gg-editor-ui :is(input:not([type="color"]), textarea, select):not([data-editor-preview] *) { border-color: var(--ed-line-strong) !important; }
 
 /* ── マルチフレームのキャンバス(Figma 風) ──────────────
-   フレーム名とリングは画面座標に置く(倍率に関係なく同じ太さ・同じ文字サイズ)。
+   フレーム名とリングはオーバーレイの中で scale(1/倍率) を掛けて画面上の大きさに戻す
+   (倍率に関係なく同じ太さ・同じ文字サイズ)。
    見るだけの紙面の骨組み(スケルトン)だけは転写層の中にあるので、フレームの寸法に対する % で描く */
+/* フレームの白地だけ。枠線と階層の線は画面の座標の canvas(CanvasFrameDecor)が描く。
+   転写層の中に枠線を持たせると、倍率が変わるたびに転写層まるごとが塗り直される(実測) */
+.gg-editor-ui .ed-frame-shell { background: #fff; }
 .gg-editor-ui .ed-frame-label-row { position: absolute; left: 0; height: 20px; display: inline-flex; align-items: center; gap: 2px; max-width: 100%; }
 .gg-editor-ui .ed-frame-label {
   height: 20px; min-width: 0; display: inline-flex; align-items: center; gap: 6px;
@@ -341,9 +345,6 @@
 .gg-editor-ui .ed-frame-label-link svg { width: 12px; height: 12px; }
 .gg-editor-ui .ed-frame-label-row:hover .ed-frame-label-link, .gg-editor-ui .ed-frame-label-active + .ed-frame-label-link, .gg-editor-ui .ed-frame-label-link:focus-visible { opacity: 1; }
 .gg-editor-ui .ed-frame-label-link:hover { color: var(--ed-text); background: var(--ed-panel); box-shadow: 0 0 0 1px var(--ed-line); }
-/* 階層の線(ツリー配置)。転写層の中にあるが、線の太さは non-scaling-stroke で画面上 1.5px */
-.gg-editor-ui .ed-frame-connectors { position: absolute; left: 0; top: 0; pointer-events: none; overflow: visible; }
-.gg-editor-ui .ed-frame-connectors path { stroke: var(--ed-line-strong); stroke-width: 1.5px; stroke-linejoin: round; }
 /* 部品(data-part)のカード。紙面の紫の選択枠と同じ色 */
 .gg-editor-ui .ed-part-card { border: 1px solid color-mix(in srgb, #7b61ff 45%, var(--ed-line)); background: color-mix(in srgb, #7b61ff 8%, var(--ed-panel)); color: var(--ed-text); }
 .gg-editor-ui .ed-part-accent { color: #7b61ff; }
@@ -360,6 +361,10 @@
 .gg-editor-ui .ed-canvas-marquee { position: absolute; z-index: 20; pointer-events: none; border: 1px solid var(--ed-accent); background: color-mix(in srgb, var(--ed-accent) 12%, transparent); }
 .gg-editor-ui .ed-frame-ring-active { box-shadow: 0 0 0 1.5px var(--ed-accent-strong); }
 .gg-editor-ui .ed-frame-ring-hover { box-shadow: 0 0 0 1px var(--ed-accent-strong); opacity: 0.55; }
+/* 縮小の途中(倍率 0.4 未満)は、画像が読めている紙面の iframe を止めて、下に敷いた画像を見せる。
+   iframe を外して(メモリを返して)しまうのは操作が止まってから ── その間もラスタは止まっている。
+   属性 1 つ(キャンバスの容器の data-canvas-preview-image)の書き換えで 26 枚がいっぺんに切り替わる */
+.gg-editor-ui [data-canvas-preview-image="1"] [data-page-preview][data-image-ready="1"] iframe { visibility: hidden; }
 .gg-editor-ui .ed-frame-skeleton { position: absolute; inset: 0; padding: 6% 8%; display: flex; flex-direction: column; gap: 3%; background: #fff; }
 .gg-editor-ui .ed-frame-skeleton-bar { display: block; height: 2.5%; min-height: 8px; border-radius: 999px; background: #eceff3; }
 .gg-editor-ui .ed-frame-skeleton-note { font-size: 40px; color: #9aa3b2; }

@@ -46,6 +46,7 @@ import {
 import { io } from '../../io';
 import type { EditorPartDef, EditorPartsLibrary } from '../../io';
 import { useMultiPageCanvasOptional } from './MultiPageCanvasContext';
+import { debugLog, isDebugEnabled } from '../utils/debug';
 import {
   materializePart,
   partDefFromElement,
@@ -211,7 +212,7 @@ export function htmlElementToComponentElement(element: HTMLElement, isRoot: bool
       if (key && value) {
         // Skip position-related styles for root element
         if (isRoot && POSITION_STYLES.has(key)) {
-          console.log(`[htmlElementToComponentElement] Skipping position style for root: ${key}`);
+          debugLog(`[htmlElementToComponentElement] Skipping position style for root: ${key}`);
           continue;
         }
         // Convert kebab-case to camelCase
@@ -238,7 +239,7 @@ export function htmlElementToComponentElement(element: HTMLElement, isRoot: bool
   if (hasMixedContent) {
     // Mixed content: use innerHTML to preserve all content
     innerHTML = element.innerHTML;
-    console.log('[htmlElementToComponentElement] Mixed content detected, using innerHTML');
+    debugLog('[htmlElementToComponentElement] Mixed content detected, using innerHTML');
   } else if (hasElementChildren) {
     // Only element children: recursively process (not root)
     for (const child of Array.from(element.children)) {
@@ -261,17 +262,20 @@ export function htmlElementToComponentElement(element: HTMLElement, isRoot: bool
     overridable: { ...defaultOverridable },
   };
 
-  // Debug logging
-  console.log('[htmlElementToComponentElement] Converted:', {
-    tagName: result.tagName,
-    className: result.className,
-    hasTextContent: !!result.textContent,
-    hasInnerHTML: !!result.innerHTML,
-    textContentPreview: result.textContent?.substring(0, 50),
-    innerHTMLPreview: result.innerHTML?.substring(0, 50),
-    childrenCount: result.children.length,
-    stylesCount: Object.keys(result.styles).length,
-  });
+  // 要素 1 つにつき 1 行出る。部品 89 個 + 26 ページで 2,000 件を超えるので、
+  // 出さないときは引数のオブジェクトを組み立てること自体をやめる
+  if (isDebugEnabled()) {
+    debugLog('[htmlElementToComponentElement] Converted:', {
+      tagName: result.tagName,
+      className: result.className,
+      hasTextContent: !!result.textContent,
+      hasInnerHTML: !!result.innerHTML,
+      textContentPreview: result.textContent?.substring(0, 50),
+      innerHTMLPreview: result.innerHTML?.substring(0, 50),
+      childrenCount: result.children.length,
+      stylesCount: Object.keys(result.styles).length,
+    });
+  }
 
   return result;
 }
@@ -586,7 +590,7 @@ export function EditorComponentsProvider({
     setIsLoadingComponents(true);
     setError(null);
     try {
-      console.log(
+      debugLog(
         `[EditorComponentsContext] Loading components for website: ${targetWebsiteId}`
       );
 
@@ -610,13 +614,13 @@ export function EditorComponentsProvider({
         setMasterComponents(componentsMap);
         setComponentLibrary(categoriesFromParts(lib, componentsMap));
         setComponentInstances(new Map());
-        console.log(`[EditorComponentsContext] Loaded ${defs.size} parts`);
+        debugLog(`[EditorComponentsContext] Loaded ${defs.size} parts`);
         return;
       }
 
       // Load master components from Firestore
       const components = await getAllMasterComponents(targetWebsiteId);
-      console.log(`[EditorComponentsContext] Loaded ${components.length} components`);
+      debugLog(`[EditorComponentsContext] Loaded ${components.length} components`);
 
       // Create Map from components
       const componentsMap = new Map<string, MasterComponent>();
@@ -689,9 +693,9 @@ export function EditorComponentsProvider({
 
     const loadInstances = async () => {
       try {
-        console.log(`[EditorComponentsContext] Loading instances for page: ${pageId}`);
+        debugLog(`[EditorComponentsContext] Loading instances for page: ${pageId}`);
         const instances = await getPageComponentInstances(websiteId, pageId);
-        console.log(`[EditorComponentsContext] Loaded ${instances.length} instances`);
+        debugLog(`[EditorComponentsContext] Loaded ${instances.length} instances`);
 
         // Create Map from instances (keyed by domElementId)
         const instancesMap = new Map<string, ComponentInstance>();
@@ -766,7 +770,7 @@ export function EditorComponentsProvider({
         });
       }
 
-      console.log(
+      debugLog(
         `[EditorComponentsContext] Created master component: ${name} (${id})`
       );
       return masterComponent;
@@ -996,7 +1000,7 @@ export function EditorComponentsProvider({
       });
     }
 
-    console.log(`[EditorComponentsContext] Deleted master component: ${id}`);
+    debugLog(`[EditorComponentsContext] Deleted master component: ${id}`);
   }, [websiteId, partsMode]);
 
   const getMasterComponent = useCallback(
@@ -1069,7 +1073,7 @@ export function EditorComponentsProvider({
         });
       }
 
-      console.log(
+      debugLog(
         `[EditorComponentsContext] Created instance: ${id} of master ${masterComponentId}`
       );
       return instance;
@@ -1157,7 +1161,7 @@ export function EditorComponentsProvider({
       return next;
     });
 
-    console.log(`[EditorComponentsContext] Deleted instance: ${instanceId}`);
+    debugLog(`[EditorComponentsContext] Deleted instance: ${instanceId}`);
   }, [websiteId, pageId]);
 
   const getInstanceByDomId = useCallback(
@@ -1219,7 +1223,7 @@ export function EditorComponentsProvider({
         return next;
       });
 
-      console.log(
+      debugLog(
         `[EditorComponentsContext] Added override to instance: ${instanceId}`
       );
     },
@@ -1269,7 +1273,7 @@ export function EditorComponentsProvider({
         return next;
       });
 
-      console.log(
+      debugLog(
         `[EditorComponentsContext] Removed override ${overrideId} from instance: ${instanceId}`
       );
     },
@@ -1321,7 +1325,7 @@ export function EditorComponentsProvider({
       return next;
     });
 
-    console.log(
+    debugLog(
       `[EditorComponentsContext] Reset all overrides for instance: ${instanceId}`
     );
   }, [websiteId, pageId]);
@@ -1394,7 +1398,7 @@ export function EditorComponentsProvider({
         return next;
       });
 
-      console.log(
+      debugLog(
         `[EditorComponentsContext] Changed variant for instance ${instanceId} to ${variantId}`
       );
     },
@@ -1458,7 +1462,7 @@ export function EditorComponentsProvider({
         });
       }
 
-      console.log(
+      debugLog(
         `[EditorComponentsContext] Detached instance: ${instanceId}`
       );
       return htmlElement;

@@ -18,6 +18,7 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import type { DOMTreeNode, PanelSections, MarqueeState } from '../types';
 import { DEFAULT_PANEL_SECTIONS } from '../constants';
+import { debugLog } from '../utils/debug';
 
 export interface EditorUIStateContextValue {
   // DOMツリー
@@ -81,7 +82,7 @@ export function EditorUIStateProvider({
   const restoreFocus = useCallback(() => {
     const iframeDoc = getIframeDoc();
     if (!iframeDoc) {
-      console.log('[EditorUIStateContext] restoreFocus: iframe doc not available');
+      debugLog('[EditorUIStateContext] restoreFocus: iframe doc not available');
       return;
     }
 
@@ -89,14 +90,14 @@ export function EditorUIStateProvider({
     const editingElement = iframeDoc.querySelector('[contenteditable="true"]') as HTMLElement;
     if (editingElement) {
       editingElement.focus();
-      console.log('[EditorUIStateContext] restoreFocus: focused editing element');
+      debugLog('[EditorUIStateContext] restoreFocus: focused editing element');
       return;
     }
 
     // iframeのbodyにフォーカスを設定
     if (iframeDoc.body) {
       iframeDoc.body.focus();
-      console.log('[EditorUIStateContext] restoreFocus: focused iframe body');
+      debugLog('[EditorUIStateContext] restoreFocus: focused iframe body');
     }
   }, [getIframeDoc]);
 

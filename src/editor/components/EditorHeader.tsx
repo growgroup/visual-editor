@@ -38,6 +38,7 @@ import {
   getArtboardContent,
 } from "../utils/dom-utils";
 import { can } from "../../io";
+import { debugLog } from '../utils/debug';
 
 interface EditorHeaderProps {
   theme?: "light" | "dark";
@@ -164,7 +165,7 @@ export function EditorHeader({
 
       // 全要素を絶対配置に変換
       const count = convertToAbsolutePositioning(iframeDoc);
-      console.log(
+      debugLog(
         "[Header] Converted",
         count,
         "elements to absolute positioning",
@@ -226,7 +227,7 @@ export function EditorHeader({
         element.style.removeProperty("flex-grow");
         element.style.removeProperty("flex-shrink");
       });
-      console.log(
+      debugLog(
         "[Header] Removed absolute positioning from",
         editableElements.length,
         "elements",

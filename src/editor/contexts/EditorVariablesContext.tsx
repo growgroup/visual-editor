@@ -22,6 +22,7 @@
  */
 
 import React, { createContext, useContext, useState, useCallback, useMemo, useRef } from 'react';
+import { debugLog } from '../utils/debug';
 import type {
   CSSVariableDefinition,
   CSSVariableCategory,
@@ -264,7 +265,7 @@ export function EditorVariablesProvider({
       await onSave(variables);
       savedVariablesRef.current = [...variables];
       setHasChanges(false);
-      console.log('[EditorVariablesContext] Variables saved successfully');
+      debugLog('[EditorVariablesContext] Variables saved successfully');
     } catch (error) {
       console.error('[EditorVariablesContext] Failed to save variables:', error);
       throw error;
@@ -286,7 +287,7 @@ export function EditorVariablesProvider({
       setVariablesState(loaded);
       savedVariablesRef.current = [...loaded];
       setHasChanges(false);
-      console.log('[EditorVariablesContext] Variables loaded:', loaded.length);
+      debugLog('[EditorVariablesContext] Variables loaded:', loaded.length);
     } catch (error) {
       console.error('[EditorVariablesContext] Failed to load variables:', error);
       throw error;
@@ -299,7 +300,7 @@ export function EditorVariablesProvider({
   const syncFromTheme = useCallback((themeVariables: CSSVariableDefinition[]) => {
     setVariablesState(themeVariables);
     markAsChanged();
-    console.log('[EditorVariablesContext] Synced from theme:', themeVariables.length, 'variables');
+    debugLog('[EditorVariablesContext] Synced from theme:', themeVariables.length, 'variables');
   }, [markAsChanged]);
 
   // バルク設定
@@ -327,7 +328,7 @@ export function EditorVariablesProvider({
     }
 
     styleEl.textContent = cssString;
-    console.log('[EditorVariablesContext] Injected CSS variables to iframe');
+    debugLog('[EditorVariablesContext] Injected CSS variables to iframe');
   }, [cssString]);
 
   // Context値

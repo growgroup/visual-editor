@@ -15,6 +15,7 @@
  * (移動・削除・並び替え)。スロットの外を直したいときは「部品から切り離す」。
  */
 import type { EditorPartDef } from '../io';
+import { findFlowInsertion } from './utils/drop-target';
 
 export const PART_ATTR = 'data-part';
 export const PART_VERSION_ATTR = 'data-part-v';
@@ -281,34 +282,15 @@ export function detachPart(el: HTMLElement): void {
 
 /**
  * フロー(流し込み)への挿入位置を決める。
- * ドロップ位置の要素から、「セクションの器」の直下にある祖先まで上がり、その後ろに入れる。
+ * ドロップ位置の要素から、「セクションの器」の直下にある祖先まで上がり、その前後に入れる。
  * 器 = `[data-wf-body]` / `main` / `#artboard` / body。何も当たらなければ器の末尾。
+ *
+ * 位置の計算そのものは drop-target.ts に置いてある。ドラッグ中に出す印
+ * (どこに入るかの横棒)と同じ関数を使わないと、印と実際の挿入位置がずれるため。
  */
 export function insertIntoFlow(doc: Document, el: HTMLElement, x: number, y: number): void {
-  const isContainer = (node: Element | null): boolean =>
-    !!node &&
-    (node === doc.body ||
-      node.id === 'artboard' ||
-      node.hasAttribute('data-wf-body') ||
-      node.tagName === 'MAIN');
-  const fallback = (): Element =>
-    doc.querySelector('[data-wf-body]') ?? doc.querySelector('main') ?? doc.getElementById('artboard') ?? doc.body;
-
-  let hit: Element | null = doc.elementFromPoint(x, y);
-  if (!hit || hit === doc.body || hit.id === 'artboard' || hit.closest('.selection-box')) {
-    fallback().appendChild(el);
-    return;
-  }
-  // 器の直下にあたる祖先まで上がる
-  let anchor: Element = hit;
-  while (anchor.parentElement && !isContainer(anchor.parentElement)) {
-    anchor = anchor.parentElement;
-  }
-  if (!anchor.parentElement) {
-    fallback().appendChild(el);
-    return;
-  }
-  anchor.after(el);
+  const { parent, before } = findFlowInsertion(doc, x, y);
+  parent.insertBefore(el, before);
 }
 
 /**

@@ -16,7 +16,8 @@ export type EditorTool =
   | 'text'        // T - Text tool
   | 'scale'       // K - Scale tool
   | 'eraser'      // E - Eraser (ペン/鉛筆ストロークを消す)
-  | 'shape';      // 図形ギャラリーで選んだ図形(ドラッグでサイズ指定)
+  | 'shape'       // 図形ギャラリーで選んだ図形(ドラッグでサイズ指定)
+  | 'comment';    // C - コメント(紙面をドラッグして範囲を指定。クリックで点)
 
 // Shape types that can be drawn
 export type ShapeType = 'rectangle' | 'ellipse' | 'line' | 'arrow' | 'text' | 'pen' | 'pencil' | 'frame';
@@ -101,6 +102,7 @@ export type ShortcutAction =
   | 'text'
   | 'frame'
   | 'scale'
+  | 'comment'
   // Edit operations
   | 'undo'
   | 'redo'
@@ -189,7 +191,7 @@ export interface ToolConfig {
   label: string;
   shortcut: string;
   icon: string; // Lucide icon name
-  group: 'selection' | 'shapes' | 'drawing' | 'text' | 'frame';
+  group: 'selection' | 'shapes' | 'drawing' | 'text' | 'frame' | 'comment';
 }
 
 // Default tool configurations
@@ -205,6 +207,7 @@ export const TOOL_CONFIGS: ToolConfig[] = [
   { id: 'pen', label: 'ペン', shortcut: 'P', icon: 'Pen', group: 'drawing' },
   { id: 'pencil', label: 'フリーハンド', shortcut: '⇧P', icon: 'Pencil', group: 'drawing' },
   { id: 'text', label: 'テキスト', shortcut: 'T', icon: 'Type', group: 'text' },
+  { id: 'comment', label: 'コメント（範囲を指定）', shortcut: 'C', icon: 'MessageSquare', group: 'comment' },
 ];
 
 /**
@@ -232,6 +235,7 @@ export const KEYBOARD_SHORTCUTS: Record<string, ShortcutAction> = {
   'shift+p': 'pencil',
   't': 'text',
   'f': 'frame',
+  'c': 'comment',
 
   // Edit operations (Cmd/Ctrl + key)
   'meta+z': 'undo',

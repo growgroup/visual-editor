@@ -7,6 +7,7 @@
 
 import * as pako from 'pako';
 import { cacheSchema } from './figma-kiwi-encoder';
+import { debugLog } from './debug';
 
 // Extended types array
 const EXTENDED_TYPES = [
@@ -196,7 +197,7 @@ function customDecodeBinarySchema(buffer: Uint8Array, types: string[]): Schema {
   const definitionCount = bb.readVarUint();
   const definitions: Definition[] = [];
 
-  console.log('[figma-kiwi-decoder] Custom decode: definition count =', definitionCount);
+  debugLog('[figma-kiwi-decoder] Custom decode: definition count =', definitionCount);
 
   // Read in the schema
   for (let i = 0; i < definitionCount; i++) {
@@ -281,7 +282,7 @@ function parseArchive(buffer: Uint8Array): { schema: Uint8Array; data: Uint8Arra
   // Read version (4 bytes, little endian)
   const view = new DataView(buffer.buffer, buffer.byteOffset);
   const version = view.getUint32(offset, true);
-  console.log('[figma-kiwi-decoder] Archive version:', version);
+  debugLog('[figma-kiwi-decoder] Archive version:', version);
   offset += 4;
 
   const files: Uint8Array[] = [];
@@ -330,7 +331,7 @@ export function parseFigmaClipboardToJson(html: string): FigmaClipboardData {
     throw new Error('Figma metadata not found');
   }
   const meta = JSON.parse(atob(metaMatch[1]));
-  console.log('[figma-kiwi-decoder] Meta:', meta);
+  debugLog('[figma-kiwi-decoder] Meta:', meta);
 
   // Extract binary data
   const dataMatch = html.match(/\(figma\)([A-Za-z0-9+/=]+)\(\/figma\)/);
@@ -344,22 +345,22 @@ export function parseFigmaClipboardToJson(html: string): FigmaClipboardData {
   for (let i = 0; i < binaryString.length; i++) {
     bytes[i] = binaryString.charCodeAt(i);
   }
-  console.log('[figma-kiwi-decoder] Binary data size:', bytes.length);
+  debugLog('[figma-kiwi-decoder] Binary data size:', bytes.length);
 
   // Parse archive
   const archive = parseArchive(bytes);
-  console.log('[figma-kiwi-decoder] Schema chunk size:', archive.schema.length);
-  console.log('[figma-kiwi-decoder] Data chunk size:', archive.data.length);
+  debugLog('[figma-kiwi-decoder] Schema chunk size:', archive.schema.length);
+  debugLog('[figma-kiwi-decoder] Data chunk size:', archive.data.length);
 
   // Decompress schema and data
   const schemaDecompressed = pako.inflateRaw(archive.schema);
   const dataDecompressed = pako.inflateRaw(archive.data);
-  console.log('[figma-kiwi-decoder] Schema decompressed size:', schemaDecompressed.length);
-  console.log('[figma-kiwi-decoder] Data decompressed size:', dataDecompressed.length);
+  debugLog('[figma-kiwi-decoder] Schema decompressed size:', schemaDecompressed.length);
+  debugLog('[figma-kiwi-decoder] Data decompressed size:', dataDecompressed.length);
 
   // Decode schema with extended types
   const schema = customDecodeBinarySchema(schemaDecompressed, EXTENDED_TYPES);
-  console.log('[figma-kiwi-decoder] Schema definitions:', schema.definitions.length);
+  debugLog('[figma-kiwi-decoder] Schema definitions:', schema.definitions.length);
 
   // Cache schema for later use in encoding (Figma export)
   cacheSchema(schema, archive.schema);
@@ -367,8 +368,8 @@ export function parseFigmaClipboardToJson(html: string): FigmaClipboardData {
   // Export raw schema for bundling (one-time capture)
   if (typeof window !== 'undefined') {
     const schemaBase64 = btoa(String.fromCharCode(...archive.schema));
-    console.log('[figma-kiwi-decoder] RAW SCHEMA BASE64 (copy this for bundling):');
-    console.log(schemaBase64);
+    debugLog('[figma-kiwi-decoder] RAW SCHEMA BASE64 (copy this for bundling):');
+    debugLog(schemaBase64);
   }
 
   // Find Message definition
@@ -376,18 +377,18 @@ export function parseFigmaClipboardToJson(html: string): FigmaClipboardData {
   if (messageDefIndex === -1) {
     throw new Error('Message definition not found in schema');
   }
-  console.log('[figma-kiwi-decoder] Message definition found at index:', messageDefIndex);
+  debugLog('[figma-kiwi-decoder] Message definition found at index:', messageDefIndex);
 
   // Find and log NodeChange definition to see available fields
   const nodeChangeDef = schema.definitions.find(d => d.name === 'NodeChange');
   if (nodeChangeDef) {
-    console.log('[figma-kiwi-decoder] NodeChange fields:',
+    debugLog('[figma-kiwi-decoder] NodeChange fields:',
       nodeChangeDef.fields.map(f => `${f.name}(${f.value})`).join(', '));
     // Look for parent-related fields
     const parentFields = nodeChangeDef.fields.filter(f =>
       f.name.toLowerCase().includes('parent') || f.name.toLowerCase().includes('index'));
     if (parentFields.length > 0) {
-      console.log('[figma-kiwi-decoder] Parent-related fields:', parentFields.map(f => f.name));
+      debugLog('[figma-kiwi-decoder] Parent-related fields:', parentFields.map(f => f.name));
     }
   }
 
@@ -395,19 +396,19 @@ export function parseFigmaClipboardToJson(html: string): FigmaClipboardData {
   const paintDefs = schema.definitions.filter(d =>
     d.name.toLowerCase().includes('paint') || d.name.toLowerCase().includes('image'));
   for (const def of paintDefs) {
-    console.log(`[figma-kiwi-decoder] ${def.name} (${def.kind}): ${def.fields.map(f => `${f.name}:${f.type}(${f.value})`).join(', ')}`);
+    debugLog(`[figma-kiwi-decoder] ${def.name} (${def.kind}): ${def.fields.map(f => `${f.name}:${f.type}(${f.value})`).join(', ')}`);
   }
 
   // Log PaintType enum if it exists
   const paintTypeEnum = schema.definitions.find(d => d.name === 'PaintType');
   if (paintTypeEnum) {
-    console.log('[figma-kiwi-decoder] PaintType enum values:', paintTypeEnum.fields.map(f => `${f.name}=${f.value}`).join(', '));
+    debugLog('[figma-kiwi-decoder] PaintType enum values:', paintTypeEnum.fields.map(f => `${f.name}=${f.value}`).join(', '));
   }
 
   // Compile schema and decode message using our custom implementation
   const message = decodeMessage(dataDecompressed, schema);
 
-  console.log('[figma-kiwi-decoder] Message decoded, type:', message.type);
+  debugLog('[figma-kiwi-decoder] Message decoded, type:', message.type);
 
   return { meta, message, schema };
 }
@@ -668,44 +669,44 @@ export function extractNodes(message: Record<string, unknown>): FigmaNode[] {
   // Try to extract node changes from message
   const nodeChanges = message.nodeChanges as unknown[];
   if (Array.isArray(nodeChanges)) {
-    console.log('[figma-kiwi-decoder] === NODE CHANGES DEBUG ===');
+    debugLog('[figma-kiwi-decoder] === NODE CHANGES DEBUG ===');
     for (let i = 0; i < nodeChanges.length; i++) {
       const change = nodeChanges[i];
       if (change && typeof change === 'object') {
         const nodeObj = change as Record<string, unknown>;
         // Log all keys to see what fields are available
-        console.log(`[figma-kiwi-decoder] Node ${i}: ${nodeObj.type} "${nodeObj.name}"`);
-        console.log(`[figma-kiwi-decoder]   Keys: ${Object.keys(nodeObj).join(', ')}`);
+        debugLog(`[figma-kiwi-decoder] Node ${i}: ${nodeObj.type} "${nodeObj.name}"`);
+        debugLog(`[figma-kiwi-decoder]   Keys: ${Object.keys(nodeObj).join(', ')}`);
         // Look for parent-related fields - parentIndex has nested guid structure
         if ('parentIndex' in nodeObj && nodeObj.parentIndex) {
           const pi = nodeObj.parentIndex as { guid?: { sessionID?: number; localID?: number } };
           if (pi.guid) {
-            console.log(`[figma-kiwi-decoder]   parentIndex.guid: ${pi.guid.sessionID}:${pi.guid.localID}`);
+            debugLog(`[figma-kiwi-decoder]   parentIndex.guid: ${pi.guid.sessionID}:${pi.guid.localID}`);
           }
         }
         if ('guid' in nodeObj && nodeObj.guid) {
           const g = nodeObj.guid as { sessionID?: number; localID?: number };
-          console.log(`[figma-kiwi-decoder]   guid: ${g.sessionID}:${g.localID}`);
+          debugLog(`[figma-kiwi-decoder]   guid: ${g.sessionID}:${g.localID}`);
         }
         // Log auto-layout properties if present
         if ('stackMode' in nodeObj) {
-          console.log(`[figma-kiwi-decoder]   auto-layout: mode=${nodeObj.stackMode} spacing=${nodeObj.stackSpacing} padding=${nodeObj.stackPadding}`);
+          debugLog(`[figma-kiwi-decoder]   auto-layout: mode=${nodeObj.stackMode} spacing=${nodeObj.stackSpacing} padding=${nodeObj.stackPadding}`);
         }
         // Log text properties if present
         if ('textAlignHorizontal' in nodeObj || 'lineHeight' in nodeObj) {
           const lh = nodeObj.lineHeight as { value?: number; units?: string } | undefined;
           const ls = nodeObj.letterSpacing as { value?: number; units?: string } | undefined;
-          console.log(`[figma-kiwi-decoder]   text: align=${nodeObj.textAlignHorizontal} lineHeight=${lh?.value}${lh?.units} letterSpacing=${ls?.value}${ls?.units}`);
+          debugLog(`[figma-kiwi-decoder]   text: align=${nodeObj.textAlignHorizontal} lineHeight=${lh?.value}${lh?.units} letterSpacing=${ls?.value}${ls?.units}`);
         }
         // Log fill paints details for debugging image detection
         if ('fillPaints' in nodeObj && Array.isArray(nodeObj.fillPaints)) {
           for (let j = 0; j < nodeObj.fillPaints.length; j++) {
             const paint = nodeObj.fillPaints[j] as Record<string, unknown>;
             const paintKeys = Object.keys(paint);
-            console.log(`[figma-kiwi-decoder]   fillPaint[${j}]: type=${paint.type} keys=[${paintKeys.join(', ')}]`);
+            debugLog(`[figma-kiwi-decoder]   fillPaint[${j}]: type=${paint.type} keys=[${paintKeys.join(', ')}]`);
             // Log all values for IMAGE type or unknown types
             if (paint.type === 'IMAGE' || paintKeys.includes('imageHash') || paintKeys.includes('imageRef')) {
-              console.log(`[figma-kiwi-decoder]   IMAGE paint detail:`, JSON.stringify(paint, (_, v) => {
+              debugLog(`[figma-kiwi-decoder]   IMAGE paint detail:`, JSON.stringify(paint, (_, v) => {
                 if (v instanceof Uint8Array) return `<Uint8Array(${v.length})>`;
                 return v;
               }, 2).substring(0, 500));
@@ -715,7 +716,7 @@ export function extractNodes(message: Record<string, unknown>): FigmaNode[] {
         nodes.push(nodeObj as FigmaNode);
       }
     }
-    console.log('[figma-kiwi-decoder] === END NODE CHANGES DEBUG ===');
+    debugLog('[figma-kiwi-decoder] === END NODE CHANGES DEBUG ===');
   }
 
   return nodes;

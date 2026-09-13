@@ -27,7 +27,7 @@ import {
   Undo2, Redo2, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight,
   Type, Square, Circle, Minus, MoveUpRight, Image as ImageIcon, LayoutGrid,
   Boxes, Trash2, Copy, X, Save, PenTool, Loader2, ZoomIn, ZoomOut, Maximize,
-  Search, Sun, Moon, ChevronDown, Plus, MousePointer2, Pencil, Play,
+  Search, Sun, Moon, ChevronDown, Plus, MousePointer2, Pencil, Play, Crosshair,
   Palette, Sparkles, EyeOff, ArrowUp, ArrowDown, Film,
   MoreHorizontal, MessageSquare, ChevronLeft, ChevronRight, Crop, Monitor, MonitorUp,
   PaintBucket, PenLine, Eraser, Highlighter, Table, Shapes, Sticker, Wand2,
@@ -1010,7 +1010,7 @@ export function PptRibbon({
   onSwitchUi: () => void;
   page: number;
   deckTitle?: string;
-  comments: { open: boolean; toggle: () => void; newComment: () => void };
+  comments: { open: boolean; toggle: () => void; newComment: () => void; pickRegion?: () => void };
 }) {
   const pal = PALETTES[theme];
   const [tab, setTab] = useState<TabId>('home');
@@ -1820,6 +1820,10 @@ export function PptRibbon({
           <>
             <BigButton icon={MessageSquare} label={'新しい\nコメント'} onClick={comments.newComment}
               title="コメントを追加(要素を選択していればその要素に添付)" pal={pal} />
+            {comments.pickRegion && (
+              <BigButton icon={Crosshair} label={'範囲を\n指定'} active={actions.activeTool === 'comment'} onClick={comments.pickRegion}
+                title="スライドをドラッグして、コメントする範囲を指定します (C)" pal={pal} />
+            )}
             <BigButton icon={MessageSquare} label={'コメント\nの表示'} active={comments.open} onClick={comments.toggle} pal={pal} />
             <Sep pal={pal} />
             {(() => {

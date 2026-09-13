@@ -15,6 +15,7 @@ import type {
   OverrideInstanceSwapValue,
 } from '../../types/editor-components';
 import { findElementById, findElementByPath } from './override-detection';
+import { debugLog } from './debug';
 
 /**
  * Deep clone a ComponentElement tree
@@ -121,7 +122,7 @@ export function applyOverride(
 
     case 'instanceSwap':
       // Instance swap is handled at a higher level (requires loading the swapped component)
-      console.log('[applyOverride] Instance swap override detected:', override.value);
+      debugLog('[applyOverride] Instance swap override detected:', override.value);
       break;
 
     default:
@@ -245,7 +246,7 @@ export function applyOverrideToDOM(
       break;
 
     case 'instanceSwap':
-      console.log('[applyOverrideToDOM] Instance swap requires higher-level handling');
+      debugLog('[applyOverrideToDOM] Instance swap requires higher-level handling');
       break;
 
     default:

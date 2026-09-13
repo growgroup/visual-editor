@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { debugLog } from '../utils/debug';
 
 /**
  * Google Fontの情報
@@ -183,7 +184,7 @@ export function useGoogleFonts() {
 
       // APIエラーまたは空の場合はフォールバック
       if (data.error || !data.items || data.items.length === 0) {
-        console.log('[useGoogleFonts] API returned empty, using popular fonts');
+        debugLog('[useGoogleFonts] API returned empty, using popular fonts');
         setFonts([...SYSTEM_FONTS, ...POPULAR_GOOGLE_FONTS]);
         return;
       }
@@ -254,7 +255,7 @@ export function useGoogleFonts() {
     // ロード済みセットに追加
     setLoadedFonts(prev => new Set(prev).add(fontKey));
 
-    console.log(`[useGoogleFonts] Loaded font: ${fontFamily}`);
+    debugLog(`[useGoogleFonts] Loaded font: ${fontFamily}`);
   }, [loadedFonts]);
 
   /**

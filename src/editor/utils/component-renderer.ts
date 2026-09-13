@@ -14,6 +14,7 @@ import type {
   OverrideImageValue,
 } from '../../types/editor-components';
 import { generateElementId } from './dom-utils';
+import { debugLog } from './debug';
 
 // ============================================================
 // Constants
@@ -56,7 +57,7 @@ export function createDOMElement(
   doc: Document = document
 ): HTMLElement {
   // Debug logging
-  console.log('[createDOMElement] Creating:', {
+  debugLog('[createDOMElement] Creating:', {
     tagName: element.tagName,
     className: element.className,
     hasTextContent: !!element.textContent,
@@ -110,13 +111,13 @@ export function createDOMElement(
     if (element.innerHTML !== undefined) {
       // Use innerHTML for mixed content (text + elements)
       el.innerHTML = element.innerHTML;
-      console.log('[createDOMElement] Using innerHTML for mixed content');
+      debugLog('[createDOMElement] Using innerHTML for mixed content');
     } else if (element.textContent !== undefined) {
       // textContent is explicitly set (possibly via override) - use it
       // This takes precedence over children, which is important for text overrides
       el.textContent = element.textContent;
       if (element.children.length > 0) {
-        console.log('[createDOMElement] textContent override replacing children structure');
+        debugLog('[createDOMElement] textContent override replacing children structure');
       }
     } else {
       // Recursively create and append children
@@ -155,7 +156,7 @@ export function createDOMElement(
     }
   }
 
-  console.log('[createDOMElement] Created element:', el.tagName, 'with innerHTML length:', el.innerHTML.length);
+  debugLog('[createDOMElement] Created element:', el.tagName, 'with innerHTML length:', el.innerHTML.length);
 
   return el;
 }
@@ -417,7 +418,7 @@ export function renderInstance(
   instance: ComponentInstance,
   doc: Document = document
 ): HTMLElement {
-  console.log('[renderInstance] Starting render:', {
+  debugLog('[renderInstance] Starting render:', {
     masterId: master.id,
     masterName: master.name,
     instanceId: instance.id,
@@ -428,7 +429,7 @@ export function renderInstance(
   // Log the master component's root element structure
   const defaultVariant = master.variants.find(v => v.id === instance.variantId);
   if (defaultVariant) {
-    console.log('[renderInstance] Variant rootElement:', {
+    debugLog('[renderInstance] Variant rootElement:', {
       tagName: defaultVariant.rootElement.tagName,
       className: defaultVariant.rootElement.className,
       hasTextContent: !!defaultVariant.rootElement.textContent,
@@ -440,7 +441,7 @@ export function renderInstance(
 
   // Resolve the instance to a ComponentElement
   const resolved = resolveInstance(master, instance);
-  console.log('[renderInstance] Resolved element:', {
+  debugLog('[renderInstance] Resolved element:', {
     tagName: resolved.tagName,
     className: resolved.className,
     hasTextContent: !!resolved.textContent,

@@ -7,6 +7,7 @@ import { buildDomTree } from '../utils/dom-utils';
 import { applyLockInside, detachPart, partInfoOf, unlockPartDescendants } from '../parts';
 import { toast } from 'sonner';
 import type { MasterComponent, ComponentInstance } from '../../types/editor-components';
+import { debugLog } from '../utils/debug';
 
 interface UseComponentEditModeProps {
   contentId?: string;
@@ -201,7 +202,7 @@ export function useComponentEditMode({
 
     try {
       // Debug: Log the original element
-      console.log('[handleConfirmCreateComponent] Original element:', {
+      debugLog('[handleConfirmCreateComponent] Original element:', {
         tagName: element.tagName,
         className: element.className,
         innerHTML: element.innerHTML.substring(0, 200),
@@ -212,7 +213,7 @@ export function useComponentEditMode({
 
       // Create the master component
       const component = createMasterComponent(element, newComponentName.trim(), newComponentCategory || 'content');
-      console.log('[handleConfirmCreateComponent] Created component:', {
+      debugLog('[handleConfirmCreateComponent] Created component:', {
         id: component.id,
         name: component.name,
         variantsCount: component.variants.length,
@@ -248,7 +249,7 @@ export function useComponentEditMode({
         { x: positionX, y: positionY }  // initialPosition
       );
       if (instance) {
-        console.log('[handleConfirmCreateComponent] Created instance:', {
+        debugLog('[handleConfirmCreateComponent] Created instance:', {
           id: instance.id,
           domElementId: instance.domElementId,
           variantId: instance.variantId,
@@ -259,7 +260,7 @@ export function useComponentEditMode({
         const { renderInstance } = await import('../utils/component-renderer');
         const instanceElement = renderInstance(component, instance, iframeDoc);
 
-        console.log('[handleConfirmCreateComponent] Rendered instance element:', {
+        debugLog('[handleConfirmCreateComponent] Rendered instance element:', {
           tagName: instanceElement.tagName,
           className: instanceElement.className,
           innerHTML: instanceElement.innerHTML.substring(0, 200),
@@ -281,7 +282,7 @@ export function useComponentEditMode({
         // Update history
         notifyIframeChange(true);
 
-        console.log('[handleConfirmCreateComponent] Replaced element with instance:', instance.id);
+        debugLog('[handleConfirmCreateComponent] Replaced element with instance:', instance.id);
       }
 
       setCreateComponentDialogOpen(false);
@@ -349,11 +350,11 @@ export function useComponentEditMode({
       originalPageHtmlRef.current = artboard.innerHTML;
 
       // DEBUG: Log what instances are being saved
-      console.log('[enterComponentEditMode] ========== SAVING PAGE HTML ==========');
+      debugLog('[enterComponentEditMode] ========== SAVING PAGE HTML ==========');
       const instancesToSave = artboard.querySelectorAll('[data-component-instance]');
-      console.log('[enterComponentEditMode] Saving', instancesToSave.length, 'instances');
+      debugLog('[enterComponentEditMode] Saving', instancesToSave.length, 'instances');
       instancesToSave.forEach((inst, idx) => {
-        console.log(`[enterComponentEditMode] Instance ${idx} text being saved:`, inst.textContent?.substring(0, 100));
+        debugLog(`[enterComponentEditMode] Instance ${idx} text being saved:`, inst.textContent?.substring(0, 100));
       });
     }
 
@@ -458,16 +459,16 @@ export function useComponentEditMode({
     const artboard = iframeDoc.getElementById('artboard');
 
     // DEBUG: Log what we're about to restore
-    console.log('[exitComponentEditMode] ========== HTML RESTORE DEBUG ==========');
-    console.log('[exitComponentEditMode] originalPageHtmlRef exists:', originalPageHtmlRef.current !== null);
+    debugLog('[exitComponentEditMode] ========== HTML RESTORE DEBUG ==========');
+    debugLog('[exitComponentEditMode] originalPageHtmlRef exists:', originalPageHtmlRef.current !== null);
     if (originalPageHtmlRef.current) {
       // Extract instance text from saved HTML for debugging
       const tempDiv = document.createElement('div');
       tempDiv.innerHTML = originalPageHtmlRef.current;
       const savedInstances = tempDiv.querySelectorAll('[data-component-instance]');
-      console.log('[exitComponentEditMode] Saved HTML has', savedInstances.length, 'instances');
+      debugLog('[exitComponentEditMode] Saved HTML has', savedInstances.length, 'instances');
       savedInstances.forEach((inst, idx) => {
-        console.log(`[exitComponentEditMode] Saved instance ${idx} text:`, inst.textContent?.substring(0, 100));
+        debugLog(`[exitComponentEditMode] Saved instance ${idx} text:`, inst.textContent?.substring(0, 100));
       });
     }
 
@@ -477,9 +478,9 @@ export function useComponentEditMode({
 
       // DEBUG: Log what's in the DOM after restore
       const restoredInstances = artboard.querySelectorAll('[data-component-instance]');
-      console.log('[exitComponentEditMode] After restore, DOM has', restoredInstances.length, 'instances');
+      debugLog('[exitComponentEditMode] After restore, DOM has', restoredInstances.length, 'instances');
       restoredInstances.forEach((inst, idx) => {
-        console.log(`[exitComponentEditMode] Restored instance ${idx} text:`, inst.textContent?.substring(0, 100));
+        debugLog(`[exitComponentEditMode] Restored instance ${idx} text:`, inst.textContent?.substring(0, 100));
       });
     }
 
@@ -489,8 +490,8 @@ export function useComponentEditMode({
       const instancesArray = Array.from(componentInstances.values());
 
       // Debug: Log the updated master and instances
-      console.log('[exitComponentEditMode] ========== SYNC DEBUG ==========');
-      console.log('[exitComponentEditMode] Updated master:', {
+      debugLog('[exitComponentEditMode] ========== SYNC DEBUG ==========');
+      debugLog('[exitComponentEditMode] Updated master:', {
         id: updatedMaster.id,
         name: updatedMaster.name,
         variantsCount: updatedMaster.variants.length,
@@ -499,7 +500,7 @@ export function useComponentEditMode({
       // Log master's text content
       const defaultVariant = updatedMaster.variants.find(v => v.id === updatedMaster.defaultVariantId);
       if (defaultVariant) {
-        console.log('[exitComponentEditMode] Master rootElement:', {
+        debugLog('[exitComponentEditMode] Master rootElement:', {
           tagName: defaultVariant.rootElement.tagName,
           textContent: defaultVariant.rootElement.textContent?.substring(0, 100),
           innerHTML: defaultVariant.rootElement.innerHTML?.substring(0, 100),
@@ -507,7 +508,7 @@ export function useComponentEditMode({
         });
       }
 
-      console.log('[exitComponentEditMode] Instances to sync:', instancesArray.map(i => ({
+      debugLog('[exitComponentEditMode] Instances to sync:', instancesArray.map(i => ({
         id: i.id,
         masterComponentId: i.masterComponentId,
         domElementId: i.domElementId,
@@ -519,9 +520,9 @@ export function useComponentEditMode({
       const artboardForSync = iframeDoc.getElementById('artboard');
       if (artboardForSync) {
         const instanceElements = artboardForSync.querySelectorAll(`[data-component-master="${updatedMaster.id}"]`);
-        console.log('[exitComponentEditMode] Instance elements in DOM:', instanceElements.length);
+        debugLog('[exitComponentEditMode] Instance elements in DOM:', instanceElements.length);
         instanceElements.forEach((el, i) => {
-          console.log(`[exitComponentEditMode] DOM instance ${i}:`, {
+          debugLog(`[exitComponentEditMode] DOM instance ${i}:`, {
             instanceId: el.getAttribute('data-component-instance'),
             masterId: el.getAttribute('data-component-master'),
             elementId: el.getAttribute('data-element-id'),
@@ -532,11 +533,11 @@ export function useComponentEditMode({
 
       // Propagate master changes to all instances in the DOM
       const syncResult = propagateMasterChanges(updatedMaster, instancesArray, iframeDoc);
-      console.log('[exitComponentEditMode] Synced instances:', syncResult);
+      debugLog('[exitComponentEditMode] Synced instances:', syncResult);
 
       // Persist updated instances with their newly detected overrides
       if (syncResult.updatedInstances.length > 0) {
-        console.log('[exitComponentEditMode] Persisting updated instances with overrides:',
+        debugLog('[exitComponentEditMode] Persisting updated instances with overrides:',
           syncResult.updatedInstances.map(i => ({
             id: i.id,
             overridesCount: i.overrides.length,
@@ -576,7 +577,7 @@ export function useComponentEditMode({
   // Go to main component - enters component edit mode to directly edit the master in canvas
   const handleGoToMainComponent = useCallback(() => {
     if (!selectedElementInstance) return;
-    console.log('Go to main component:', selectedElementInstance.masterComponentId);
+    debugLog('Go to main component:', selectedElementInstance.masterComponentId);
     enterComponentEditMode(selectedElementInstance.masterComponentId);
   }, [selectedElementInstance, enterComponentEditMode]);
 
@@ -610,7 +611,7 @@ export function useComponentEditMode({
         }
       }
 
-      console.log('Detached instance:', selectedElementInstance.id);
+      debugLog('Detached instance:', selectedElementInstance.id);
       closeContextMenu();
       toast.success('インスタンスを解除しました');
     } catch (error) {
@@ -650,7 +651,7 @@ export function useComponentEditMode({
         }
       }
 
-      console.log('Reset overrides for instance:', selectedElementInstance.id);
+      debugLog('Reset overrides for instance:', selectedElementInstance.id);
       closeContextMenu();
       toast.success('オーバーライドをリセットしました');
     } catch (error) {
@@ -662,7 +663,7 @@ export function useComponentEditMode({
   // Push overrides to main (placeholder - requires more complex implementation)
   const handlePushOverridesToMain = useCallback(() => {
     if (!selectedElementInstance) return;
-    console.log('Push overrides to main - not yet implemented');
+    debugLog('Push overrides to main - not yet implemented');
     closeContextMenu();
     toast.info('この機能は現在開発中です');
   }, [selectedElementInstance, closeContextMenu]);

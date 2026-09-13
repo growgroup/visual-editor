@@ -6,6 +6,7 @@
  */
 
 import * as pako from 'pako';
+import { debugLog } from './debug';
 
 /**
  * WriteBuffer for encoding binary data in kiwi format
@@ -193,7 +194,7 @@ export function cacheSchema(schema: Schema, rawSchemaBytes?: Uint8Array): void {
   if (rawSchemaBytes) {
     cachedSchemaRaw = rawSchemaBytes;
   }
-  console.log('[figma-kiwi-encoder] Schema cached with', schema.definitions.length, 'definitions');
+  debugLog('[figma-kiwi-encoder] Schema cached with', schema.definitions.length, 'definitions');
 }
 
 /**
@@ -402,7 +403,7 @@ export function encodeMessage(
     nodeChanges: nodeChanges,
   };
 
-  console.log('[figma-kiwi-encoder] Message:', { type: 'NODE_CHANGES', sessionID, pasteID, nodeChangesCount: nodeChanges.length });
+  debugLog('[figma-kiwi-encoder] Message:', { type: 'NODE_CHANGES', sessionID, pasteID, nodeChangesCount: nodeChanges.length });
 
   // Encode the message
   encodeStruct(bb, message, messageDef, defMap);
@@ -537,28 +538,28 @@ export function generateFigmaClipboardHtml(
 
   // Encode message
   const messageData = encodeMessage(nodeChanges, schemaToUse);
-  console.log('[figma-kiwi-encoder] Encoded message size:', messageData.length);
+  debugLog('[figma-kiwi-encoder] Encoded message size:', messageData.length);
 
   // Compress data
   const dataCompressed = pako.deflateRaw(messageData);
-  console.log('[figma-kiwi-encoder] Compressed data size:', dataCompressed.length);
+  debugLog('[figma-kiwi-encoder] Compressed data size:', dataCompressed.length);
 
   // Get or encode schema
   let schemaCompressed: Uint8Array;
   if (cachedSchemaRaw) {
     // Re-use cached raw schema (already in correct format)
     schemaCompressed = cachedSchemaRaw;
-    console.log('[figma-kiwi-encoder] Using cached schema bytes');
+    debugLog('[figma-kiwi-encoder] Using cached schema bytes');
   } else {
     // Encode schema
     const schemaData = encodeBinarySchema(schemaToUse);
     schemaCompressed = pako.deflateRaw(schemaData);
-    console.log('[figma-kiwi-encoder] Encoded schema size:', schemaCompressed.length);
+    debugLog('[figma-kiwi-encoder] Encoded schema size:', schemaCompressed.length);
   }
 
   // Create archive
   const archive = createArchive(schemaCompressed, dataCompressed);
-  console.log('[figma-kiwi-encoder] Archive size:', archive.length);
+  debugLog('[figma-kiwi-encoder] Archive size:', archive.length);
 
   // Encode to base64
   const binaryString = Array.from(archive).map(b => String.fromCharCode(b)).join('');
@@ -578,6 +579,6 @@ export function generateFigmaClipboardHtml(
     : '';
   const html = `<meta charset="utf-8"><span data-metadata="<!--(figmeta)${base64Meta}(/figmeta)-->"></span><span data-buffer="<!--(figma)${base64Data}(/figma)-->"></span>${previewSpan}`;
 
-  console.log('[figma-kiwi-encoder] Generated clipboard HTML length:', html.length);
+  debugLog('[figma-kiwi-encoder] Generated clipboard HTML length:', html.length);
   return html;
 }

@@ -62,6 +62,15 @@ export const RULER_SIZE = 20;
 const VIEW_ANIMATION_MS = 240;
 /** 見るだけの紙面を同時に読む枚数 */
 const PREVIEW_PARALLEL = 4;
+/**
+ * 見るだけの紙面を画像で描く倍率のしきい値。これ未満に縮小されている間は
+ * srcdoc の iframe ではなく contentList[].thumbnail の画像を出す。
+ * 判定は操作が終わってからしか動かさない(縮小の途中で 26 枚を差し替えない)。
+ * 行き来でちらつかないように戻りは別のしきい値にする(ヒステリシス)
+ */
+export const PREVIEW_IMAGE_ZOOM = 0.5;
+/** 画像 → iframe に戻す倍率(PREVIEW_IMAGE_ZOOM 以上)。iframe → 画像は PREVIEW_IMAGE_ZOOM_OUT 未満 */
+export const PREVIEW_IMAGE_ZOOM_OUT = 0.4;
 
 /** フレームどうしの間隔(紙面の座標系、等倍のとき)。フレーム名を出すかの判定にも使う */
 export const FRAME_GAP: Record<EditorMode, { x: number; y: number }> = {
@@ -99,6 +108,8 @@ export interface PageFrame {
   depth: number;
   /** 編集しない表示の URL(contentList[].href) */
   href?: string;
+  /** ページ全体を写した画像の URL(contentList[].thumbnail)。大きく縮小した間だけ紙面の代わりに出す */
+  thumbnail?: string;
   /** 利用側が進める本文の版(contentList[].revision)。変わったら読み直す */
   revision: number;
   /**
@@ -242,6 +253,17 @@ export function useMultiPageCanvasOptional(): MultiPageCanvasContextValue | null
 export function useCanvasViewState(): CanvasViewState {
   const { viewStore } = useMultiPageCanvas();
   return useSyncExternalStore(viewStore.subscribe, viewStore.get, viewStore.get);
+}
+
+/**
+ * 編集中のページだけを購読する。
+ * useCanvasViewState() だと倍率・位置が変わるたびに描き直る(ホイール 1 段ごとに
+ * キャンバス全体が React を通る)。編集中のページしか要らない側はこちらを使う
+ */
+export function useCanvasActivePageId(): string | null {
+  const { viewStore } = useMultiPageCanvas();
+  const getSnapshot = useCallback(() => viewStore.get().activePageId, [viewStore]);
+  return useSyncExternalStore(viewStore.subscribe, getSnapshot, getSnapshot);
 }
 
 const NULL_VIEW_STORE: CanvasViewStore = {
@@ -487,6 +509,7 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
         const depth = depths.get(content.id) ?? 0;
         const revision = content.revision ?? 0;
         const href = content.href;
+        const thumbnail = content.thumbnail;
         if (existing) {
           const title = content.title || existing.title;
           const width = frameWidth;
@@ -499,9 +522,9 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
           if (
             title !== existing.title || html !== existing.html || width !== existing.size.width ||
             parentId !== existing.parentId || depth !== existing.depth || href !== existing.href ||
-            revision !== existing.revision || stale !== existing.stale
+            revision !== existing.revision || stale !== existing.stale || thumbnail !== existing.thumbnail
           ) changed = true;
-          next.set(content.id, { ...existing, title, html, stale, parentId, depth, href, revision, size: { width, height: existing.size.height } });
+          next.set(content.id, { ...existing, title, html, stale, parentId, depth, href, thumbnail, revision, size: { width, height: existing.size.height } });
         } else {
           changed = true;
           next.set(content.id, {
@@ -516,6 +539,7 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
             parentId,
             depth,
             href,
+            thumbnail,
             revision,
             stale: false,
           });

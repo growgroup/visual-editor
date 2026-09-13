@@ -10,6 +10,8 @@
  * (押せるのに何も起きないボタンを置かない)。
  */
 
+import { debugLog } from './debug';
+
 /** この環境でスポイトが使えるか */
 export function isEyeDropperSupported(): boolean {
   return typeof window !== 'undefined' && 'EyeDropper' in window;
@@ -29,7 +31,7 @@ export async function pickScreenColor(): Promise<string | null> {
     return result?.sRGBHex || null;
   } catch (e) {
     // Escでの取り消しもここに来るので、握りつぶしてよい
-    console.log('EyeDropper canceled or failed', e);
+    debugLog('EyeDropper canceled or failed', e);
     return null;
   }
 }

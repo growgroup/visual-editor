@@ -17,6 +17,7 @@ import {
 } from '../utils/dom-utils';
 import { generateEditableHtml } from '../utils/html-utils';
 import { extractElementInfo } from '../utils/style-utils';
+import { debugLog } from '../utils/debug';
 
 /**
  * iframeの初期化とイベントハンドラ設定を行うHook
@@ -357,7 +358,7 @@ export function useIframeInitializer() {
 
         element.addEventListener('mousedown', (e) => {
           const bodyClasses = iframeDoc.body.classList;
-          if (bodyClasses.contains('draw-mode') || bodyClasses.contains('text-mode')) return;
+          if (bodyClasses.contains('draw-mode') || bodyClasses.contains('text-mode') || bodyClasses.contains('comment-mode')) return;
           if (element.getAttribute('contenteditable') === 'true') return;
 
           e.preventDefault();
@@ -506,7 +507,7 @@ export function useIframeInitializer() {
           // 別の幅で崩れ、デザインツールへの取り込みで意味を失う。
           if (editorMode !== 'webpage') {
             const count = convertToAbsolutePositioning(iframeDoc);
-            console.log('[Editor] 絶対配置へ変換:', count, '要素');
+            debugLog('[Editor] 絶対配置へ変換:', count, '要素');
           }
 
           // 変更を通知
@@ -567,7 +568,7 @@ export function useIframeInitializer() {
     const iframeDoc = getIframeDoc();
     if (iframeDoc?.body) {
       iframeDoc.body.classList.remove(
-        'move-mode', 'draw-mode', 'text-mode',
+        'move-mode', 'draw-mode', 'text-mode', 'comment-mode',
         'tool-rectangle', 'tool-ellipse', 'tool-line', 'tool-arrow',
         'tool-pen', 'tool-pencil', 'tool-text', 'tool-frame'
       );
@@ -578,6 +579,8 @@ export function useIframeInitializer() {
         iframeDoc.body.classList.add('draw-mode', `tool-${activeTool}`);
       } else if (activeTool === 'text') {
         iframeDoc.body.classList.add('text-mode', 'tool-text');
+      } else if (activeTool === 'comment') {
+        iframeDoc.body.classList.add('comment-mode');
       }
     }
   }, [activeTool, getIframeDoc]);

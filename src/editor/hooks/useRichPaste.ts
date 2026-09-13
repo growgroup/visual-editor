@@ -18,6 +18,7 @@ import {
   PasteProcessResult,
 } from '../utils/paste-processors';
 import { fetchAndApplyFigmaImages } from '../utils/figma-paste';
+import { debugLog } from '../utils/debug';
 
 /**
  * Result of a rich paste operation
@@ -95,7 +96,7 @@ export function useRichPaste() {
 
     // Detect content type (or use forced type)
     const contentType = forceContentType || detectContentType(clipboardData);
-    console.log('[useRichPaste] Detected content type:', contentType, forceContentType ? '(forced)' : '');
+    debugLog('[useRichPaste] Detected content type:', contentType, forceContentType ? '(forced)' : '');
 
     // Skip images (handled by useImageUpload)
     if (contentType === 'image') {
@@ -176,7 +177,7 @@ export function useRichPaste() {
       }
     }
 
-    console.log('[useRichPaste] Successfully pasted', pastedIds.length, 'elements');
+    debugLog('[useRichPaste] Successfully pasted', pastedIds.length, 'elements');
 
     // For Figma content, fetch and apply images asynchronously
     let figmaImagesApplied: number | undefined;
@@ -190,7 +191,7 @@ export function useRichPaste() {
       result.figmaFileKey &&
       (hasImageHashes || hasImageNodeIds)
     ) {
-      console.log('[useRichPaste] Fetching Figma images...',
+      debugLog('[useRichPaste] Fetching Figma images...',
         hasImageHashes ? `${result.figmaImageHashes!.length} hashes` : 'no hashes',
         hasImageNodeIds ? `${result.figmaImageNodeIds!.length} nodeIds` : 'no nodeIds',
       );
@@ -211,7 +212,7 @@ export function useRichPaste() {
       if (imageResult.applied > 0) {
         // Notify change again since images were applied
         notifyIframeChange();
-        console.log(`[useRichPaste] Applied ${imageResult.applied} Figma images`);
+        debugLog(`[useRichPaste] Applied ${imageResult.applied} Figma images`);
       }
     }
 
@@ -228,21 +229,21 @@ export function useRichPaste() {
    * Debug helper: Log clipboard contents
    */
   const debugClipboard = useCallback((clipboardData: DataTransfer): void => {
-    console.log('[useRichPaste] === Clipboard Debug ===');
-    console.log('Available types:', Array.from(clipboardData.types));
+    debugLog('[useRichPaste] === Clipboard Debug ===');
+    debugLog('Available types:', Array.from(clipboardData.types));
 
     clipboardData.types.forEach((type) => {
       const data = clipboardData.getData(type);
-      console.log(`[${type}]:`, data.substring(0, 500) + (data.length > 500 ? '...' : ''));
+      debugLog(`[${type}]:`, data.substring(0, 500) + (data.length > 500 ? '...' : ''));
     });
 
-    console.log('Items:', Array.from(clipboardData.items).map(item => ({
+    debugLog('Items:', Array.from(clipboardData.items).map(item => ({
       kind: item.kind,
       type: item.type,
     })));
 
-    console.log('Detected type:', detectContentType(clipboardData));
-    console.log('[useRichPaste] === End Debug ===');
+    debugLog('Detected type:', detectContentType(clipboardData));
+    debugLog('[useRichPaste] === End Debug ===');
   }, []);
 
   return {

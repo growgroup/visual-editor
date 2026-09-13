@@ -30,6 +30,7 @@ import {
 } from '../utils/viewport-utils';
 import type { SerializedElement, BoundingBox, StyleClipboard, ClipboardData } from '../types';
 import type { globalLastUsedStylesRef } from '../contexts/EditorRefsContext';
+import { debugLog } from '../utils/debug';
 
 /**
  * 要素の種類を判定（shape / text / line）
@@ -202,7 +203,7 @@ function captureLastUsedStyles(
   lastUsedStylesRef: typeof globalLastUsedStylesRef
 ) {
   const category = getElementCategory(el);
-  console.log('[captureLastUsedStyles] Category:', category, 'Styles:', styles);
+  debugLog('[captureLastUsedStyles] Category:', category, 'Styles:', styles);
 
   if (category === 'shape') {
     const shapeStyles: Partial<typeof lastUsedStylesRef.current.shape> = {};
@@ -214,7 +215,7 @@ function captureLastUsedStyles(
     if (styles.opacity) shapeStyles.opacity = styles.opacity;
     if (Object.keys(shapeStyles).length > 0) {
       lastUsedStylesRef.updateShape(shapeStyles);
-      console.log('[captureLastUsedStyles] Updated shape styles:', shapeStyles);
+      debugLog('[captureLastUsedStyles] Updated shape styles:', shapeStyles);
     }
   } else if (category === 'text') {
     const textStyles: Partial<typeof lastUsedStylesRef.current.text> = {};
@@ -227,7 +228,7 @@ function captureLastUsedStyles(
     if (styles.textAlign) textStyles.textAlign = styles.textAlign;
     if (Object.keys(textStyles).length > 0) {
       lastUsedStylesRef.updateText(textStyles);
-      console.log('[captureLastUsedStyles] Updated text styles:', textStyles);
+      debugLog('[captureLastUsedStyles] Updated text styles:', textStyles);
     }
   } else if (category === 'line') {
     const lineStyles: Partial<typeof lastUsedStylesRef.current.line> = {};
@@ -235,7 +236,7 @@ function captureLastUsedStyles(
     if (styles.strokeWidth) lineStyles.strokeWidth = styles.strokeWidth;
     if (Object.keys(lineStyles).length > 0) {
       lastUsedStylesRef.updateLine(lineStyles);
-      console.log('[captureLastUsedStyles] Updated line styles:', lineStyles);
+      debugLog('[captureLastUsedStyles] Updated line styles:', lineStyles);
     }
   }
 }
@@ -533,11 +534,11 @@ export function useElementActions() {
 
     // 複数選択されている場合は全て更新
     if (selectedElementIds.length > 0) {
-      console.log('[DEBUG useElementActions] Applying styles to', selectedElementIds.length, 'elements');
+      debugLog('[DEBUG useElementActions] Applying styles to', selectedElementIds.length, 'elements');
       selectedElementIds.forEach(id => {
         const el = getIframeElement(iframeDoc, id);
         if (el) {
-          console.log('[DEBUG useElementActions] Applying to element:', id);
+          debugLog('[DEBUG useElementActions] Applying to element:', id);
           applyStylesWithViewportHandling(el, styles);
         }
       });
@@ -699,7 +700,7 @@ export function useElementActions() {
             if (newInstance) {
               // 新しいインスタンスIDで属性を更新
               clone.setAttribute('data-component-instance', newInstance.id);
-              console.log('[duplicateElement] Created new component instance:', newInstance.id, 'from:', instanceId);
+              debugLog('[duplicateElement] Created new component instance:', newInstance.id, 'from:', instanceId);
             }
           } catch (error) {
             // インスタンス作成に失敗した場合、コンポーネント属性を削除（通常要素として複製）
@@ -1159,7 +1160,7 @@ export function useElementActions() {
     const convertChildrenToAbsolute = async () => {
       // オートレイアウトモードの場合は変換をスキップ
       if (layoutMode === 'auto') {
-        console.log('[groupElements] Auto layout mode - skipping absolute positioning conversion');
+        debugLog('[groupElements] Auto layout mode - skipping absolute positioning conversion');
         return;
       }
 
@@ -1175,7 +1176,7 @@ export function useElementActions() {
           convertSingleElementToAbsolute(iframeDoc, el);
         });
 
-        console.log('[groupElements] Converted', elements.length, 'child elements to absolute positioning');
+        debugLog('[groupElements] Converted', elements.length, 'child elements to absolute positioning');
         notifyIframeChange();
       } catch (err) {
         console.error('[groupElements] Error converting children:', err);
@@ -1206,7 +1207,7 @@ export function useElementActions() {
 
     // グループ解除可能かどうかを判定（詳細な条件をチェック）
     if (!canUngroup(parent)) {
-      console.log('[ungroupElements] Element cannot be ungrouped:', parent.tagName);
+      debugLog('[ungroupElements] Element cannot be ungrouped:', parent.tagName);
       return;
     }
 
@@ -1226,7 +1227,7 @@ export function useElementActions() {
     });
 
     if (children.length === 0) {
-      console.log('[ungroupElements] No editable children to ungroup');
+      debugLog('[ungroupElements] No editable children to ungroup');
       return;
     }
 
@@ -1307,7 +1308,7 @@ export function useElementActions() {
     const finalizePositioning = async () => {
       // オートレイアウトモードの場合は変換をスキップ
       if (layoutMode === 'auto') {
-        console.log('[ungroupElements] Auto layout mode - skipping absolute positioning conversion');
+        debugLog('[ungroupElements] Auto layout mode - skipping absolute positioning conversion');
         return;
       }
 
@@ -1322,7 +1323,7 @@ export function useElementActions() {
           convertSingleElementToAbsolute(iframeDoc, el);
         });
 
-        console.log('[ungroupElements] Converted', childElements.length, 'elements to absolute positioning');
+        debugLog('[ungroupElements] Converted', childElements.length, 'elements to absolute positioning');
         notifyIframeChange();
       } catch (err) {
         console.error('[ungroupElements] Error finalizing positions:', err);
@@ -1335,7 +1336,7 @@ export function useElementActions() {
     setSelectedElement(null);
     notifyIframeChange();
 
-    console.log('[ungroupElements] Ungrouped', childIds.length, 'elements from', selectedElement.id);
+    debugLog('[ungroupElements] Ungrouped', childIds.length, 'elements from', selectedElement.id);
   }, [selectedElement, getIframeDoc, setSelectedElementIds, setSelectedElement, notifyIframeChange]);
 
   /**
@@ -1525,10 +1526,10 @@ export function useElementActions() {
    * Ctrl/Cmd + Alt + C
    */
   const copyStyle = useCallback(() => {
-    console.log('[copyStyle] Called, selectedElement:', selectedElement?.id);
+    debugLog('[copyStyle] Called, selectedElement:', selectedElement?.id);
     const iframeDoc = getIframeDoc();
     if (!iframeDoc || !selectedElement) {
-      console.log('[copyStyle] No element selected or no iframeDoc');
+      debugLog('[copyStyle] No element selected or no iframeDoc');
       return false;
     }
 
@@ -1600,8 +1601,8 @@ export function useElementActions() {
     ) as StyleClipboard;
 
     styleClipboardRef.current = cleanedStyle;
-    console.log('[copyStyle] Style copied:', cleanedStyle);
-    console.log('[copyStyle] Clipboard after setting:', styleClipboardRef.current);
+    debugLog('[copyStyle] Style copied:', cleanedStyle);
+    debugLog('[copyStyle] Clipboard after setting:', styleClipboardRef.current);
     return true;
   }, [selectedElement, getIframeDoc, styleClipboardRef]);
 
@@ -1610,17 +1611,17 @@ export function useElementActions() {
    * Ctrl/Cmd + Alt + V
    */
   const pasteStyle = useCallback(() => {
-    console.log('[pasteStyle] Called');
-    console.log('[pasteStyle] styleClipboardRef.current:', styleClipboardRef.current);
+    debugLog('[pasteStyle] Called');
+    debugLog('[pasteStyle] styleClipboardRef.current:', styleClipboardRef.current);
     const iframeDoc = getIframeDoc();
     if (!iframeDoc) {
-      console.log('[pasteStyle] No iframeDoc');
+      debugLog('[pasteStyle] No iframeDoc');
       return false;
     }
 
     const copiedStyle = styleClipboardRef.current;
     if (!copiedStyle || Object.keys(copiedStyle).length === 0) {
-      console.log('[pasteStyle] No style in clipboard');
+      debugLog('[pasteStyle] No style in clipboard');
       return false;
     }
 
@@ -1630,7 +1631,7 @@ export function useElementActions() {
       : selectedElement ? [selectedElement.id] : [];
 
     if (targetIds.length === 0) {
-      console.log('[pasteStyle] No element selected');
+      debugLog('[pasteStyle] No element selected');
       return false;
     }
 
@@ -1707,7 +1708,7 @@ export function useElementActions() {
       }
     }
 
-    console.log('[pasteStyle] Style pasted to', targetIds.length, 'element(s)');
+    debugLog('[pasteStyle] Style pasted to', targetIds.length, 'element(s)');
     return true;
   }, [selectedElement, selectedElementIds, getIframeDoc, styleClipboardRef, notifyIframeChange, setSelectedElement]);
 
@@ -1754,13 +1755,13 @@ export function useElementActions() {
       return { success: false, error: 'Selected elements not found in document' };
     }
 
-    console.log('[copyToFigma] Copying', elements.length, 'element(s) to Figma format');
+    debugLog('[copyToFigma] Copying', elements.length, 'element(s) to Figma format');
 
     try {
       const result = await copyElementsToFigma(elements);
 
       if (result.success) {
-        console.log('[copyToFigma] Successfully copied', result.nodeCount, 'nodes to clipboard');
+        debugLog('[copyToFigma] Successfully copied', result.nodeCount, 'nodes to clipboard');
         return { success: true, nodeCount: result.nodeCount };
       } else {
         console.error('[copyToFigma] Failed:', result.error);

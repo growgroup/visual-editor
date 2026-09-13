@@ -13,6 +13,7 @@ import { createAuthApi } from '../../lib/api/auth-fetch';
 import { convertSingleElementToAbsolute, generateElementId } from '../utils/dom-utils';
 import type { SlideAgentRequest, SlideAgentResponse, AttachedFile as SlideAttachedFile } from '../../lib/agent/slide-agent/types';
 import type { WebsiteAgentRequest, WebsiteAgentResponse, AttachedFile as WebsiteAttachedFile } from '../../lib/agent/website-agent/types';
+import { debugLog } from '../utils/debug';
 
 // AttachedFile型を共通化（両方同じ構造）
 export type AttachedFile = SlideAttachedFile;
@@ -176,7 +177,7 @@ export function useAiReplace({ presentationId, websiteId }: UseAiReplaceProps = 
       const convertChildrenToAbsolute = async () => {
         // オートレイアウトモードの場合は変換をスキップ
         if (layoutMode === 'auto') {
-          console.log('[useAiReplace] Auto layout mode - skipping absolute positioning conversion for children');
+          debugLog('[useAiReplace] Auto layout mode - skipping absolute positioning conversion for children');
           return;
         }
 
@@ -196,7 +197,7 @@ export function useAiReplace({ presentationId, websiteId }: UseAiReplaceProps = 
             convertSingleElementToAbsolute(iframeDoc, htmlChild);
           });
 
-          console.log('[useAiReplace] Converted', editableChildren.length, 'child elements to absolute positioning');
+          debugLog('[useAiReplace] Converted', editableChildren.length, 'child elements to absolute positioning');
           
           // 変更を再度通知
           notifyIframeChange();
@@ -263,7 +264,7 @@ export function useAiReplace({ presentationId, websiteId }: UseAiReplaceProps = 
       // editorModeに基づいてAPI呼び出しを分岐
       const isWebpageMode = editorMode === 'webpage';
 
-      console.log('[useAiReplace] API呼び出し:', {
+      debugLog('[useAiReplace] API呼び出し:', {
         editorMode,
         apiEndpoint: isWebpageMode ? '/api/website-agent' : '/api/slide-agent',
         promptLength: prompt.length,

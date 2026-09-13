@@ -64,12 +64,6 @@ export function isFreeLayoutContainer(element: HTMLElement): boolean {
   return element.classList.contains(FREELAYOUT_CLASS);
 }
 
-/** この要素は自由配置の器の直下にいるか(ドラッグの判定で使う) */
-export function isFreeLayoutChild(element: HTMLElement): boolean {
-  const parent = element.parentElement;
-  return !!parent && typeof parent.classList?.contains === 'function' && isFreeLayoutContainer(parent);
-}
-
 /** 実体のある直接の子だけを取り出す(エディタの飾りと script/style を外す) */
 export function layoutChildren(container: HTMLElement): HTMLElement[] {
   const out: HTMLElement[] = [];

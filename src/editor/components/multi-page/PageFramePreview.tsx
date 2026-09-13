@@ -52,7 +52,7 @@ interface PageFramePreviewProps {
 }
 
 export const PageFramePreview = memo(function PageFramePreview({ page, rootRef, imageMode = false, preloadImage = false }: PageFramePreviewProps) {
-  const { editorMode, ensurePageHtml, setPageHeight, previewStyles, requestPreviewSlot, releasePreviewSlot, documentAttributes } = useMultiPageCanvas();
+  const { editorMode, ensurePageHtml, setPageHeight, previewStyles, requestPreviewSlot, releasePreviewSlot, documentAttributes, reportThumbnailWidth } = useMultiPageCanvas();
   const documentAttributesRef = useRef(documentAttributes);
   documentAttributesRef.current = documentAttributes;
   const hostRef = useRef<HTMLDivElement>(null);
@@ -228,6 +228,8 @@ export const PageFramePreview = memo(function PageFramePreview({ page, rootRef, 
             const img = e.currentTarget;
             if (!img.naturalWidth || !img.naturalHeight) return;
             setPageHeight(page.id, (page.size.width * img.naturalHeight) / img.naturalWidth, 'preview');
+            // 画像を出してよい倍率の上限は、いちばん粗い画像に合わせて決まる(にじませないため)
+            reportThumbnailWidth(page.id, img.naturalWidth);
           }}
           onError={() => setImageFailed(true)}
         />

@@ -232,6 +232,37 @@ export function isInlineElement(element: HTMLElement, computedStyle?: CSSStyleDe
  * EditorCanvas側のエフェクト(スライダー等の状態駆動の経路)も同じ関数を使い、
  * 適用ロジックの二重実装を作らない。
  */
+/**
+ * ズームが止まってから will-change を外すまでの間(ms)。
+ * 操作が続いている間は張り直されるので、実質「最後の 1 段から 200ms」
+ */
+const ZOOM_WILL_CHANGE_RELEASE_MS = 200;
+/** wrapper ごとの後始末タイマー(iframe が差し替わったら参照ごと消える) */
+const zoomWillChangeTimers = new WeakMap<HTMLElement, number>();
+
+/**
+ * ズーム中だけ will-change: transform を付ける。
+ *
+ * 付けっぱなしにすると、Chrome は倍率が変わっても層を作り直さない。67% で描いたラスタを
+ * 384% へ引き伸ばして出すので、手を止めても文字がにじんだまま残る(DPR 2 の実機で再現)。
+ * 外した瞬間に今の倍率で描き直されてくっきりする。次のホイールでまた付くので、
+ * 操作中の滑らかさは変わらない(マルチフレームのキャンバスの転写層も同じ考え方で、
+ * あちらは isInteracting の間だけ付けている)
+ */
+function markZooming(wrapper: HTMLElement, view: (Window & typeof globalThis) | null): void {
+  wrapper.style.willChange = 'transform';
+  if (!view) return;
+  const previous = zoomWillChangeTimers.get(wrapper);
+  if (previous != null) view.clearTimeout(previous);
+  zoomWillChangeTimers.set(
+    wrapper,
+    view.setTimeout(() => {
+      zoomWillChangeTimers.delete(wrapper);
+      wrapper.style.willChange = '';
+    }, ZOOM_WILL_CHANGE_RELEASE_MS),
+  );
+}
+
 export function applyCanvasZoomDom(iframeDoc: Document, zoomPct: number): void {
   // 埋め込み(マルチフレームのキャンバス内)では倍率は外側の CSS transform が持つ。
   // iframe の中は常に等倍で、スクロール領域も作らない
@@ -243,7 +274,7 @@ export function applyCanvasZoomDom(iframeDoc: Document, zoomPct: number): void {
   if (!wrapper || !scrollArea || !container || !artboard) return;
 
   const scale = zoomPct / 100;
-  wrapper.style.willChange = 'transform';
+  markZooming(wrapper, iframeDoc.defaultView);
   wrapper.style.transform = `scale(${scale})`;
 
   const w = artboard.offsetWidth;

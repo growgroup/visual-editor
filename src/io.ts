@@ -36,15 +36,36 @@ export type EditorContent = {
   comments?: EditorComment[];
 };
 
+/**
+ * 範囲アンカー。紙面(`#artboard`)の左上を原点にした px。
+ * `ref` は投稿したときの紙面の大きさ。紙面の幅が変わったら(ノート欄の有無など)
+ * 横方向だけ幅の比で補正する。縦は内容が増減すると動くので補正しない。
+ * width / height が 0 のときは「点」(クリックで置いたピン)。
+ */
+export type CommentRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  ref?: { width: number; height: number };
+};
+
 export type EditorComment = {
   id: string;
   author: string;
   text: string;
   createdAt: string;
   resolved?: boolean;
+  /**
+   * ページ内の通し番号(投稿順)。削除しても振り直さないので、返信で「#3 の件」と
+   * 書いても指す先が変わらない。ホストが採番する(無いホストでは付かない)
+   */
+  seq?: number;
   /** 要素アンカー。無ければ全体へのコメント */
   anchorSrc?: string;
   anchorLabel?: string;
+  /** 範囲アンカー(紙面の px)。要素アンカーより優先して表示する */
+  anchorRect?: CommentRect;
   replies?: { id: string; author: string; text: string; createdAt: string }[];
 };
 
@@ -55,7 +76,7 @@ export type EditorDeck = {
 };
 
 export type CommentAction =
-  | { action: "add"; author: string; text: string; anchorSrc?: string; anchorLabel?: string }
+  | { action: "add"; author: string; text: string; anchorSrc?: string; anchorLabel?: string; anchorRect?: CommentRect }
   | { action: "reply"; commentId: string; author: string; text: string }
   | { action: "resolve"; commentId: string; resolved: boolean }
   | { action: "delete"; commentId: string };

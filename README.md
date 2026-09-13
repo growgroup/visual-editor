@@ -9,7 +9,7 @@ HTML をブラウザ上で直接編集するビジュアルエディタ（React 
 - レイヤーツリー、複数選択、グループ化、undo/redo
 - Figma からの貼り付け（クリップボード経由）
 - 画像の差し替え・アップロード
-- コメント（返信・解決つき）。要素を選んで投稿すると、その要素に紐づいて吹き出しが出る
+- コメント（返信・解決つき）。要素を選んで投稿するとその要素に、コメントツール(C)で紙面をドラッグするとその範囲に紐づいて番号付きのピンが出る
 - CSS 変数（デザイントークン）の一覧と編集。保存先は io で差し替えられる（例: Tailwind v4 の `@theme`）
 - 再利用できる部品の登録と差し込み。部品は HTML の `<template data-part-def>`（利用側のファイル）を正本にできる
 
@@ -142,6 +142,10 @@ setEditorIO({
 ```ts
 import type { EditorIO } from "@growgroup/visual-editor";
 ```
+
+コメントの `add` には `anchorSrc` / `anchorLabel`（要素）のほかに `anchorRect`（紙面の px の矩形。0.4.0）が付くことがあります。
+ホストはそのまま保存し、ページ内の通し番号 `seq` を採番して返すと、ピンに番号が出ます（採番しなくても動きます）。
+詳しくは [docs/region-comments-2026-09.md](docs/region-comments-2026-09.md)。
 
 ### 部品 — HTML の `<template>` を正本にする（0.2）
 

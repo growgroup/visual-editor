@@ -10,11 +10,13 @@ export function EditorFooter() {
   const cmd = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
   const hint = activeTool === 'move' ? 'ドラッグで紙面を移動 · V で選択に戻る'
     : activeTool === 'scale' ? 'ドラッグで拡大・縮小 · V で選択に戻る'
+    : activeTool === 'comment' ? '紙面をドラッグして範囲を指定 · クリックで点 · Esc で選択に戻る'
     : activeTool !== 'select' ? 'ドラッグで追加 · Esc でキャンセル'
     : selectedElement || selectedElementIds.length ? 'ダブルクリックで文字を編集 · Esc で選択を解除'
     : 'クリックで選択 · Space＋ドラッグで紙面を移動';
   const shortcuts = [
     ['選択 / 移動 / 拡大・縮小', 'V / H / K'],
+    ['コメント(範囲を指定)', 'C'],
     ['元に戻す / やり直し', `${cmd}Z / ${cmd}⇧Z`],
     ['保存', `${cmd}S`], ['複製', `${cmd}D`],
     ['全体表示 / 100% / 選択範囲', `${cmd}0 / ${cmd}1 / ${cmd}2`],

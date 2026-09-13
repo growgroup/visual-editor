@@ -946,6 +946,7 @@ export function EditorCanvas() {
         "move-mode",
         "draw-mode",
         "text-mode",
+        "comment-mode",
         "tool-rectangle",
         "tool-ellipse",
         "tool-line",
@@ -975,6 +976,9 @@ export function EditorCanvas() {
         iframeDoc.body.classList.add("draw-mode", `tool-${activeTool}`);
       } else if (activeTool === "text") {
         iframeDoc.body.classList.add("text-mode", "tool-text");
+      } else if (activeTool === "comment") {
+        // コメントの範囲指定。要素の選択・ホバーを止め、紙面のドラッグを範囲にする
+        iframeDoc.body.classList.add("comment-mode");
       }
     }
   }, [activeTool, getIframeDoc]);

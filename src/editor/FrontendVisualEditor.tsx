@@ -35,7 +35,7 @@ import { registerAutoSaveFlush, flushAutoSave, beginContentSwitch, endContentSwi
 import { getCleanHtml } from './utils/html-utils';
 import { EditorAppearanceContext, useEditorTheme } from './contexts/EditorAppearanceContext';
 import { CanvasAppearance } from './components/shell/CanvasAppearance';
-import { can, io } from '../io';
+import { can, io, type CommentRect } from '../io';
 import { insertIntoFlow } from './parts';
 import type { Slide } from '../types/slide';
 import {
@@ -374,6 +374,11 @@ function FrontendVisualEditorInner({
   const [pptFormatPaneOpen, setPptFormatPaneOpen] = useState(false);
   const [pptCommentFocus, setPptCommentFocus] = useState(0);
   const [pptActiveThread, setPptActiveThread] = useState<string | null>(null);
+  // コメントツール(C)で指定した範囲の下書き。投稿・解除・Esc・ページ切替で消える
+  const [commentDraftRect, setCommentDraftRect] = useState<CommentRect | null>(null);
+  const commentDraftRectRef = useRef<CommentRect | null>(null);
+  commentDraftRectRef.current = commentDraftRect;
+  useEffect(() => { setCommentDraftRect(null); }, [currentContentId]);
 
   // CSS変数パネル状態
   const [isVariablesPanelOpen, setIsVariablesPanelOpen] = useState(false);
@@ -1672,6 +1677,14 @@ function FrontendVisualEditorInner({
     // Scaleツールなど特定のツールを使用中の場合、選択ツールに戻す
     if (activeTool !== 'select') {
       setActiveTool('select');
+      // コメントツールを抜けるだけ(下書きは次の Esc で消す = 1 段ずつ戻る)
+      if (activeTool === 'comment') return;
+    }
+
+    // コメントの範囲の下書きがあれば、それを解除して終わり
+    if (commentDraftRectRef.current) {
+      setCommentDraftRect(null);
+      return;
     }
 
     if (iframeDoc) {
@@ -1863,6 +1876,8 @@ function FrontendVisualEditorInner({
     eraser: () => setActiveTool('eraser'),
     text: () => setActiveTool('text'),
     frame: () => setActiveTool('frame'),
+    // コメントの範囲指定(コメント機能があるホストだけ)
+    comment: can('commentAction') ? () => setActiveTool('comment') : undefined,
     // 編集操作
     // undo/redo は常に生やす（履歴が無いときは内部で何もしない）。
     // 条件付きで undefined にするとブラウザ既定の取り消しが走ってしまう。
@@ -2022,6 +2037,7 @@ function FrontendVisualEditorInner({
                       setPptCommentsOpen(true);
                       setPptCommentFocus((n) => n + 1);
                     },
+                    pickRegion: () => setActiveTool('comment'),
                   }}
                 />
               </>
@@ -2172,6 +2188,7 @@ function FrontendVisualEditorInner({
             onImageUpload={() => openFilePicker({ x: 100, y: 100 })}
             onOpenMediaLibrary={can('apiFetch') ? () => setIsMediaLibraryOpen(true) : undefined}
             isMediaReplaceMode={isImageSelected}
+            canComment={can('commentAction')}
             onAiRegenerate={can('apiFetch') && selectedElement && selectedElementIds.length <= 1 ? openAiPrompt : undefined}
             onOpenVariables={() => setIsVariablesPanelOpen(true)}
             hasVariables={hasVariables}
@@ -2218,8 +2235,21 @@ function FrontendVisualEditorInner({
           <PptCommentMarkers
             page={Number(currentContentId ?? contentId) || 1}
             onOpenThread={(id) => {
+              setPptFormatPaneOpen(false);
               setPptCommentsOpen(true);
               setPptActiveThread(id);
+            }}
+            activeThreadId={pptCommentsOpen ? pptActiveThread : null}
+            draftRect={commentDraftRect}
+            regionActive={activeTool === 'comment'}
+            onRegion={(rect) => {
+              // 範囲が決まったら選択ツールに戻し、パネルを開いて本文へフォーカス
+              setCommentDraftRect(rect);
+              setActiveTool('select');
+              setPptFormatPaneOpen(false);
+              setPptCommentsOpen(true);
+              setPptActiveThread(null);
+              setPptCommentFocus((n) => n + 1);
             }}
           />
         )}
@@ -2235,6 +2265,9 @@ function FrontendVisualEditorInner({
             focusSignal={pptCommentFocus}
             activeThreadId={pptActiveThread}
             onActiveThread={setPptActiveThread}
+            pendingRect={commentDraftRect}
+            onClearPendingRect={() => setCommentDraftRect(null)}
+            onPickRegion={() => setActiveTool('comment')}
           />
           </div>
         )}

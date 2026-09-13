@@ -925,7 +925,8 @@ export function useElementSelection(
         const bodyClasses = iframeDoc.body.classList;
         if (
           bodyClasses.contains("draw-mode") ||
-          bodyClasses.contains("text-mode")
+          bodyClasses.contains("text-mode") ||
+          bodyClasses.contains("comment-mode")
         )
           return;
 
@@ -1421,7 +1422,8 @@ export function useElementSelection(
         if (bodyClasses.contains("gg-cropping")) return;
         if (
           bodyClasses.contains("draw-mode") ||
-          bodyClasses.contains("text-mode")
+          bodyClasses.contains("text-mode") ||
+          bodyClasses.contains("comment-mode")
         )
           return;
 

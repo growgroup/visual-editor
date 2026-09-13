@@ -278,7 +278,7 @@ export function useIframeSetup(): UseIframeSetupReturn {
       const handleMouseMove = (e: MouseEvent) => {
         // 描画モードやテキストモードでは無効
         const bodyClasses = iframeDoc.body.classList;
-        if (bodyClasses.contains('draw-mode') || bodyClasses.contains('text-mode') || bodyClasses.contains('move-mode')) {
+        if (bodyClasses.contains('draw-mode') || bodyClasses.contains('text-mode') || bodyClasses.contains('move-mode') || bodyClasses.contains('comment-mode')) {
           if (currentHoveredTextElement) {
             currentHoveredTextElement.classList.remove('text-editable-hover');
             currentHoveredTextElement = null;

@@ -31,6 +31,7 @@ import {
   Shapes,
   Type,
   Frame,
+  MessageSquare,
   Undo2,
   Redo2,
   Group,
@@ -71,6 +72,8 @@ export interface EditorToolbarExtendedProps extends EditorToolbarProps {
   onOpenMediaLibrary?: () => void;
   /** <img> 選択中は「差し替え」表記にする */
   isMediaReplaceMode?: boolean;
+  /** コメント機能があるホストではコメントツール(C)を出す */
+  canComment?: boolean;
 }
 
 // Icon mapping
@@ -88,6 +91,7 @@ const TOOL_ICONS: Record<EditorTool, LucideIcon> = {
   eraser: Eraser,
   shape: Shapes,
   text: Type,
+  comment: MessageSquare,
 };
 
 interface ToolButtonProps {
@@ -206,6 +210,7 @@ export const EditorToolbar = memo(function EditorToolbar({
   hasComponents,
   onOpenMediaLibrary,
   isMediaReplaceMode,
+  canComment = false,
 }: EditorToolbarExtendedProps) {
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
   const cmdKey = isMac ? '⌘' : 'Ctrl+';
@@ -222,6 +227,7 @@ export const EditorToolbar = memo(function EditorToolbar({
   const drawingTools = TOOL_CONFIGS.filter(t => t.group === 'drawing');
   const textTools = TOOL_CONFIGS.filter(t => t.group === 'text');
   const frameTools = TOOL_CONFIGS.filter(t => t.group === 'frame');
+  const commentTools = canComment ? TOOL_CONFIGS.filter(t => t.group === 'comment') : [];
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -240,8 +246,8 @@ export const EditorToolbar = memo(function EditorToolbar({
 
           <Separator orientation="vertical" className="mx-1 h-6 bg-white/15" />
 
-          {/* 選択・移動系(常時) */}
-          {selectionTools.map((tool) => (
+          {/* 選択・移動系(常時)。コメントツールはコメント機能のあるホストだけ */}
+          {[...selectionTools, ...commentTools].map((tool) => (
             <ToolButton
               key={tool.id}
               tool={tool.id}

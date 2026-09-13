@@ -95,6 +95,7 @@ import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
 import { clearPartDropIndicator } from './utils/drop-target';
 import { debugLog } from './utils/debug';
+import { useCollab } from './collab/useCollab';
 
 /**
  * 自動保存のデバウンス(ms)。
@@ -321,6 +322,13 @@ function FrontendVisualEditorInner({
 
   const { getIdToken } = useAuth();
   const hasComponents = masterComponents.size > 0;
+
+  // リアルタイム共同編集(io.collab があるときだけ動く。無ければ何もしない)
+  const collab = useCollab({
+    contentId: currentContentId ?? contentId ?? null,
+    getIframeDoc,
+    selectedIds: selectedElementIds.length > 0 ? selectedElementIds : selectedElement?.id ? [selectedElement.id] : [],
+  });
 
   // ドラッグ&ドロップ状態
   const [isDraggingOver, setIsDraggingOver] = useState(false);

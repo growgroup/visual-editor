@@ -1,6 +1,6 @@
 {
   "name": "@growgroup/visual-editor",
-  "version": "0.4.1",
+  "version": "0.6.0",
   "description": "HTMLをブラウザ上で直接編集するビジュアルエディタ。スライド(固定サイズ)とWebページ(可変高さ)の両方に使え、保存先はアダプタで差し替えられます。",
   "keywords": [
     "visual-editor",
@@ -58,6 +58,7 @@
     "react-dom": "^18.3.1 || ^19"
   },
   "dependencies": {
+    "@hocuspocus/provider": "^3.4.4",
     "@radix-ui/react-accordion": "^1.2.20",
     "@radix-ui/react-alert-dialog": "^1.1.23",
     "@radix-ui/react-checkbox": "^1.3.11",
@@ -78,13 +79,17 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "dompurify": "^3.4.12",
+    "fast-diff": "^1.3.0",
     "fig-kiwi": "^0.0.1",
+    "idiomorph": "^0.8.0",
     "kiwi-schema": "^0.5.0",
     "lucide-react": "^1.27.0",
     "pako": "^3.0.1",
     "react-colorful": "^5.8.0",
     "sonner": "^2.0.8",
-    "tailwind-merge": "^3.6.0"
+    "tailwind-merge": "^3.6.0",
+    "y-protocols": "^1.0.7",
+    "yjs": "^13.6.30"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.1.4",

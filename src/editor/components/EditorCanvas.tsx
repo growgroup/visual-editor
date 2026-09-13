@@ -32,6 +32,8 @@ import { useMultiPageCanvasOptional } from "../contexts/MultiPageCanvasContext";
 import { applyDocumentAttributes } from "./multi-page/PageFramePreview";
 import { setupEmbeddedCanvasBridge } from "../utils/embedded-canvas-bridge";
 import { endContentSwitch } from "../autosave";
+import { io } from "../../io";
+import { COLLAB_DOCUMENT_READY_ATTR, COLLAB_DOCUMENT_READY_EVENT } from "../collab/signals";
 import { showPartDropIndicator, clearPartDropIndicator, findFlowInsertion } from "../utils/drop-target";
 import { debugLog } from '../utils/debug';
 import { useEditorComponents } from "../contexts/EditorComponentsContext";
@@ -935,6 +937,15 @@ export function EditorCanvas() {
 
         debugLog(
           "[Canvas] Webpage mode: content height tracking initialized on artboard"
+        );
+      }
+      // 共同編集(io.collab)に「この文書は読み込みと初期化を終えた」と知らせる。
+      // 種まき・他人の変更の当て込みはここから(初期化の途中の姿で撒くと、人によって本文が食い違う)
+      if (io().collab) {
+        const readyContentId = currentContentIdRef.current ?? "";
+        iframeDoc.documentElement.setAttribute(COLLAB_DOCUMENT_READY_ATTR, readyContentId);
+        window.dispatchEvent(
+          new CustomEvent(COLLAB_DOCUMENT_READY_EVENT, { detail: { doc: iframeDoc, contentId: readyContentId || null } })
         );
       }
     });

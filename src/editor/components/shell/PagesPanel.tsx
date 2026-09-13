@@ -17,6 +17,7 @@ import { useDeck } from '../../../components/viewer/useDeck';
 import { DeckSlideRender } from '../../../components/DeckSlideRender';
 import { flushAutoSave } from '../../autosave';
 import { useMultiPageCanvasOptional } from '../../contexts/MultiPageCanvasContext';
+import { CollabPageDots } from '../../collab/CollabPresence';
 
 /**
  * スライド描画はメモ化する。パネル幅の変更や他ページの選択で親が再レンダーしても、
@@ -120,6 +121,8 @@ export function PagesPanel({ page, height = '33vh' }: { page: number; height?: s
               )}
             </span>
             <span className="min-w-0 flex-1 self-center text-xs leading-relaxed">{s.title || "無題"}</span>
+            {/* 共同編集: このページに居る参加者の色の点(io.collab が無ければ何も出ない) */}
+            <span className="self-center"><CollabPageDots contentId={canvas?.pages[i]?.id ?? String(n)} /></span>
           </button>
         );
       })}

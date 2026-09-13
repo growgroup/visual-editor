@@ -27,6 +27,8 @@ import { useEditorContext } from '../../EditorContext';
 import { getCleanHtml } from '../../utils/html-utils';
 import { startExport, waitForExport, downloadExport, type ExportFormat } from '../../../lib/export';
 import { can } from '../../../io';
+import { CollabPresence, CollabStatusPill } from '../../collab/CollabPresence';
+import { useCollabSelector, selectCollabPageActive } from '../../collab/store';
 
 export type EditorSaveStatus = 'saved' | 'dirty' | 'saving' | 'error';
 
@@ -108,6 +110,7 @@ export function EditorTopBar({
   const pal = palette ?? FIGMA_PALETTE;
   const share = SHARE_COLOR[variant];
   const { getIframeDoc, html, saving, hasChanges } = useEditorContext();
+  const collabPageActive = useCollabSelector(selectCollabPageActive);
   const [exporting, setExporting] = useState<string | null>(null);
 
   /**
@@ -216,7 +219,9 @@ export function EditorTopBar({
       {/* 右: UI固有の操作 / 自動保存 / 保存 / プレビュー / 共有 / …/ 閉じる */}
       <div className="flex shrink-0 items-center gap-1.5">
         {rightExtra}
-        <SaveStatusPill variant={variant} status={saveStatus} pal={pal} />
+        <CollabPresence />
+        {/* 共同編集でページの部屋に入っている間は、保存の状態の代わりに接続状態を出す(ファイルに書くのは書き戻し役) */}
+        {collabPageActive ? <CollabStatusPill /> : <SaveStatusPill variant={variant} status={saveStatus} pal={pal} />}
         <button
           data-topbar="save"
           onClick={() => void handleSave()}

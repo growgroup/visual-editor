@@ -60,7 +60,16 @@ export type {
   EditorPartDef,
   EditorPartCategory,
   EditorPartsLibrary,
+  EditorCollab,
+  EditorCollabUser,
 } from "./io";
+
+/**
+ * 共同編集の居場所(io.collab を渡したときだけ中身が入る)。
+ * 利用側のページ一覧などに「誰がどのページに居るか」を出すのに使う
+ */
+export { useCollabPresence } from "./editor/collab/store";
+export type { CollabPresence, CollabPeer, CollabStatus } from "./editor/collab/store";
 export type { CSSVariableDefinition, CSSVariableCategory } from "./types/css-variables";
 
 /**

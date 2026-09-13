@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { readStorage, writeStorage } from '../utils/storage';
 
 export interface UseResizablePanelOptions {
   /** 初期幅 */
@@ -54,7 +55,7 @@ export function useResizablePanel({
   const getInitialWidth = () => {
     if (storageKey && typeof window !== 'undefined') {
       let stored: string | null = null;
-      try { stored = localStorage.getItem(storageKey); } catch { /* 既定幅を使う */ }
+      stored = readStorage(storageKey);
       if (stored) {
         const parsed = parseInt(stored, 10);
         if (!isNaN(parsed) && parsed >= minWidth && parsed <= maxWidth) {
@@ -80,7 +81,7 @@ export function useResizablePanel({
   // ドラッグ中の同期ストレージ書込みを避け、確定時だけ幅を記憶する。
   useEffect(() => {
     if (isDragging || !storageKey) return;
-    try { localStorage.setItem(storageKey, String(width)); } catch { /* 表示は継続 */ }
+    writeStorage(storageKey, String(width));
   }, [width, isDragging, storageKey]);
 
   // マウスダウン

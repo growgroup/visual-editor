@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { debugLog } from '../utils/debug';
+import { readStorage, writeStorage } from '../utils/storage';
 
 /**
  * Google Fontの情報
@@ -140,8 +141,8 @@ export function useGoogleFonts() {
   const fetchGoogleFonts = useCallback(async () => {
     // キャッシュをチェック
     try {
-      const cachedFonts = localStorage.getItem(FONTS_CACHE_KEY);
-      const cacheExpiry = localStorage.getItem(FONTS_CACHE_EXPIRY_KEY);
+      const cachedFonts = readStorage(FONTS_CACHE_KEY);
+      const cacheExpiry = readStorage(FONTS_CACHE_EXPIRY_KEY);
 
       if (cachedFonts && cacheExpiry && Date.now() < parseInt(cacheExpiry, 10)) {
         const parsed = JSON.parse(cachedFonts) as GoogleFont[];
@@ -197,12 +198,9 @@ export function useGoogleFonts() {
       }));
 
       // キャッシュに保存
-      try {
-        localStorage.setItem(FONTS_CACHE_KEY, JSON.stringify(googleFonts));
-        localStorage.setItem(FONTS_CACHE_EXPIRY_KEY, String(Date.now() + CACHE_DURATION));
-      } catch {
-        // ストレージが一杯の場合は無視
-      }
+      // ストレージが一杯・使えない場合は黙って諦める
+      writeStorage(FONTS_CACHE_KEY, JSON.stringify(googleFonts));
+      writeStorage(FONTS_CACHE_EXPIRY_KEY, String(Date.now() + CACHE_DURATION));
 
       setFonts([...SYSTEM_FONTS, ...googleFonts]);
     } catch (err) {

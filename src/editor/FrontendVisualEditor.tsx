@@ -95,6 +95,7 @@ import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
 import { clearPartDropIndicator } from './utils/drop-target';
 import { debugLog } from './utils/debug';
+import { readStorage, writeStorage } from './utils/storage';
 import { useCollab } from './collab/useCollab';
 import { readCollabSharedHtml, selectCollabPageActive, selectCollabUndo, selectCollabUnsynced, useCollabSelector } from './collab/store';
 
@@ -379,14 +380,14 @@ function FrontendVisualEditorInner({
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   // PowerPoint風UIとFigma風UIの切り替え(殻だけ。エンジンは共通)
   const [uiMode, setUiMode] = useState<'figma' | 'ppt'>(
-    () => (typeof localStorage !== 'undefined' && localStorage.getItem('gg-editor:ui-mode') === 'ppt' ? 'ppt' : 'figma'),
+    () => (readStorage('gg-editor:ui-mode') === 'ppt' ? 'ppt' : 'figma'),
   );
   const switchUi = (mode: 'figma' | 'ppt') => {
     // 殻を差し替えるだけで編集内容は残るが、どちらのUIから見ても同じ状態で始まるよう
     // 未保存があればここで保存しておく(切替の見た目は待たせない)
     void saveIfDirtyRef.current();
     setUiMode(mode);
-    try { localStorage.setItem('gg-editor:ui-mode', mode); } catch { /* 記憶できなくても動作は継続 */ }
+    writeStorage('gg-editor:ui-mode', mode);
   };
   // PowerPoint風UIのテーマ(OS設定に追従・切替は記憶)とサムネイル検索
   const { theme: pptTheme, toggleTheme: togglePptTheme } = useEditorTheme();

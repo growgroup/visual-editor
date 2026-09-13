@@ -374,6 +374,15 @@ function FrontendVisualEditorInner({
   useEffect(() => { if (pptCommentsOpen) setCommentsMounted(true); }, [pptCommentsOpen]);
   // PowerPoint風UIの右ペイン「図の書式設定」(影・反射・光彩・ぼかし)
   const [pptFormatPaneOpen, setPptFormatPaneOpen] = useState(false);
+  // コメントツール(C)にした時点で右のコメントパネルも開く。範囲を描き終えるまで開かないと、
+  // 書き込む先が見えないまま範囲を引くことになる。入口(ツールバー・校閲タブ・
+  // パネルの「範囲を指定」・キー C)はどれも activeTool を変えるだけなので、ここ 1 か所で拾う。
+  // ツールを抜けても閉じない(閉じるのは利用者の操作)。開いているときは state が同じ値で止まる
+  useEffect(() => {
+    if (activeTool !== 'comment' || !can('commentAction')) return;
+    setPptFormatPaneOpen(false);
+    setPptCommentsOpen(true);
+  }, [activeTool]);
   const [pptCommentFocus, setPptCommentFocus] = useState(0);
   const [pptActiveThread, setPptActiveThread] = useState<string | null>(null);
   // コメントツール(C)で指定した範囲の下書き。投稿・解除・Esc・ページ切替で消える

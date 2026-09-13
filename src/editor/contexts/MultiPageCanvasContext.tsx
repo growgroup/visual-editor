@@ -56,6 +56,14 @@ export const MAX_ZOOM = 4;
 const ZOOM_STEP = 1.25;
 /** 全体表示・ページ表示のときの余白(px、画面上) */
 const FIT_PADDING = 72;
+/** 画面の縁からこれだけ内側にあれば「見えている」とする(px、画面上) */
+const REVEAL_MARGIN = 48;
+/**
+ * ホスト発の切替で「そのページが見えている」と認めるフレームの画面上の幅(px)。
+ * 全体表示(2%)だと 1920 の紙面が 38px の点にしかならず、画面には入っていても
+ * どこへ移ったのか分からない。これを下回るならページを画面に合わせて寄る
+ */
+const FOCUS_MIN_WIDTH = 400;
 /** 上と左の定規の太さ(px)。全体表示の余白に足す */
 export const RULER_SIZE = 20;
 /** ビューのアニメーション(ms) */
@@ -63,14 +71,29 @@ const VIEW_ANIMATION_MS = 240;
 /** 見るだけの紙面を同時に読む枚数 */
 const PREVIEW_PARALLEL = 4;
 /**
- * 見るだけの紙面を画像で描く倍率のしきい値。これ未満に縮小されている間は
- * srcdoc の iframe ではなく contentList[].thumbnail の画像を出す。
- * 判定は操作が終わってからしか動かさない(縮小の途中で 26 枚を差し替えない)。
- * 行き来でちらつかないように戻りは別のしきい値にする(ヒステリシス)
+ * 見るだけの紙面を画像で描く倍率の **上限の最大値**。これ以上に拡大されていれば、
+ * どんなに解像度の高い画像でも iframe で描く(画像は文字を選べない・検索できないため)。
+ * 実際の上限はこれより小さくなることがある ── getPreviewImageZoomCap() を見ること
  */
 export const PREVIEW_IMAGE_ZOOM = 0.5;
-/** 画像 → iframe に戻す倍率(PREVIEW_IMAGE_ZOOM 以上)。iframe → 画像は PREVIEW_IMAGE_ZOOM_OUT 未満 */
+/** 画像 → iframe に戻す倍率(上限の最大値のとき)。上限に対する比は下の HYSTERESIS */
 export const PREVIEW_IMAGE_ZOOM_OUT = 0.4;
+/**
+ * 画像を引き伸ばしてよい上限。1.25 = 画面の画素に対して 25% まで。
+ * これを超えると Retina(DPR 2)で文字がにじんで見える(実測: 960px の画像を
+ * 1766 device px の枠に出すと 1.84 倍で、同じ倍率の iframe と並べて粗さが分かる)
+ */
+export const PREVIEW_IMAGE_MAX_STRETCH = 1.25;
+/**
+ * 画像の実寸がまだ 1 枚も分からないときに仮定する「画像の幅 ÷ 紙面の幅」。
+ * 0.5 = 1920 の紙面に 960px の画像(殻の既定)
+ */
+const PREVIEW_IMAGE_PRESUMED_RATIO = 0.5;
+/**
+ * 上限に対する「画像に落とす」側の比(ヒステリシス)。
+ * 画像 → iframe は上限以上、iframe → 画像は上限 × これ未満。境目で行き来しないため
+ */
+export const PREVIEW_IMAGE_ZOOM_HYSTERESIS = PREVIEW_IMAGE_ZOOM_OUT / PREVIEW_IMAGE_ZOOM;
 
 /** フレームどうしの間隔(紙面の座標系、等倍のとき)。フレーム名を出すかの判定にも使う */
 export const FRAME_GAP: Record<EditorMode, { x: number; y: number }> = {
@@ -228,6 +251,19 @@ export interface MultiPageCanvasContextValue {
    */
   requestPreviewSlot: (id: string, grant: () => void) => void;
   releasePreviewSlot: (id: string) => void;
+
+  // ---- 紙面の画像(contentList[].thumbnail)
+  /**
+   * 紙面を画像で描いてよい倍率の上限。画像の解像度と devicePixelRatio から決める
+   * (= min(PREVIEW_IMAGE_ZOOM, 画像の幅 × 1.25 ÷ (紙面の幅 × DPR)))。
+   * 上限はキャンバス全体で 1 つで、報告された中でいちばん粗い画像に合わせる。
+   * DPR は呼ぶたびに読む(別のディスプレイへ移すと変わる)
+   */
+  getPreviewImageZoomCap: () => number;
+  /** 画像の実寸(naturalWidth)を報告する。PageFramePreview が onLoad で呼ぶ */
+  reportThumbnailWidth: (id: string, naturalWidth: number) => void;
+  /** 上限が変わった回数。React 側が判定をやり直すきっかけに使う */
+  previewImageCapVersion: number;
 }
 
 // ============================================================
@@ -635,15 +671,6 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     [updatePageFrame, viewStore],
   );
 
-  // 生きているページは利用側(currentContentId)と揃える。
-  // 本文が読めて currentContentId が変わったときに初めてエディタが移る
-  // (クリックの時点では移さない。移すと前のページの本文が新しい枠に見えてしまう)
-  useEffect(() => {
-    if (!enabled) return;
-    const id = artboard.currentContentId ?? artboard.contentList[0]?.id ?? null;
-    viewStore.set((prev) => (prev.activePageId === id ? prev : { ...prev, activePageId: id }));
-  }, [enabled, artboard.currentContentId, artboard.contentList, viewStore]);
-
   // 見えている範囲の保存(変化が止まってから)
   useEffect(() => {
     if (!storageKey || typeof localStorage === 'undefined') return;
@@ -810,31 +837,106 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     [setView],
   );
 
-  const revealPage = useCallback<MultiPageCanvasContextValue['revealPage']>(
-    (id) => {
+  /**
+   * フレームが今どこに、どれだけの大きさで画面に出ているか(容器の座標)。
+   * 「見えているか」「寄る必要があるか」を revealPage と focusPage が同じ式で判定するため
+   */
+  const frameScreenRect = useCallback(
+    (id: string) => {
       const page = pagesRef.current.find((p) => p.id === id);
-      if (!page) return;
-      const { width, height } = containerSize();
+      if (!page) return null;
+      const container = containerSize();
       const { canvasZoom: z, canvasOffset: o } = viewStore.get();
       const inset = rulersRef.current ? RULER_SIZE : 0;
       const left = o.x + page.position.x * z;
       const top = o.y + page.position.y * z;
-      const right = left + page.size.width * z;
-      const bottom = top + page.size.height * z;
-      const margin = 48;
+      const width = page.size.width * z;
+      const height = page.size.height * z;
+      return {
+        page,
+        container,
+        inset,
+        zoom: z,
+        left,
+        top,
+        width,
+        height,
+        // 一部でも画面に入っていれば「見えている」
+        visible:
+          left + width > inset + REVEAL_MARGIN &&
+          left < container.width - REVEAL_MARGIN &&
+          top + height > inset + REVEAL_MARGIN &&
+          top < container.height - REVEAL_MARGIN,
+      };
+    },
+    [viewStore],
+  );
+
+  const revealPage = useCallback<MultiPageCanvasContextValue['revealPage']>(
+    (id) => {
+      const r = frameScreenRect(id);
       // 一部でも見えていればそのまま。見えていなければ、そのフレームの左上を画面へ寄せる
-      const visible = right > inset + margin && left < width - margin && bottom > inset + margin && top < height - margin;
-      if (visible) return;
-      const w = page.size.width * z;
-      const h = page.size.height * z;
+      if (!r || r.visible) return;
+      const { page, container, inset, zoom: z, width: w, height: h } = r;
       const offset = {
-        x: w <= width - inset ? inset + (width - inset - w) / 2 - page.position.x * z : inset + margin - page.position.x * z,
-        y: h <= height - inset ? inset + (height - inset - h) / 2 - page.position.y * z : inset + margin - page.position.y * z,
+        x: w <= container.width - inset ? inset + (container.width - inset - w) / 2 - page.position.x * z : inset + REVEAL_MARGIN - page.position.x * z,
+        y: h <= container.height - inset ? inset + (container.height - inset - h) / 2 - page.position.y * z : inset + REVEAL_MARGIN - page.position.y * z,
       };
       setView({ zoom: z, offset }, { animate: true });
     },
-    [setView, viewStore],
+    [frameScreenRect, setView],
   );
+
+  /**
+   * ホスト発(利用側のレールなど)でページが変わったときに視点を寄せる。
+   * 倍率はできるだけ変えない ── ただし「画面に入ってはいるが点にしか見えない」ときは
+   * 寄せても何も起きていないように見えるので、そのときだけページに合わせる
+   */
+  const focusPage = useCallback(
+    (id: string) => {
+      const r = frameScreenRect(id);
+      if (!r) return;
+      if (r.width < FOCUS_MIN_WIDTH) {
+        zoomToPage(id, { animate: true });
+        return;
+      }
+      if (!r.visible) revealPage(id);
+    },
+    [frameScreenRect, revealPage, zoomToPage],
+  );
+
+  /**
+   * 直前の activatePage(フレームのクリック・左パネル)の宛先。
+   * 下の同期 effect が「エディタ発かホスト発か」を見分けるのに使う。
+   * state(activatingPageId)ではなく ref で持つのは、切替が終わって state が戻るのと
+   * 同期 effect が走るのが同じ描画にまとまるため(state では読んだときに既に null)。
+   * 消すのは effect が使ったときだけ ── A → B と続けて押したときは A の後始末で消さない
+   */
+  const editorInitiatedPageIdRef = useRef<string | null>(null);
+
+  // 生きているページは利用側(currentContentId)と揃える。
+  // 本文が読めて currentContentId が変わったときに初めてエディタが移る
+  // (クリックの時点では移さない。移すと前のページの本文が新しい枠に見えてしまう)。
+  // ホスト発(利用側がレールで contentId を変えた)のときは視点も寄せる ── フレームの
+  // クリックと違って画面のどこにも手掛かりが無く、26 ページの木では移り先がほぼ画面外
+  useEffect(() => {
+    if (!enabled) return;
+    const id = artboard.currentContentId ?? artboard.contentList[0]?.id ?? null;
+    let prevId: string | null | undefined;
+    viewStore.set((prev) => {
+      if (prev.activePageId === id) return prev;
+      prevId = prev.activePageId;
+      return { ...prev, activePageId: id };
+    });
+    if (prevId === undefined || !id) return; // 変わっていない
+    if (prevId === null) return; // 最初の 1 ページが決まっただけ。初回の視点は MultiPageCanvasView が決める
+    if (editorInitiatedPageIdRef.current === id) {
+      // エディタ発(activatePage)。あちらで既に寄せてあるので二重に動かさない
+      editorInitiatedPageIdRef.current = null;
+      return;
+    }
+    focusPage(id);
+  }, [enabled, artboard.currentContentId, artboard.contentList, viewStore, focusPage]);
 
   // ---- 本文の読み込み
   const loadingRef = useRef(new Set<string>());
@@ -893,13 +995,21 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
       }
       const notify = onContentChangeRef.current;
       if (!notify) return false;
+      // エディタ発だと印す。利用側の contentId が変わって同期 effect が走るころには
+      // この切替は終わっているので、state ではなく ref で残す
+      editorInitiatedPageIdRef.current = id;
       setActivatingPageId(id);
       if (options?.reveal) revealPage(id);
+      let moved = false;
       try {
         const result = await (notify as (contentId: string) => unknown)(id);
-        return result !== false;
+        moved = result !== false;
+        return moved;
       } finally {
         setActivatingPageId((v) => (v === id ? null : v));
+        // 移れなかったら印を消す(残すと、あとで同じページへホスト発で移るときに視点が動かない)。
+        // 別のページへ移ったあとなら消さない ── その印はそちらの切替のもの
+        if (!moved && editorInitiatedPageIdRef.current === id) editorInitiatedPageIdRef.current = null;
       }
     },
     [revealPage, viewStore],
@@ -954,6 +1064,36 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     [pumpPreviewSlots],
   );
 
+  // ---- 紙面の画像の解像度(画像を出してよい倍率の上限を決める)
+  // 引き伸ばしすぎるとにじむ。上限はキャンバス全体で 1 つにし、いちばん粗い画像に合わせる
+  const thumbnailWidthsRef = useRef(new Map<string, number>());
+  const thumbnailRatioRef = useRef<number | null>(null);
+  const [previewImageCapVersion, setPreviewImageCapVersion] = useState(0);
+
+  const reportThumbnailWidth = useCallback<MultiPageCanvasContextValue['reportThumbnailWidth']>((id, naturalWidth) => {
+    if (!Number.isFinite(naturalWidth) || naturalWidth <= 0) return;
+    if (thumbnailWidthsRef.current.get(id) === naturalWidth) return;
+    thumbnailWidthsRef.current.set(id, naturalWidth);
+    let min = Infinity;
+    thumbnailWidthsRef.current.forEach((width, key) => {
+      const pageWidth = framesMapRef.current.get(key)?.size.width;
+      if (!pageWidth || pageWidth <= 0) return;
+      min = Math.min(min, width / pageWidth);
+    });
+    const ratio = Number.isFinite(min) ? min : null;
+    if (ratio === thumbnailRatioRef.current) return;
+    thumbnailRatioRef.current = ratio;
+    // 上限が動いたので、React 側(画像にするかの判定)にやり直させる
+    setPreviewImageCapVersion((v) => v + 1);
+  }, []);
+
+  const getPreviewImageZoomCap = useCallback<MultiPageCanvasContextValue['getPreviewImageZoomCap']>(() => {
+    // 別のディスプレイへ移すと変わるので、そのつど読む
+    const dpr = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+    const ratio = thumbnailRatioRef.current ?? PREVIEW_IMAGE_PRESUMED_RATIO;
+    return Math.min(PREVIEW_IMAGE_ZOOM, (ratio * PREVIEW_IMAGE_MAX_STRETCH) / dpr);
+  }, []);
+
   const value = useMemo<MultiPageCanvasContextValue>(
     () => ({
       isEnabled: enabled,
@@ -992,12 +1132,16 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
       toggleRulers,
       requestPreviewSlot,
       releasePreviewSlot,
+      getPreviewImageZoomCap,
+      reportThumbnailWidth,
+      previewImageCapVersion,
     }),
     [
       enabled, editorMode, pages, bounds, layout, getPage, updatePageFrame, setPageHtml, invalidatePages, artboard.documentAttributes,
       setPageHeight, ensurePageHtml, previewStyles, viewStore, setCanvasOffset, setCanvasZoom, setView, zoomAt, zoomTo, zoomIn, zoomOut, zoomToFit, zoomToPage,
       zoomToActual, revealPage, activatePage, activatingPageId, registerContainer, isInteracting, markInteracting,
       persisted, rulersVisible, toggleRulers, requestPreviewSlot, releasePreviewSlot,
+      getPreviewImageZoomCap, reportThumbnailWidth, previewImageCapVersion,
     ],
   );
 

@@ -14,7 +14,7 @@
  * - contentList: コンテンツリスト（スライド、ページ等）
  */
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useMemo } from 'react';
 import type { DOMTreeNode } from '../types';
 
 /**
@@ -30,6 +30,48 @@ export interface ContentListItem {
   /** 表示順序（スライド番号、ページ番号等） */
   order: number;
   thumbnailHtml?: string;
+  /**
+   * 親ページの id(サイトマップの階層)。渡すと、マルチフレームのキャンバスが
+   * フレームを階層のツリー(親の下に子を並べる)で配置し、左パネルの一覧も段を付ける。
+   * 無ければ(全ページ null / undefined)従来どおり行で折り返す
+   */
+  parentId?: string | null;
+  /** 編集しない表示(ページそのもの・ビューア)の URL。渡すとフレーム名と一覧に「別タブで開く」が付く */
+  href?: string;
+  /**
+   * 本文の版。利用側でファイルが外から変わったとき(部品の一括反映・CLI・他の人の編集)に
+   * 数を進めると、キャンバスの見るだけの紙面がそのページを読み直す。編集中のページには効かない
+   * (編集中の本文は上書きしない)
+   */
+  revision?: number;
+}
+
+/**
+ * 文書に付ける属性(`<html>` の属性)。生きているエディタと見るだけの紙面の両方の文書に、
+ * 読み直さずに反映する。利用側の CSS が `html[data-…]` で切り替える表示(構成ラフの
+ * 注釈カラムの表示・非表示など)に使う。値が null / undefined の属性は外す
+ */
+export type DocumentAttributes = Record<string, string | null | undefined>;
+
+/** contentList の parentId から各ページの深さ(ルート = 0)を求める。親が一覧に無い・循環しているものはルート扱い */
+export function computeContentDepths(list: readonly ContentListItem[]): Map<string, number> {
+  const byId = new Map(list.map((c) => [c.id, c] as const));
+  const depths = new Map<string, number>();
+  const depthOf = (id: string, seen: Set<string>): number => {
+    const cached = depths.get(id);
+    if (cached != null) return cached;
+    const item = byId.get(id);
+    const parent = item?.parentId;
+    let d = 0;
+    if (parent && parent !== id && byId.has(parent) && !seen.has(parent)) {
+      seen.add(id);
+      d = depthOf(parent, seen) + 1;
+    }
+    depths.set(id, d);
+    return d;
+  };
+  list.forEach((c) => depthOf(c.id, new Set()));
+  return depths;
 }
 
 // アートボード（スライド/ページ）ごとの状態
@@ -55,6 +97,8 @@ export interface EditorArtboardContextValue {
   contentList: ContentListItem[];
   currentContentId: string | null;
   onContentChange: ContentChangeHandler | null;
+  /** 文書(`<html>`)に付ける属性。エディタと見るだけの紙面の両方に、読み直さずに反映する */
+  documentAttributes: DocumentAttributes;
 
   // Deprecated aliases
   /** @deprecated Use contentList instead */
@@ -79,6 +123,7 @@ interface EditorArtboardProviderProps {
   contentList?: ContentListItem[];
   currentContentId?: string;
   onContentChange?: ContentChangeHandler;
+  documentAttributes?: DocumentAttributes;
   // 状態同期用のコールバック（ファサードで設定）
   onArtboardSwitch?: (
     newId: string,
@@ -110,6 +155,7 @@ export function EditorArtboardProvider({
   contentList: contentListProp,
   currentContentId: currentContentIdProp,
   onContentChange: onContentChangeProp,
+  documentAttributes: documentAttributesProp,
   slides: slidesProp,
   currentSlideId: currentSlideIdProp,
   onSlideChange: onSlideChangeProp,
@@ -119,6 +165,10 @@ export function EditorArtboardProvider({
   const contentList = contentListProp ?? slidesProp ?? [];
   const currentContentId = currentContentIdProp ?? currentSlideIdProp ?? null;
   const onContentChange = onContentChangeProp ?? onSlideChangeProp ?? null;
+  // 属性は中身で比べる(利用側が毎描画で新しいオブジェクトを渡しても、購読側を描き直さない)
+  const documentAttributesKey = JSON.stringify(documentAttributesProp ?? {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const documentAttributes = useMemo<DocumentAttributes>(() => ({ ...(documentAttributesProp ?? {}) }), [documentAttributesKey]);
 
   // Deprecated aliases
   const slides = contentList;
@@ -221,6 +271,7 @@ export function EditorArtboardProvider({
     contentList,
     currentContentId,
     onContentChange,
+    documentAttributes,
     // Deprecated
     slides,
     currentSlideId,

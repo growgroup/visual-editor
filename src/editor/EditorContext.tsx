@@ -61,6 +61,7 @@ import {
   type ContentListItem,
   type ArtboardState,
   type ContentChangeHandler,
+  type DocumentAttributes,
 } from './contexts/EditorArtboardContext';
 import {
   EditorUIStateProvider,
@@ -136,6 +137,8 @@ interface EditorContextValue {
   contentList: ContentListItem[];
   currentContentId: string | null;
   onContentChange: ContentChangeHandler | null;
+  /** 文書(`<html>`)に付ける属性(利用側の documentAttributes プロップ) */
+  documentAttributes: DocumentAttributes;
 
   /** @deprecated Use contentList instead */
   slides: ContentListItem[];
@@ -265,6 +268,8 @@ interface EditorProviderProps {
   contentList?: ContentListItem[];
   currentContentId?: string;
   onContentChange?: ContentChangeHandler;
+  /** 文書(`<html>`)に付ける属性。エディタと見るだけの紙面の両方に、読み直さずに反映する */
+  documentAttributes?: DocumentAttributes;
   initialLayoutMode?: 'absolute' | 'auto';
   /** CSS変数の初期値 */
   initialVariables?: CSSVariableDefinition[];
@@ -436,6 +441,7 @@ function EditorContextAggregator({ children }: EditorContextAggregatorProps) {
     contentList: artboard.contentList,
     currentContentId: artboard.currentContentId,
     onContentChange: artboard.onContentChange,
+    documentAttributes: artboard.documentAttributes,
 
     // Deprecated aliases
     slides: artboard.slides,
@@ -523,6 +529,7 @@ export function EditorProvider({
   contentList,
   currentContentId,
   onContentChange,
+  documentAttributes,
   initialLayoutMode = 'auto',
   // CSS変数関連
   initialVariables,
@@ -555,6 +562,7 @@ export function EditorProvider({
                       contentList={contentList}
                       currentContentId={currentContentId}
                       onContentChange={onContentChange}
+                      documentAttributes={documentAttributes}
                       slides={slides}
                       currentSlideId={currentSlideId}
                       onSlideChange={onSlideChange}

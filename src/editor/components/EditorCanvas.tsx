@@ -29,6 +29,7 @@ import { generateEditableHtml } from "../utils/html-utils";
 import { setupInlineFormatToolbar } from "../utils/inline-format";
 import { recalculateViewportUnits } from "../utils/viewport-utils";
 import { useMultiPageCanvasOptional } from "../contexts/MultiPageCanvasContext";
+import { applyDocumentAttributes } from "./multi-page/PageFramePreview";
 import { setupEmbeddedCanvasBridge } from "../utils/embedded-canvas-bridge";
 import { endContentSwitch } from "../autosave";
 import type {
@@ -124,6 +125,7 @@ export function EditorCanvas() {
     setShowLayoutHint,
     viewportWidth,
     setIframeReady,
+    documentAttributes,
     currentContentId,
   } = useEditorContext();
   // 高さの報告先は「本文が載っているページ」(利用側の currentContentId)。
@@ -133,6 +135,17 @@ export function EditorCanvas() {
 
   // マルチページモード判定
   const multiPageCanvas = useMultiPageCanvasOptional();
+  // 文書(<html>)に付ける属性(利用側の documentAttributes)。読み込み時と、変わったときに付け替える
+  const documentAttributesRef = useRef(documentAttributes);
+  documentAttributesRef.current = documentAttributes;
+  useEffect(() => {
+    try {
+      applyDocumentAttributes(iframeRef.current?.contentDocument, documentAttributes);
+    } catch {
+      /* まだ読めなければ読み込み時に付く */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [documentAttributes]);
   const isInMultiPageMode = !!multiPageCanvas?.isEnabled;
   // ロードハンドラ(deps=[])から最新の値を読むための ref
   const multiPageCanvasRef = useRef(multiPageCanvas);
@@ -460,6 +473,7 @@ export function EditorCanvas() {
     // initLayout はフォント待ち等で数百msかかるため、その後に適用すると
     // 「等倍の巨大な一瞬 → 縮む」のフラッシュがノイズになる
     applyCanvasZoomDom(iframeDoc, zoomRef.current);
+    applyDocumentAttributes(iframeDoc, documentAttributesRef.current);
     const wrapperEl = iframeDoc.getElementById("artboard-wrapper");
     if (wrapperEl) wrapperEl.style.visibility = "visible";
 

@@ -1,6 +1,6 @@
 {
   "name": "@growgroup/visual-editor",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "HTMLをブラウザ上で直接編集するビジュアルエディタ。スライド(固定サイズ)とWebページ(可変高さ)の両方に使え、保存先はアダプタで差し替えられます。",
   "keywords": [
     "visual-editor",
@@ -48,7 +48,8 @@
     "build": "npm run build:css",
     "prepare": "npm run build",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build && npm run typecheck",
+    "check:version": "node scripts/check-version.mjs",
+    "prepublishOnly": "npm run build && npm run typecheck && npm run check:version",
     "playground": "vite --config playground/vite.config.ts",
     "playground:build": "vite build --config playground/vite.config.ts"
   },

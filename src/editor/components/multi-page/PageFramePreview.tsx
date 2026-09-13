@@ -9,11 +9,28 @@
  *   フォントや画像の読み込みで高さが変わっても追従する
  * - 画面から遠いものは描かない(IntersectionObserver)。webpage は高さの実測が
  *   レイアウトに要るので、順番に少しずつ先読みする(eagerMountCount)
+ * - iframe に sandbox は付けない。script は本文から外してある(generatePreviewHtml)。
+ *   sandbox で script を禁じると、ページへ script を差し込むブラウザ拡張(React DevTools 等)が
+ *   1 枚ごとに「Blocked script execution in 'about:srcdoc'」をコンソールへ出す(実測 26 枚 = 26 件)
+ * - 本文が外から変わった(revision / invalidatePages)ときは、次の本文が来るまで前の姿を出したまま読み直す
+ * - 文書の属性(documentAttributes)は読み直さずに <html> へ付け替える
  */
 
 import { memo, useEffect, useRef, useState } from 'react';
 import { useMultiPageCanvas, type PageFrameLayout } from '../../contexts/MultiPageCanvasContext';
+import type { DocumentAttributes } from '../../contexts/EditorArtboardContext';
 import { generatePreviewHtml } from '../../utils/html-utils';
+
+/** 文書の <html> に属性を付ける(null / undefined は外す)。エディタ本体(EditorCanvas)も同じ関数を使う */
+export function applyDocumentAttributes(doc: Document | null | undefined, attrs: DocumentAttributes): void {
+  const root = doc?.documentElement;
+  if (!root) return;
+  for (const [name, value] of Object.entries(attrs)) {
+    if (!/^[A-Za-z_:][\w:.-]*$/.test(name)) continue;
+    if (value == null) root.removeAttribute(name);
+    else if (root.getAttribute(name) !== value) root.setAttribute(name, value);
+  }
+}
 
 interface PageFramePreviewProps {
   page: PageFrameLayout;
@@ -22,7 +39,9 @@ interface PageFramePreviewProps {
 }
 
 export const PageFramePreview = memo(function PageFramePreview({ page, rootRef }: PageFramePreviewProps) {
-  const { editorMode, ensurePageHtml, setPageHeight, previewStyles, requestPreviewSlot, releasePreviewSlot } = useMultiPageCanvas();
+  const { editorMode, ensurePageHtml, setPageHeight, previewStyles, requestPreviewSlot, releasePreviewSlot, documentAttributes } = useMultiPageCanvas();
+  const documentAttributesRef = useRef(documentAttributes);
+  documentAttributesRef.current = documentAttributes;
   const hostRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [nearViewport, setNearViewport] = useState(false);
@@ -92,6 +111,7 @@ export const PageFramePreview = memo(function PageFramePreview({ page, rootRef }
     const onLoad = () => {
       if (disposed) return;
       setLoaded(true);
+      applyDocumentAttributes(iframe.contentDocument, documentAttributesRef.current);
       measure();
       try {
         const artboard = iframe.contentDocument?.getElementById('artboard');
@@ -112,6 +132,16 @@ export const PageFramePreview = memo(function PageFramePreview({ page, rootRef }
       observer?.disconnect();
     };
   }, [doc, page.id, setPageHeight]);
+
+  // 文書の属性が変わったら、読み直さずに <html> へ付け替える(読み込み前なら onLoad が付ける)
+  useEffect(() => {
+    if (!loaded) return;
+    try {
+      applyDocumentAttributes(iframeRef.current?.contentDocument, documentAttributes);
+    } catch {
+      /* 読めなければ次の読み込みで付く */
+    }
+  }, [documentAttributes, loaded]);
 
   // 読み終わった(または読めない)ら枠を返して次へ。本文が来ない場合の安全弁つき
   useEffect(() => {
@@ -136,7 +166,6 @@ export const PageFramePreview = memo(function PageFramePreview({ page, rootRef }
           ref={iframeRef}
           title={page.title || page.id}
           srcDoc={doc}
-          sandbox="allow-same-origin"
           tabIndex={-1}
           aria-hidden="true"
           className="block border-0"
@@ -144,6 +173,10 @@ export const PageFramePreview = memo(function PageFramePreview({ page, rootRef }
             width: page.size.width,
             height: page.size.height,
             pointerEvents: 'none',
+            // ズームで重くならないように。iframe の中身は外側の transform で拡大縮小されるが、
+            // will-change が無いと倍率が変わるたびに 26 枚の紙面がラスタライズし直され、
+            // 縮小中に 100〜340ms のフレームが混じる(実測)。付けるとラスタが保たれ p95 117ms → 24ms
+            willChange: 'transform',
           }}
         />
       ) : (

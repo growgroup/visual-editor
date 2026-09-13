@@ -34,7 +34,7 @@ import React, {
   useState,
   useSyncExternalStore,
 } from 'react';
-import { useEditorArtboard } from './EditorArtboardContext';
+import { useEditorArtboard, computeContentDepths, type DocumentAttributes } from './EditorArtboardContext';
 import { useEditorTool } from './EditorToolContext';
 import { useEditorView } from './EditorViewContext';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, WEBPAGE_WIDTH } from '../constants';
@@ -82,7 +82,7 @@ const WRAP_AT: Record<EditorMode, (count: number) => number> = {
 export interface PageFrame {
   id: string;
   title: string;
-  /** 本文。null = まだ読んでいない */
+  /** 本文。null = まだ読んでいない(または読み直す) */
   html: string | null;
   /** 本文を読んでいる途中 */
   loading: boolean;
@@ -93,6 +93,19 @@ export interface PageFrame {
   measured: boolean;
   /** 未保存の変更がある(生きているページだけ立つ) */
   isDirty: boolean;
+  /** 親ページ(contentList[].parentId。一覧に無い親は null 扱い) */
+  parentId: string | null;
+  /** 階層の深さ(ルート = 0) */
+  depth: number;
+  /** 編集しない表示の URL(contentList[].href) */
+  href?: string;
+  /** 利用側が進める本文の版(contentList[].revision)。変わったら読み直す */
+  revision: number;
+  /**
+   * 本文が古い(部品の反映などで外から変わった)。読み直すときは contentList[].thumbnailHtml
+   * ではなく io.loadContent から取る(thumbnailHtml は利用側が最初に渡した姿のままなので)
+   */
+  stale: boolean;
 }
 
 /** レイアウト済み(位置付き)のフレーム */
@@ -100,6 +113,9 @@ export interface PageFrameLayout extends PageFrame {
   position: { x: number; y: number };
   index: number;
 }
+
+/** フレームの並べ方。tree = 階層(parentId)のツリー、grid = 行で折り返す */
+export type CanvasLayoutKind = 'grid' | 'tree';
 
 export interface CanvasViewState {
   canvasOffset: { x: number; y: number };
@@ -129,13 +145,19 @@ export interface MultiPageCanvasContextValue {
   // ---- ページフレーム
   pages: PageFrameLayout[];
   bounds: CanvasBounds;
+  /** 並べ方(contentList に階層があれば tree) */
+  layout: CanvasLayoutKind;
   getPage: (id: string) => PageFrameLayout | undefined;
-  updatePageFrame: (
-    id: string,
-    updates: Partial<Pick<PageFrame, 'title' | 'html' | 'size' | 'isDirty' | 'measured' | 'loading' | 'error'>>,
-  ) => void;
+  updatePageFrame: (id: string, updates: Partial<Omit<PageFrame, 'id'>>) => void;
   /** 本文を差し替える(保存後・読み込み後) */
   setPageHtml: (id: string, html: string) => void;
+  /**
+   * 見るだけの紙面の本文を捨てて読み直させる(部品の定義を更新して他ページが変わったとき等)。
+   * except のページ(編集中のページ)は触らない。読み直す手段(io.loadContent)が無ければ何もしない
+   */
+  invalidatePages: (options?: { except?: readonly (string | null | undefined)[] }) => void;
+  /** 文書(`<html>`)に付ける属性(利用側の documentAttributes)。紙面にも読み直さずに反映する */
+  documentAttributes: DocumentAttributes;
   /**
    * 高さの実測を反映する。source が 'preview' のときは、生きているページには効かない
    * (エディタの実測が正。見るだけの紙面はフォントや画像の読み込み前に測ることがある)
@@ -241,16 +263,19 @@ export function useCanvasViewStateOptional(): CanvasViewState | null {
 // レイアウト
 // ============================================================
 
-/**
- * 寸法から位置を決める。行ごとに折り返し、行の高さはその行で一番高いフレームに合わせる。
- * 位置を状態に持たないので、高さが実測で変わっても流れ直すだけで済む
- */
-export function layoutFrames(
-  frames: PageFrame[],
-  editorMode: EditorMode,
-): { pages: PageFrameLayout[]; bounds: CanvasBounds } {
-  const gap = GAP[editorMode];
-  const perRow = WRAP_AT[editorMode](frames.length);
+function boundsOf(pages: PageFrameLayout[]): CanvasBounds {
+  return pages.length
+    ? {
+        minX: Math.min(...pages.map((p) => p.position.x)),
+        minY: Math.min(...pages.map((p) => p.position.y)),
+        maxX: Math.max(...pages.map((p) => p.position.x + p.size.width)),
+        maxY: Math.max(...pages.map((p) => p.position.y + p.size.height)),
+      }
+    : { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+}
+
+/** 行で折り返す並べ方(階層が無いとき)。行の高さはその行で一番高いフレームに合わせる */
+function layoutGrid(frames: PageFrame[], gap: { x: number; y: number }, perRow: number): PageFrameLayout[] {
   const pages: PageFrameLayout[] = [];
   let x = 0;
   let y = 0;
@@ -265,15 +290,101 @@ export function layoutFrames(
     x += frame.size.width + gap.x;
     rowHeight = Math.max(rowHeight, frame.size.height);
   });
-  const bounds: CanvasBounds = pages.length
-    ? {
-        minX: Math.min(...pages.map((p) => p.position.x)),
-        minY: Math.min(...pages.map((p) => p.position.y)),
-        maxX: Math.max(...pages.map((p) => p.position.x + p.size.width)),
-        maxY: Math.max(...pages.map((p) => p.position.y + p.size.height)),
-      }
-    : { minX: 0, minY: 0, maxX: 0, maxY: 0 };
-  return { pages, bounds };
+  return pages;
+}
+
+/**
+ * 階層(parentId)のツリーで並べる(サイトマップの図と同じ姿)。
+ * - 深さごとに行を作り、行の高さはその深さで一番高いフレームに合わせる
+ * - 親は子の並び(部分木)の中央の上に置く。部分木の幅 = max(自分の幅, 子の部分木の幅の和 + 間隔)
+ * - 親が一覧に無い・循環しているものはルートとして左から順に置く
+ * 一覧の順(index)は変えない(フレーム名の番号・読み込みの順番待ちに使う)
+ */
+function layoutTree(frames: PageFrame[], gap: { x: number; y: number }): PageFrameLayout[] {
+  const byId = new Map(frames.map((f) => [f.id, f] as const));
+  const children = new Map<string, PageFrame[]>();
+  const roots: PageFrame[] = [];
+  // 循環の検出: 親をたどってルートに着くか(着かないものはルート扱い)
+  const reachesRoot = (f: PageFrame): boolean => {
+    const seen = new Set<string>([f.id]);
+    let cur: PageFrame | undefined = f;
+    while (cur?.parentId && byId.has(cur.parentId)) {
+      if (seen.has(cur.parentId)) return false;
+      seen.add(cur.parentId);
+      cur = byId.get(cur.parentId);
+    }
+    return true;
+  };
+  frames.forEach((f) => {
+    const parent = f.parentId && f.parentId !== f.id && byId.has(f.parentId) && reachesRoot(f) ? f.parentId : null;
+    if (parent) {
+      const list = children.get(parent) ?? [];
+      list.push(f);
+      children.set(parent, list);
+    } else {
+      roots.push(f);
+    }
+  });
+  const subtreeWidth = new Map<string, number>();
+  const widthOf = (f: PageFrame): number => {
+    const cached = subtreeWidth.get(f.id);
+    if (cached != null) return cached;
+    const kids = children.get(f.id) ?? [];
+    const kidsWidth = kids.reduce((sum, k, i) => sum + widthOf(k) + (i > 0 ? gap.x : 0), 0);
+    const w = Math.max(f.size.width, kidsWidth);
+    subtreeWidth.set(f.id, w);
+    return w;
+  };
+  // 深さと行の高さ
+  const depthOf = new Map<string, number>();
+  const rowHeight: number[] = [];
+  const walk = (f: PageFrame, d: number) => {
+    depthOf.set(f.id, d);
+    rowHeight[d] = Math.max(rowHeight[d] ?? 0, f.size.height);
+    (children.get(f.id) ?? []).forEach((k) => walk(k, d + 1));
+  };
+  roots.forEach((r) => walk(r, 0));
+  const rowY: number[] = [];
+  rowHeight.forEach((h, d) => {
+    rowY[d] = d === 0 ? 0 : rowY[d - 1] + rowHeight[d - 1] + gap.y;
+  });
+  const position = new Map<string, { x: number; y: number }>();
+  const place = (f: PageFrame, x0: number) => {
+    const d = depthOf.get(f.id) ?? 0;
+    const w = widthOf(f);
+    position.set(f.id, { x: x0 + (w - f.size.width) / 2, y: rowY[d] ?? 0 });
+    const kids = children.get(f.id) ?? [];
+    const kidsWidth = kids.reduce((sum, k, i) => sum + widthOf(k) + (i > 0 ? gap.x : 0), 0);
+    let cx = x0 + (w - kidsWidth) / 2;
+    kids.forEach((k) => {
+      place(k, cx);
+      cx += widthOf(k) + gap.x;
+    });
+  };
+  let x = 0;
+  roots.forEach((r) => {
+    place(r, x);
+    x += widthOf(r) + gap.x;
+  });
+  return frames.map((f, index) => {
+    const p = position.get(f.id) ?? { x: 0, y: 0 };
+    return { ...f, index, depth: depthOf.get(f.id) ?? 0, position: { x: Math.round(p.x), y: Math.round(p.y) } };
+  });
+}
+
+/**
+ * 寸法から位置を決める。contentList に階層(parentId)があればツリー、無ければ行で折り返す。
+ * 位置を状態に持たないので、高さが実測で変わっても流れ直すだけで済む
+ */
+export function layoutFrames(
+  frames: PageFrame[],
+  editorMode: EditorMode,
+): { pages: PageFrameLayout[]; bounds: CanvasBounds; layout: CanvasLayoutKind } {
+  const gap = GAP[editorMode];
+  const ids = new Set(frames.map((f) => f.id));
+  const hasHierarchy = frames.some((f) => f.parentId && f.parentId !== f.id && ids.has(f.parentId));
+  const pages = hasHierarchy ? layoutTree(frames, gap) : layoutGrid(frames, gap, WRAP_AT[editorMode](frames.length));
+  return { pages, bounds: boundsOf(pages), layout: hasHierarchy ? 'tree' : 'grid' };
 }
 
 function fitView(
@@ -361,19 +472,36 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
   framesMapRef.current = framesMap;
 
   // contentList からフレームを同期(既存の実測・本文は保つ)
+  const currentContentIdRef = useRef(artboard.currentContentId);
+  currentContentIdRef.current = artboard.currentContentId;
   useEffect(() => {
     if (!enabled) return;
+    const ids = new Set(artboard.contentList.map((c) => c.id));
+    const depths = computeContentDepths(artboard.contentList);
     setFramesMap((prev) => {
       const next = new Map<string, PageFrame>();
       let changed = prev.size !== artboard.contentList.length;
       artboard.contentList.forEach((content) => {
         const existing = prev.get(content.id);
+        const parentId = content.parentId && ids.has(content.parentId) && content.parentId !== content.id ? content.parentId : null;
+        const depth = depths.get(content.id) ?? 0;
+        const revision = content.revision ?? 0;
+        const href = content.href;
         if (existing) {
           const title = content.title || existing.title;
-          const html = existing.html ?? content.thumbnailHtml ?? null;
           const width = frameWidth;
-          if (title !== existing.title || html !== existing.html || width !== existing.size.width) changed = true;
-          next.set(content.id, { ...existing, title, html, size: { width, height: existing.size.height } });
+          // 利用側が版を進めた = 本文が外から変わった。編集中のページは触らず(編集中の本文が正)、
+          // 他のページは本文を捨てて読み直させる(紙面は次の本文が来るまで前の姿のまま)
+          const bumped = revision !== existing.revision;
+          const isLive = content.id === currentContentIdRef.current;
+          const html = bumped && !isLive ? null : existing.html ?? content.thumbnailHtml ?? null;
+          const stale = bumped && !isLive ? true : existing.stale;
+          if (
+            title !== existing.title || html !== existing.html || width !== existing.size.width ||
+            parentId !== existing.parentId || depth !== existing.depth || href !== existing.href ||
+            revision !== existing.revision || stale !== existing.stale
+          ) changed = true;
+          next.set(content.id, { ...existing, title, html, stale, parentId, depth, href, revision, size: { width, height: existing.size.height } });
         } else {
           changed = true;
           next.set(content.id, {
@@ -385,6 +513,11 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
             size: { width: frameWidth, height: defaultHeight },
             measured: editorMode === 'slide',
             isDirty: false,
+            parentId,
+            depth,
+            href,
+            revision,
+            stale: false,
           });
         }
       });
@@ -392,7 +525,7 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     });
   }, [enabled, artboard.contentList, frameWidth, defaultHeight, editorMode]);
 
-  const { pages, bounds } = useMemo(() => {
+  const { pages, bounds, layout } = useMemo(() => {
     const order = artboard.contentList.map((c) => c.id);
     const frames = order.map((id) => framesMap.get(id)).filter((f): f is PageFrame => !!f);
     return layoutFrames(frames, editorMode);
@@ -428,9 +561,25 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
   }, []);
 
   const setPageHtml = useCallback(
-    (id: string, html: string) => updatePageFrame(id, { html, loading: false, error: null }),
+    (id: string, html: string) => updatePageFrame(id, { html, loading: false, error: null, stale: false }),
     [updatePageFrame],
   );
+
+  // 見るだけの紙面の本文を捨てて読み直させる(部品の反映など、外からファイルが変わったとき)
+  const invalidatePages = useCallback<MultiPageCanvasContextValue['invalidatePages']>((options) => {
+    if (!io().loadContent) return; // 読み直す手段が無い(thumbnailHtml は最初の姿のままなので読み直しにならない)
+    const except = new Set((options?.except ?? []).filter((id): id is string => !!id));
+    setFramesMap((prev) => {
+      let changed = false;
+      const next = new Map(prev);
+      prev.forEach((frame, id) => {
+        if (except.has(id) || frame.html == null) return;
+        next.set(id, { ...frame, html: null, loading: false, error: null, stale: true });
+        changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, []);
 
   // ---- ビュー状態(外部ストア。ズーム・パンで Context の値は変えない)
   const persisted = useMemo(() => readPersistedView(storageKey), [storageKey]);
@@ -669,12 +818,13 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     async (id) => {
       const frame = framesMapRef.current.get(id);
       if (!frame || frame.html != null || loadingRef.current.has(id)) return;
+      const loader = io().loadContent;
+      // 最初は利用側が渡した本文(thumbnailHtml)で足りる。外から変わった(stale)あとは loadContent で読み直す
       const fromList = artboard.contentList.find((c) => c.id === id)?.thumbnailHtml;
-      if (fromList != null) {
+      if (fromList != null && !(frame.stale && loader)) {
         setPageHtml(id, fromList);
         return;
       }
-      const loader = io().loadContent;
       if (!loader) return;
       loadingRef.current.add(id);
       updatePageFrame(id, { loading: true, error: null });
@@ -786,9 +936,12 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
       editorMode,
       pages,
       bounds,
+      layout,
       getPage,
       updatePageFrame,
       setPageHtml,
+      invalidatePages,
+      documentAttributes: artboard.documentAttributes,
       setPageHeight,
       ensurePageHtml,
       previewStyles,
@@ -817,8 +970,8 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
       releasePreviewSlot,
     }),
     [
-      enabled, editorMode, pages, bounds, getPage, updatePageFrame, setPageHtml, setPageHeight, ensurePageHtml,
-      previewStyles, viewStore, setCanvasOffset, setCanvasZoom, setView, zoomAt, zoomTo, zoomIn, zoomOut, zoomToFit, zoomToPage,
+      enabled, editorMode, pages, bounds, layout, getPage, updatePageFrame, setPageHtml, invalidatePages, artboard.documentAttributes,
+      setPageHeight, ensurePageHtml, previewStyles, viewStore, setCanvasOffset, setCanvasZoom, setView, zoomAt, zoomTo, zoomIn, zoomOut, zoomToFit, zoomToPage,
       zoomToActual, revealPage, activatePage, activatingPageId, registerContainer, isInteracting, markInteracting,
       persisted, rulersVisible, toggleRulers, requestPreviewSlot, releasePreviewSlot,
     ],

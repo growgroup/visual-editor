@@ -185,9 +185,14 @@ export function generatePreviewHtml(
     .join('\n  ');
   const width = editorMode === 'webpage' ? (artboardWidth ?? WEBPAGE_WIDTH) : SLIDE_WIDTH;
   const heightRule = editorMode === 'webpage' ? '' : `height: ${SLIDE_HEIGHT}px; overflow: hidden;`;
-  // sandbox(allow-same-origin のみ)では script が動かない。残すと 1 枚ごとに
-  // 「Blocked script execution」がコンソールへ出るだけなので、本文からも head からも外す
-  const stripScripts = (html: string) => html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+  // 見るだけの紙面では script を動かさない(ブラウザ版 Tailwind の JIT やページの script は要らない)。
+  // <script> と、勝手に発火しうるインラインハンドラ(onload / onerror 等)を本文からも head からも外す。
+  // iframe に sandbox は付けない: sandbox で script を禁じると、ページへ script を差し込む
+  // ブラウザ拡張(React DevTools 等)が 1 枚ごとに「Blocked script execution」をコンソールへ出す(実測 26 枚 = 26 件)
+  const stripScripts = (html: string) =>
+    html
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
+      .replace(/\son(?:load|error|abort|click|dblclick|mouse\w*|pointer\w*|touch\w*|key\w*|focus\w*|blur|change|input|submit|reset|scroll|wheel|animation\w*|transition\w*|toggle|play\w*|pause|ended|canplay\w*|loaded\w*)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/gi, '');
   return `<!DOCTYPE html>
 <html lang="ja">
 <head>${stripScripts(buildCommonHead(content))}
@@ -234,6 +239,17 @@ export function generateEditableHtml(
 <head>${buildCommonHead(content)}
   <style>
     * { box-sizing: border-box; }
+    /* 既定の書体はカスケードレイヤーに入れて置く(レイヤーに入れた宣言は、レイヤー外の宣言と、
+       後から宣言されたレイヤーの両方に負ける)。ページ側の CSS が html { font-family } を
+       素で書いていても、Tailwind v4 のように @layer base に書いていても、そちらが勝つ。
+       以前は html, body に直接書いていたため、構成ラフの @layer base の html { font-family: "Noto Sans JP" } が
+       負けて、エディタだけシステム書体で表示されていた(実測。:where() でも @layer には勝ってしまう)。
+       スライド本体は #artboard 内のルートが font-sans を持つのでどちらでも影響しない */
+    @layer gg-editor-defaults {
+      html {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', Meiryo, sans-serif;
+      }
+    }
     html, body {
       margin: 0;
       padding: 0;
@@ -241,9 +257,6 @@ export function generateEditableHtml(
       height: 100%;
       overflow: hidden;
       background-color: ${CANVAS_BG_COLOR};
-      /* iframe内のエディタUI(パンくず・ラベル等)用。
-         スライド本体は #artboard 内のルートが font-sans(游ゴシック)を持つので影響しない */
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Hiragino Sans', 'Noto Sans JP', Meiryo, sans-serif;
     }
 
     /* スクロール可能なキャンバスコンテナ */

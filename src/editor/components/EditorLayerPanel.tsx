@@ -17,8 +17,10 @@ import {
   ChevronRight,
   ChevronDown,
   Presentation,
+  ArrowUpRight,
 } from 'lucide-react';
 import { useEditorContext, type ContentListItem } from '../EditorContext';
+import { computeContentDepths } from '../contexts/EditorArtboardContext';
 import { useElementActions } from '../hooks/useElementActions';
 import { useResizablePanel } from '../hooks/useResizablePanel';
 import { refreshSelectionOverlay, buildDomTree } from '../utils/dom-utils';
@@ -297,10 +299,13 @@ return (
 const ContentListItemComponent = memo(function ContentListItemComponent({
   slide,
   isCurrent,
+  depth = 0,
   onClick,
 }: {
   slide: ContentListItem;
   isCurrent: boolean;
+  /** 階層の深さ(parentId から)。段を付ける */
+  depth?: number;
   onClick: () => void;
 }) {
   return (
@@ -313,6 +318,8 @@ const ContentListItemComponent = memo(function ContentListItemComponent({
           : 'text-gray-400 hover:bg-[#2c2c2c] border-l-2 border-transparent'
         }
       `}
+      style={depth > 0 ? { paddingLeft: 8 + depth * 14 } : undefined}
+      data-depth={depth}
       disabled={isCurrent}
       title={slide.title || `スライド ${slide.order}`}
     >
@@ -347,12 +354,14 @@ const ContentList = memo(function ContentList({
   currentContentId: string | null;
   onContentClick: (slideId: string) => void;
 }) {
+  const depths = useMemo(() => computeContentDepths(slides), [slides]);
   return (
     <>
       {slides.map((slide) => (
         <ContentListItemComponent
           key={slide.id}
           slide={slide}
+          depth={depths.get(slide.id) ?? 0}
           isCurrent={slide.id === currentContentId}
           onClick={() => onContentClick(slide.id)}
         />
@@ -387,6 +396,8 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
   } = useEditorContext();
 
   const [contentListExpanded, setContentListExpanded] = useState(true);
+  // 階層(parentId)の深さ。一覧に段を付ける
+  const slideDepths = useMemo(() => computeContentDepths(slides), [slides]);
   // 各スライドのツリー展開状態（スライドID → 展開状態）
   const [slideTreeExpanded, setSlideTreeExpanded] = useState<Map<string, boolean>>(new Map());
 
@@ -1132,6 +1143,7 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
           {!hideSlideList && slides.length > 0 ? (
             slides.map((slide, index) => {
               const isActive = slide.id === currentContentId;
+              const depth = slideDepths.get(slide.id) ?? 0;
               const isTreeExpanded = slideTreeExpanded.get(slide.id) ?? isActive;
               const slideTree = searchQuery ?
                 // 検索時は該当スライドのフィルタ済みツリーを表示
@@ -1139,14 +1151,15 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
                 getSlideTree(slide.id);
 
               return (
-                <div key={slide.id} className="mb-1">
-                  {/* スライドヘッダー */}
+                <div key={slide.id} className="mb-1" data-depth={depth}>
+                  {/* スライドヘッダー(階層があれば深さぶん段を付ける) */}
                   <div
                     className={`flex items-center gap-1 py-1 px-1 rounded cursor-pointer text-xs transition-colors ${
                       isActive
                         ? 'bg-[#0d99ff]/20 text-[#4fb8ff] border-l-2 border-[#0d99ff]'
                         : 'text-gray-300 hover:bg-[#444444] border-l-2 border-transparent'
                     }`}
+                    style={depth > 0 ? { marginLeft: depth * 14 } : undefined}
                     onClick={() => handleContentClick(slide.id)}
                   >
                     {/* 展開/折りたたみボタン */}
@@ -1174,6 +1187,19 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
                       <span className="text-[10px] px-1 py-0.5 bg-[#0d99ff]/30 rounded text-[#7cc4ff] flex-shrink-0">
                         編集中
                       </span>
+                    )}
+                    {slide.href && (
+                      <a
+                        href={slide.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="ed-icon-button !h-5 !w-5 flex-shrink-0 opacity-60 hover:opacity-100"
+                        title="別タブで開く(編集しない表示)"
+                        aria-label={`${slide.title || '無題'} を別タブで開く`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <ArrowUpRight className="w-3 h-3" />
+                      </a>
                     )}
                   </div>
 

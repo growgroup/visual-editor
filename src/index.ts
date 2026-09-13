@@ -22,10 +22,15 @@ export type { FrontendVisualEditorProps } from "./editor/FrontendVisualEditor";
 
 export { EditorProvider, useEditorContext } from "./editor/EditorContext";
 export type { ContentListItem, EditorMode } from "./editor/EditorContext";
+export type { DocumentAttributes } from "./editor/contexts/EditorArtboardContext";
+export { computeContentDepths } from "./editor/contexts/EditorArtboardContext";
 
 export { WEBPAGE_WIDTH, WEBPAGE_MIN_HEIGHT, SLIDE_WIDTH, SLIDE_HEIGHT, BREAKPOINT_PRESETS } from "./editor/constants";
 
 export { registerAutoSaveFlush, flushAutoSave } from "./editor/autosave";
+
+/** パッケージの版。利用側が dev サーバーの束ねたコードと node_modules の食い違い(再起動漏れ)を検出するのに使う */
+export { EDITOR_VERSION } from "./version";
 
 /**
  * コメントの一覧(カンバン)。エディタとは別の画面に単独で置ける。

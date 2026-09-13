@@ -56,6 +56,14 @@ export const MAX_ZOOM = 4;
 const ZOOM_STEP = 1.25;
 /** 全体表示・ページ表示のときの余白(px、画面上) */
 const FIT_PADDING = 72;
+/** 画面の縁からこれだけ内側にあれば「見えている」とする(px、画面上) */
+const REVEAL_MARGIN = 48;
+/**
+ * ホスト発の切替で「そのページが見えている」と認めるフレームの画面上の幅(px)。
+ * 全体表示(2%)だと 1920 の紙面が 38px の点にしかならず、画面には入っていても
+ * どこへ移ったのか分からない。これを下回るならページを画面に合わせて寄る
+ */
+const FOCUS_MIN_WIDTH = 400;
 /** 上と左の定規の太さ(px)。全体表示の余白に足す */
 export const RULER_SIZE = 20;
 /** ビューのアニメーション(ms) */
@@ -663,15 +671,6 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     [updatePageFrame, viewStore],
   );
 
-  // 生きているページは利用側(currentContentId)と揃える。
-  // 本文が読めて currentContentId が変わったときに初めてエディタが移る
-  // (クリックの時点では移さない。移すと前のページの本文が新しい枠に見えてしまう)
-  useEffect(() => {
-    if (!enabled) return;
-    const id = artboard.currentContentId ?? artboard.contentList[0]?.id ?? null;
-    viewStore.set((prev) => (prev.activePageId === id ? prev : { ...prev, activePageId: id }));
-  }, [enabled, artboard.currentContentId, artboard.contentList, viewStore]);
-
   // 見えている範囲の保存(変化が止まってから)
   useEffect(() => {
     if (!storageKey || typeof localStorage === 'undefined') return;
@@ -838,31 +837,106 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     [setView],
   );
 
-  const revealPage = useCallback<MultiPageCanvasContextValue['revealPage']>(
-    (id) => {
+  /**
+   * フレームが今どこに、どれだけの大きさで画面に出ているか(容器の座標)。
+   * 「見えているか」「寄る必要があるか」を revealPage と focusPage が同じ式で判定するため
+   */
+  const frameScreenRect = useCallback(
+    (id: string) => {
       const page = pagesRef.current.find((p) => p.id === id);
-      if (!page) return;
-      const { width, height } = containerSize();
+      if (!page) return null;
+      const container = containerSize();
       const { canvasZoom: z, canvasOffset: o } = viewStore.get();
       const inset = rulersRef.current ? RULER_SIZE : 0;
       const left = o.x + page.position.x * z;
       const top = o.y + page.position.y * z;
-      const right = left + page.size.width * z;
-      const bottom = top + page.size.height * z;
-      const margin = 48;
+      const width = page.size.width * z;
+      const height = page.size.height * z;
+      return {
+        page,
+        container,
+        inset,
+        zoom: z,
+        left,
+        top,
+        width,
+        height,
+        // 一部でも画面に入っていれば「見えている」
+        visible:
+          left + width > inset + REVEAL_MARGIN &&
+          left < container.width - REVEAL_MARGIN &&
+          top + height > inset + REVEAL_MARGIN &&
+          top < container.height - REVEAL_MARGIN,
+      };
+    },
+    [viewStore],
+  );
+
+  const revealPage = useCallback<MultiPageCanvasContextValue['revealPage']>(
+    (id) => {
+      const r = frameScreenRect(id);
       // 一部でも見えていればそのまま。見えていなければ、そのフレームの左上を画面へ寄せる
-      const visible = right > inset + margin && left < width - margin && bottom > inset + margin && top < height - margin;
-      if (visible) return;
-      const w = page.size.width * z;
-      const h = page.size.height * z;
+      if (!r || r.visible) return;
+      const { page, container, inset, zoom: z, width: w, height: h } = r;
       const offset = {
-        x: w <= width - inset ? inset + (width - inset - w) / 2 - page.position.x * z : inset + margin - page.position.x * z,
-        y: h <= height - inset ? inset + (height - inset - h) / 2 - page.position.y * z : inset + margin - page.position.y * z,
+        x: w <= container.width - inset ? inset + (container.width - inset - w) / 2 - page.position.x * z : inset + REVEAL_MARGIN - page.position.x * z,
+        y: h <= container.height - inset ? inset + (container.height - inset - h) / 2 - page.position.y * z : inset + REVEAL_MARGIN - page.position.y * z,
       };
       setView({ zoom: z, offset }, { animate: true });
     },
-    [setView, viewStore],
+    [frameScreenRect, setView],
   );
+
+  /**
+   * ホスト発(利用側のレールなど)でページが変わったときに視点を寄せる。
+   * 倍率はできるだけ変えない ── ただし「画面に入ってはいるが点にしか見えない」ときは
+   * 寄せても何も起きていないように見えるので、そのときだけページに合わせる
+   */
+  const focusPage = useCallback(
+    (id: string) => {
+      const r = frameScreenRect(id);
+      if (!r) return;
+      if (r.width < FOCUS_MIN_WIDTH) {
+        zoomToPage(id, { animate: true });
+        return;
+      }
+      if (!r.visible) revealPage(id);
+    },
+    [frameScreenRect, revealPage, zoomToPage],
+  );
+
+  /**
+   * 直前の activatePage(フレームのクリック・左パネル)の宛先。
+   * 下の同期 effect が「エディタ発かホスト発か」を見分けるのに使う。
+   * state(activatingPageId)ではなく ref で持つのは、切替が終わって state が戻るのと
+   * 同期 effect が走るのが同じ描画にまとまるため(state では読んだときに既に null)。
+   * 消すのは effect が使ったときだけ ── A → B と続けて押したときは A の後始末で消さない
+   */
+  const editorInitiatedPageIdRef = useRef<string | null>(null);
+
+  // 生きているページは利用側(currentContentId)と揃える。
+  // 本文が読めて currentContentId が変わったときに初めてエディタが移る
+  // (クリックの時点では移さない。移すと前のページの本文が新しい枠に見えてしまう)。
+  // ホスト発(利用側がレールで contentId を変えた)のときは視点も寄せる ── フレームの
+  // クリックと違って画面のどこにも手掛かりが無く、26 ページの木では移り先がほぼ画面外
+  useEffect(() => {
+    if (!enabled) return;
+    const id = artboard.currentContentId ?? artboard.contentList[0]?.id ?? null;
+    let prevId: string | null | undefined;
+    viewStore.set((prev) => {
+      if (prev.activePageId === id) return prev;
+      prevId = prev.activePageId;
+      return { ...prev, activePageId: id };
+    });
+    if (prevId === undefined || !id) return; // 変わっていない
+    if (prevId === null) return; // 最初の 1 ページが決まっただけ。初回の視点は MultiPageCanvasView が決める
+    if (editorInitiatedPageIdRef.current === id) {
+      // エディタ発(activatePage)。あちらで既に寄せてあるので二重に動かさない
+      editorInitiatedPageIdRef.current = null;
+      return;
+    }
+    focusPage(id);
+  }, [enabled, artboard.currentContentId, artboard.contentList, viewStore, focusPage]);
 
   // ---- 本文の読み込み
   const loadingRef = useRef(new Set<string>());
@@ -921,13 +995,21 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
       }
       const notify = onContentChangeRef.current;
       if (!notify) return false;
+      // エディタ発だと印す。利用側の contentId が変わって同期 effect が走るころには
+      // この切替は終わっているので、state ではなく ref で残す
+      editorInitiatedPageIdRef.current = id;
       setActivatingPageId(id);
       if (options?.reveal) revealPage(id);
+      let moved = false;
       try {
         const result = await (notify as (contentId: string) => unknown)(id);
-        return result !== false;
+        moved = result !== false;
+        return moved;
       } finally {
         setActivatingPageId((v) => (v === id ? null : v));
+        // 移れなかったら印を消す(残すと、あとで同じページへホスト発で移るときに視点が動かない)。
+        // 別のページへ移ったあとなら消さない ── その印はそちらの切替のもの
+        if (!moved && editorInitiatedPageIdRef.current === id) editorInitiatedPageIdRef.current = null;
       }
     },
     [revealPage, viewStore],

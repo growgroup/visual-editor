@@ -122,7 +122,7 @@ export function relaxContainerSize(container: HTMLElement): void {
 /** 並べ替え・整列の対象にしない、エディタが描いている飾り */
 const OVERLAY_SELECTOR =
   '.selection-box,.marquee-selection-box,.resize-handle,.rotation-handle,' +
-  '.size-label,.element-breadcrumb,.gg-comment-layer,.gg-crop-ui,' +
+  '.size-label,.element-breadcrumb,.gg-comment-layer,.gg-collab-layer,.gg-crop-ui,' +
   '#gg-measure-layer,#gg-smart-guides,#gg-reorder-indicator';
 
 /** 実体のある直接の子だけを取り出す */

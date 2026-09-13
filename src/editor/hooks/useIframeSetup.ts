@@ -112,6 +112,8 @@ export function useIframeSetup(): UseIframeSetupReturn {
       if (element.classList.contains('rotation-handle')) return;
       // selection-boxの子孫要素をすべてスキップ（念のため）
       if (element.closest('.selection-box')) return;
+      // 共同編集の他人の選択枠・カーソル(表示専用の層)
+      if (element.closest('.gg-collab-layer')) return;
 
       // 部品のインスタンス(data-part)の中で、スロット(data-slot)の外にある要素は編集対象にしない。
       // ルート自身とスロットの中は通常どおり(src/editor/parts.ts)。

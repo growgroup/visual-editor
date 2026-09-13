@@ -27,7 +27,7 @@ const BLUE = '#0d99ff';
 /** 並べ替えの対象にしない、エディタが描いている飾り */
 const OVERLAY_SELECTOR =
   '.selection-box,.marquee-selection-box,.resize-handle,.rotation-handle,' +
-  '.size-label,.element-breadcrumb,.gg-comment-layer,.gg-crop-ui,' +
+  '.size-label,.element-breadcrumb,.gg-comment-layer,.gg-collab-layer,.gg-crop-ui,' +
   '.flex-drop-indicator,#gg-measure-layer,#gg-smart-guides,#' + INDICATOR_ID;
 
 /**

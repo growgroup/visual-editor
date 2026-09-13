@@ -28,7 +28,7 @@ import { getCleanHtml } from '../../utils/html-utils';
 import { startExport, waitForExport, downloadExport, type ExportFormat } from '../../../lib/export';
 import { can } from '../../../io';
 import { CollabPresence, CollabStatusPill } from '../../collab/CollabPresence';
-import { useCollabSelector, selectCollabPageActive } from '../../collab/store';
+import { useCollabSelector, selectCollabPageActive, flushCollab } from '../../collab/store';
 
 export type EditorSaveStatus = 'saved' | 'dirty' | 'saving' | 'error';
 
@@ -119,6 +119,13 @@ export function EditorTopBar({
    */
   const handleSave = async () => {
     try {
+      // 共同編集でそのページの部屋に入っている間は、ファイルへ書くのは書き戻し役。
+      // ここでは「まだ送っていない変更を今すぐ送る」だけにして、二重に書かせない
+      if (collabPageActive) {
+        flushCollab();
+        toast.success('同期済み', { description: '共同編集中の変更は、書き戻し役がファイルへ保存します' });
+        return;
+      }
       const doc = getIframeDoc();
       // 保存してもエディタは閉じない。保存は作業の中断ではない
       await onSave(doc ? getCleanHtml(doc) : html);

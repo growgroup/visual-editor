@@ -364,6 +364,8 @@ export function getCleanHtml(doc: Document): string {
 
   // コメントの吹き出しレイヤー(表示専用)を削除
   tempContainer.querySelectorAll('.gg-comment-layer').forEach(el => el.remove());
+  // 共同編集の他人の選択枠・カーソル(表示専用)も保存しない(共有する本文にも混ぜない)
+  tempContainer.querySelectorAll('.gg-collab-layer').forEach(el => el.remove());
   // Alt計測の赤い線(表示専用)も保存しない
   tempContainer.querySelectorAll('#gg-measure-layer').forEach(el => el.remove());
   // ドラッグ中の整列ガイド(表示専用)も保存しない

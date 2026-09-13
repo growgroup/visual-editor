@@ -124,6 +124,44 @@ export function useCollabSelector<T>(select: (s: CollabSnapshot) => T): T {
 /** いまのページの部屋に入っているか(このあいだ保存の状態の代わりに接続状態を出し、自動保存を止める) */
 export const selectCollabPageActive = (s: CollabSnapshot): boolean => s.enabled && s.pageActive;
 
+/** 中継へまだ送れていない変更があるか(離脱の警告に使う) */
+export const selectCollabUnsynced = (s: CollabSnapshot): boolean => s.enabled && (s.unsynced > 0 || s.status === 'offline');
+
+/** 共同編集中の取り消しの状態(Y.UndoManager) */
+export const selectCollabUndo = (s: CollabSnapshot) => ({ canUndo: s.canUndo, canRedo: s.canRedo });
+
+let flusher: (() => void) | null = null;
+
+/** 編集中の紙面の束縛が「まだ送っていない変更を今すぐ送る」関数を登録する(離れるときは null) */
+export function setCollabFlusher(flush: (() => void) | null): void {
+  flusher = flush;
+}
+
+/** まだ送っていない変更を今すぐ送る(手動保存・ページ切替の直前)。共同編集していなければ何もしない */
+export function flushCollab(): void {
+  flusher?.();
+}
+
+let sharedReader: ((contentId: string) => string | null) | null = null;
+
+/** 接続の実体が「そのページの部屋に本文があれば返す」関数を登録する(抜けるときは null) */
+export function setCollabSharedReader(reader: ((contentId: string) => string | null) | null): void {
+  sharedReader = reader;
+}
+
+/**
+ * そのページの部屋に既に同期済みの本文があれば、エディタに渡す HTML(decode 済み)を返す。
+ * 共同編集中のページ切替で、ファイル(まだ書き戻されていないことがある)より部屋の本文を優先するために使う
+ */
+export function readCollabSharedHtml(contentId: string): string | null {
+  if (!sharedReader) return null;
+  try {
+    return sharedReader(contentId);
+  } catch {
+    return null;
+  }
+}
+
 export type CollabPresence = {
   enabled: boolean;
   status: CollabStatus;

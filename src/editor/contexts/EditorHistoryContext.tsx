@@ -91,6 +91,8 @@ const EDITOR_CHROME_SELECTOR = [
   '.flex-drop-indicator',
   '.nesting-drop-indicator',
   '.auto-layout-drop-indicator',
+  // 共同編集の他人の選択枠・カーソル(io.collab があるときだけ描かれる)
+  '.gg-collab-layer',
 ].join(',');
 
 /**

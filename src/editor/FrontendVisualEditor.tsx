@@ -96,6 +96,7 @@ import { cn } from '../lib/utils';
 import { clearPartDropIndicator } from './utils/drop-target';
 import { debugLog } from './utils/debug';
 import { useCollab } from './collab/useCollab';
+import { readCollabSharedHtml, selectCollabPageActive, selectCollabUndo, selectCollabUnsynced, useCollabSelector } from './collab/store';
 
 /**
  * 自動保存のデバウンス(ms)。
@@ -326,9 +327,25 @@ function FrontendVisualEditorInner({
   // リアルタイム共同編集(io.collab があるときだけ動く。無ければ何もしない)
   const collab = useCollab({
     contentId: currentContentId ?? contentId ?? null,
-    getIframeDoc,
     selectedIds: selectedElementIds.length > 0 ? selectedElementIds : selectedElement?.id ? [selectedElement.id] : [],
   });
+  const collabRef = useRef(collab);
+  collabRef.current = collab;
+  // ページの部屋に入っている間: onSave の自動保存を呼ばず、取り消しは Y.UndoManager に切り替える
+  const collabPageActive = useCollabSelector(selectCollabPageActive);
+  const collabPageActiveRef = useRef(collabPageActive);
+  collabPageActiveRef.current = collabPageActive;
+  const collabUndoState = useCollabSelector(selectCollabUndo);
+  const effectiveUndo = useCallback(() => {
+    if (collabPageActiveRef.current) collabRef.current?.undo();
+    else undo();
+  }, [undo]);
+  const effectiveRedo = useCallback(() => {
+    if (collabPageActiveRef.current) collabRef.current?.redo();
+    else redo();
+  }, [redo]);
+  const effectiveCanUndo = collabPageActive ? collabUndoState.canUndo : canUndo;
+  const effectiveCanRedo = collabPageActive ? collabUndoState.canRedo : canRedo;
 
   // ドラッグ&ドロップ状態
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -822,6 +839,12 @@ function FrontendVisualEditorInner({
    */
   const saveIfDirty = useCallback(async (): Promise<boolean> => {
     const state = saveStateRef.current;
+    // 共同編集でそのページの部屋に入っている間は、ファイルへ書くのは書き戻し役の仕事。
+    // ここで保存すると、書き戻し役の書いた内容と二重になる(まだ送っていない変更だけ送っておく)
+    if (collabPageActiveRef.current) {
+      collabRef.current?.flush();
+      return true;
+    }
     // ページ切替の途中(履歴の本文がまだ前のページ)は保存しない。
     // ここで送ると前のページの本文を次のページへ書いてしまう
     if (isContentSwitching()) return true;
@@ -903,16 +926,33 @@ function FrontendVisualEditorInner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceHtml]);
 
-  /** 保存しきれていない状態でタブを閉じられたときだけ、ブラウザ既定の離脱警告を出す */
+  /**
+   * 保存しきれていない状態でタブを閉じられたときだけ、ブラウザ既定の離脱警告を出す。
+   * 共同編集中は「保存」ではなく「中継へ送れているか」を見る(未同期があれば警告する)
+   */
+  const collabUnsynced = useCollabSelector(selectCollabUnsynced);
+  const warnOnUnload = collabPageActive ? collabUnsynced : hasChanges;
   useEffect(() => {
-    if (!hasChanges) return;
+    if (!warnOnUnload) return;
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, [hasChanges]);
+  }, [warnOnUnload]);
+
+  /** 共同編集中の未同期は、タブが隠れる・閉じる直前にもう一度送る(打鍵の 120ms 間引きが残っていることがある) */
+  useEffect(() => {
+    if (!collabPageActive) return;
+    const flush = () => collabRef.current?.flush();
+    window.addEventListener('pagehide', flush);
+    document.addEventListener('visibilitychange', flush);
+    return () => {
+      window.removeEventListener('pagehide', flush);
+      document.removeEventListener('visibilitychange', flush);
+    };
+  }, [collabPageActive]);
 
   /** 閉じる/一覧へ戻る。未保存は黙って保存してから離れ、失敗したときだけ確認する */
   const handleClose = useCallback(() => {
@@ -1936,11 +1976,11 @@ function FrontendVisualEditorInner({
     // undo/redo は常に生やす（履歴が無いときは内部で何もしない）。
     // 条件付きで undefined にするとブラウザ既定の取り消しが走ってしまう。
     undo: () => {
-      if (canUndo) undo();
+      if (effectiveCanUndo) effectiveUndo();
       restoreFocus();
     },
     redo: () => {
-      if (canRedo) redo();
+      if (effectiveCanRedo) effectiveRedo();
       restoreFocus();
     },
     delete: hasSelection ? deleteElement : undefined,
@@ -2028,10 +2068,10 @@ function FrontendVisualEditorInner({
         <>
           {(() => {
             const pptActions = {
-              undo,
-              redo,
-              canUndo,
-              canRedo,
+              undo: effectiveUndo,
+              redo: effectiveRedo,
+              canUndo: effectiveCanUndo,
+              canRedo: effectiveCanRedo,
               deleteElement: selectedElement ? deleteElement : undefined,
               duplicateElement: selectedElement ? duplicateElement : undefined,
               bringToFront: selectedElement ? bringToFront : undefined,
@@ -2226,10 +2266,10 @@ function FrontendVisualEditorInner({
           <EditorToolbar
             activeTool={activeTool}
             onToolChange={setActiveTool}
-            onUndo={undo}
-            onRedo={redo}
-            canUndo={canUndo}
-            canRedo={canRedo}
+            onUndo={effectiveUndo}
+            onRedo={effectiveRedo}
+            canUndo={effectiveCanUndo}
+            canRedo={effectiveCanRedo}
             selectedCount={selectedElementIds.length > 0 ? selectedElementIds.length : (selectedElement ? 1 : 0)}
             onGroup={selectedElementIds.length > 1 ? groupElements : undefined}
             onUngroup={selectedElement?.id && hasUngroupableChildren(selectedElement.id) ? ungroupElements : undefined}
@@ -2870,7 +2910,11 @@ export function FrontendVisualEditor({
     try {
       let newHtml = '';
       let newLayoutMode: 'absolute' | 'auto' = 'auto';
-      if (loader) {
+      // 共同編集: そのページの部屋に本文があればそれが最新(書き戻し役がファイルへ書く前でも正しい姿で開く)
+      const shared = readCollabSharedHtml(newContentId);
+      if (shared != null) {
+        newHtml = shared;
+      } else if (loader) {
         newHtml = (await loader(newContentId)) ?? '';
       } else if (!canUseApi) {
         newHtml = listItem?.thumbnailHtml ?? '';

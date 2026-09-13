@@ -1,20 +1,35 @@
 /**
- * 共同編集の実体。io.collab があるときだけ動的に読まれる(yjs / Hocuspocus を束ねる側)。
+ * 共同編集の実体。io.collab があるときだけ動的に読まれる(yjs / Hocuspocus / idiomorph / fast-diff を束ねる側)。
  *
- * - 案件の部屋: 居場所(`{ user, kind: "editor", contentId, route }`)と書き戻し役の数
- * - ページの部屋: いま編集中のページの本文と、選択・カーソル・打鍵中の要素
+ * - 案件の部屋: 居場所(`{ user, kind: "editor", contentId, route }`)・書き戻し役の数・`Y.Map("pages")` の rev
+ * - ページの部屋: いま編集中のページの本文(binding.ts)と、選択・カーソル・打鍵中の要素
  *   (`{ user, kind: "editor", selection, cursor, editing }`)
  * 表示は store.ts に書くだけ。ヘッダーや紙面の描画はそれを購読する
  */
 
 import { WebSocketStatus } from '@hocuspocus/provider';
+import type * as Y from 'yjs';
 import type { EditorCollab } from '../../io';
-import { acquireRoom, acquireSocket, releaseRoom, releaseSocket, type Room } from './connection';
+import { acquireRoom, acquireSocket, peekRoom, releaseRoom, releaseSocket, type Room } from './connection';
 import { colorFor } from './color';
-import { collabStore, type CollabPagePeer, type CollabPeer, type CollabStatus, type CollabUser } from './store';
+import { PageBinding } from './binding';
+import {
+  collabStore,
+  setCollabSharedReader,
+  type CollabPagePeer,
+  type CollabPeer,
+  type CollabStatus,
+  type CollabUser,
+} from './store';
 
 /** カーソルを送る間隔(ms) */
 const CURSOR_THROTTLE_MS = 50;
+/** 案件の部屋の pages の rev を進める間隔(ms。取り決め §5 の「1 秒に 1 回まで」) */
+const REV_INTERVAL_MS = 1000;
+/** 見るだけの紙面を読み直すために入った部屋を、抜けるまでの猶予(ms) */
+const PREVIEW_ROOM_GRACE_MS = 15000;
+/** 見るだけの紙面の本文を待つ上限(ms) */
+const READ_SHARED_TIMEOUT_MS = 4000;
 
 type AwarenessState = Record<string, unknown>;
 
@@ -32,9 +47,32 @@ function toCursor(raw: unknown): { x: number; y: number } | null {
   return typeof x === 'number' && typeof y === 'number' && Number.isFinite(x) && Number.isFinite(y) ? { x, y } : null;
 }
 
+function waitSynced(room: Room, timeoutMs: number): Promise<boolean> {
+  if (room.provider.synced) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      room.provider.off('synced', done);
+      resolve(room.provider.synced);
+    };
+    const timer = setTimeout(done, timeoutMs);
+    room.provider.on('synced', done);
+  });
+}
+
 export type PageSession = {
   room: Room;
   contentId: string;
+};
+
+/** 編集中の紙面と部屋の本文の束縛(binding.ts)のうち、エディタから呼ぶもの */
+export type CollabDocBinding = {
+  scheduleSend(): void;
+  flush(): void;
+  undo(): void;
+  redo(): void;
+  sharedHtml(): string | null;
+  destroy(): void;
 };
 
 export type CollabRuntime = {
@@ -47,17 +85,25 @@ export type CollabRuntime = {
   setEditing(anchor: string | null): void;
   /** いまのページの部屋。入っていなければ null */
   page(): PageSession | null;
-  /** 本文の束縛(binding)から、まだ送っていない変更の有無を知らせる(同期中の表示に使う) */
-  setLocalPending(pending: boolean): void;
-  /** 状態の表示を計算し直す(束縛の中の変化から呼ぶ) */
-  refresh(): void;
+  /**
+   * 初期化を終えた紙面をページの部屋の本文につなぐ。そのページの部屋に入っていなければ null。
+   * initialShared は読み込み直後の姿(encode 済み。種まきに使う)
+   */
+  bind(options: { doc: Document; contentId: string; initialShared: string; onApplied: (artboardHtml: string) => void }): CollabDocBinding | null;
+  /** 他の人がそのページ(route)の本文を送った。登録した時点で rev のあるページにも 1 回ずつ呼ぶ */
+  onRemoteRev(listener: (route: string) => void): () => void;
+  /** そのページの部屋の本文(decode 済み)。部屋に入って同期を待つ。空・同期できなければ null */
+  readShared(contentId: string): Promise<string | null>;
   destroy(): void;
 };
 
 export function createCollabRuntime(config: EditorCollab): CollabRuntime {
   const self: CollabUser = { id: config.user.id, name: config.user.name || config.user.id, color: colorFor(config.user.id, config.user.color) };
+  const encode = config.encode ?? ((clean: string) => clean);
+  const decodeFor = (contentId: string) => (shared: string) => (config.decode ? config.decode(shared, contentId) : shared);
   const socket = acquireSocket(config.url);
   const project = acquireRoom(config.url, config.projectRoom, config.token);
+  const revOrigin = { collab: 'rev' };
   let destroyed = false;
   let currentContentId: string | null = null;
   let page: (PageSession & { off: () => void }) | null = null;
@@ -70,6 +116,7 @@ export function createCollabRuntime(config: EditorCollab): CollabRuntime {
 
   collabStore.set({
     enabled: true,
+    ready: false,
     self,
     requireBridge: !!config.requireBridge,
     status: 'offline',
@@ -81,7 +128,6 @@ export function createCollabRuntime(config: EditorCollab): CollabRuntime {
     unsynced: 0,
     canUndo: false,
     canRedo: false,
-    ready: false,
   });
 
   const setProjectPresence = () => {
@@ -160,6 +206,46 @@ export function createCollabRuntime(config: EditorCollab): CollabRuntime {
     collabStore.set({ status, unsynced, ready: project.provider.synced || collabStore.get().ready });
   };
 
+  const setLocalPending = (pending: boolean) => {
+    if (pending === localPending) return;
+    localPending = pending;
+    refresh();
+  };
+
+  // ---- 案件の部屋の pages(rev)
+  const pagesMap = project.doc.getMap<unknown>('pages');
+  const revListeners = new Set<(route: string) => void>();
+  const onPages = (event: Y.YMapEvent<unknown>, tx: Y.Transaction) => {
+    if (tx.origin === revOrigin) return;
+    event.keysChanged.forEach((route) => revListeners.forEach((listener) => listener(route)));
+  };
+  pagesMap.observe(onPages);
+  const revTimers = new Map<string, { last: number; timer: ReturnType<typeof setTimeout> | null }>();
+  const writeRev = (route: string) => {
+    if (destroyed) return;
+    project.doc.transact(() => {
+      const prev = pagesMap.get(route) as { rev?: unknown } | undefined;
+      const rev = typeof prev?.rev === 'number' ? prev.rev + 1 : 1;
+      pagesMap.set(route, { rev, by: self.id, at: new Date().toISOString() });
+    }, revOrigin);
+  };
+  const bumpRev = (route: string) => {
+    const entry = revTimers.get(route) ?? { last: 0, timer: null };
+    revTimers.set(route, entry);
+    if (entry.timer) return;
+    const wait = REV_INTERVAL_MS - (Date.now() - entry.last);
+    if (wait <= 0) {
+      entry.last = Date.now();
+      writeRev(route);
+      return;
+    }
+    entry.timer = setTimeout(() => {
+      entry.timer = null;
+      entry.last = Date.now();
+      writeRev(route);
+    }, wait);
+  };
+
   const onProjectAwareness = () => readPeers();
   project.provider.awareness?.on('change', onProjectAwareness);
   project.provider.on('synced', refresh);
@@ -167,6 +253,15 @@ export function createCollabRuntime(config: EditorCollab): CollabRuntime {
   setProjectPresence();
   readPeers();
   refresh();
+
+  // 共同編集中のページ切替で、部屋に同期済みの本文があればそれを使わせる
+  setCollabSharedReader((contentId) => {
+    const name = config.roomFor(contentId);
+    const room = name ? peekRoom(config.url, name) : null;
+    if (!room || !room.provider.synced) return null;
+    const text = room.doc.getText('html').toString();
+    return text ? decodeFor(contentId)(text) : null;
+  });
 
   const joinPage = (contentId: string, name: string) => {
     const room = acquireRoom(config.url, name, config.token);
@@ -216,8 +311,8 @@ export function createCollabRuntime(config: EditorCollab): CollabRuntime {
       currentContentId = contentId;
       setProjectPresence();
       const name = contentId ? config.roomFor(contentId) : null;
-      if (page && name && page.room.name === name) {
-        page.contentId = contentId!;
+      if (page && contentId && name && page.room.name === name) {
+        page.contentId = contentId;
       } else {
         leavePage();
         if (contentId && name) joinPage(contentId, name);
@@ -245,17 +340,73 @@ export function createCollabRuntime(config: EditorCollab): CollabRuntime {
       page?.room.provider.awareness?.setLocalStateField('editing', anchor);
     },
     page: () => (page ? { room: page.room, contentId: page.contentId } : null),
-    setLocalPending(pending) {
-      if (pending === localPending) return;
-      localPending = pending;
-      refresh();
+    bind({ doc, contentId, initialShared, onApplied }) {
+      if (destroyed || !page || page.contentId !== contentId) return null;
+      const route = config.routeFor(contentId);
+      const binding = new PageBinding({
+        room: page.room,
+        doc,
+        initialShared,
+        encode,
+        decode: decodeFor(contentId),
+        onApplied,
+        onLocalSent: () => {
+          if (route) bumpRev(route);
+        },
+        onState: (state) => {
+          collabStore.set({ pending: state.pending, canUndo: state.canUndo, canRedo: state.canRedo });
+          setLocalPending(state.localPending);
+        },
+      });
+      return {
+        scheduleSend: () => binding.scheduleSend(),
+        flush: () => binding.flush(),
+        undo: () => binding.undo(),
+        redo: () => binding.redo(),
+        sharedHtml: () => binding.sharedHtml(),
+        destroy: () => {
+          binding.destroy();
+          collabStore.set({ pending: false, canUndo: false, canRedo: false });
+          setLocalPending(false);
+        },
+      };
     },
-    refresh,
+    onRemoteRev(listener) {
+      revListeners.add(listener);
+      pagesMap.forEach((_value, route) => listener(route));
+      return () => {
+        revListeners.delete(listener);
+      };
+    },
+    async readShared(contentId) {
+      const name = config.roomFor(contentId);
+      if (destroyed || !name) return null;
+      const fresh = !peekRoom(config.url, name);
+      const room = acquireRoom(config.url, name, config.token);
+      // 見るだけの紙面のために入る部屋では、居場所を出さない
+      if (fresh) room.provider.awareness?.setLocalState(null);
+      try {
+        if (!(await waitSynced(room, READ_SHARED_TIMEOUT_MS))) return null;
+        const text = room.doc.getText('html').toString();
+        return text ? decodeFor(contentId)(text) : null;
+      } finally {
+        releaseRoom(room, PREVIEW_ROOM_GRACE_MS);
+      }
+    },
     destroy() {
       if (destroyed) return;
       leavePage();
+      // 間引き中の rev は捨てずに書く
+      revTimers.forEach((entry, route) => {
+        if (!entry.timer) return;
+        clearTimeout(entry.timer);
+        entry.timer = null;
+        writeRev(route);
+      });
       destroyed = true;
       if (cursorTimer) clearTimeout(cursorTimer);
+      setCollabSharedReader(null);
+      pagesMap.unobserve(onPages);
       project.provider.awareness?.off('change', onProjectAwareness);
       project.provider.off('synced', refresh);
       socket.off('status', refresh);

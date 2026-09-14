@@ -267,7 +267,8 @@ export function applyInlineTextStyle(target: InlineTextRange, styles: Record<str
     Array.from(el.querySelectorAll<HTMLElement>('span')).filter(isBareSpan).forEach(unwrap);
     applyTailwindStyles(el, styles);
     // 列挙の値(font-bold / font-normal / italic など)は applyTailwindStyles だとクラスだけになり、
-    // ページの CSS にそのクラスが無いと効かない(提案書デッキには font-normal が無い)。
+    // ページの CSS にそのクラスが無いと効かない(構成ラフの殻のコンパイル済み CSS には italic・no-underline が無い。
+    // 提案書デッキの紙面は Tailwind Browser が付いたクラスをその場で作るので効く)。
     // 文字の一部に当てた値は、任意値のクラスと同じくインラインにも書いて、クラスの有無によらず効かせる
     for (const [prop, value] of Object.entries(styles)) {
       if (value) (el.style as unknown as Record<string, string>)[prop] = value;

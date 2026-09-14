@@ -291,24 +291,35 @@ export function VariableAwareSizeInput({
     [disabled, isLinked, mode, parsed, min, max, currentUnit, onChangeValue]
   );
 
+  // 単位の欄が付くのは固定値で変数に紐づいていないときだけ
+  const hasUnit = mode === 'fixed' && !isLinked;
+
   return (
-    <div className="flex items-center gap-0.5 group/size-input">
+    // [.group] 外の group はパネルの共通の入力の見た目(高さ 32px・左右 8px の余白の塗り)を中に当てないための印。
+    // 中の数値と単位は枠を持たず、箱(下の .group.h-5)が 1 つの入力として見える
+    <div
+      className="group flex items-center gap-1 min-w-0"
+      data-size-field={dimension === 'height' ? 'h' : 'w'}
+    >
       {/* Label area (W/H) */}
       {label && <div className="shrink-0">{label}</div>}
 
       <Popover open={isOpen} onOpenChange={setIsOpen}>
         <PopoverTrigger asChild>
+          {/* [幅] 以前は固定値の箱を w-14(56px)に決め打ちし、その外に単位(40px)を置いていたため、
+              数値に使える幅が 26px しか残らず「1499」「1820」が切れていた。
+              箱はモードによらず列の残りをすべて使い、数値・単位・モード切替をこの中に並べる */}
           <div
+            data-size-box
             className={cn(
-              "flex items-center h-5 bg-[#383838] border border-[#4a4a4a] rounded-l cursor-pointer",
+              "group flex flex-1 min-w-0 items-center h-5 bg-[#383838] border border-[#4a4a4a] rounded cursor-pointer",
               "hover:border-[#5d5d5d]",
               disabled && "opacity-50 cursor-not-allowed",
-              isOpen && "ring-1 ring-[#0d99ff] border-[#0d99ff]",
-              mode === 'fixed' ? 'w-14' : 'flex-1'
+              isOpen && "ring-1 ring-[#0d99ff] border-[#0d99ff]"
             )}
           >
             {/* コンテンツ */}
-            <div className="flex-1 min-w-0 h-full flex items-center px-1.5">
+            <div className="flex-1 min-w-0 h-full flex items-center pl-1.5">
               {mode === 'fixed' ? (
                 isLinked ? (
                   <div className="flex items-center gap-0.5 flex-1 min-w-0">
@@ -341,7 +352,7 @@ export function VariableAwareSizeInput({
                     onClick={(e) => e.stopPropagation()}
                     disabled={disabled}
                     className={cn(
-                      "w-full bg-transparent border-none outline-none text-gray-200 text-[10px]",
+                      "w-full min-w-0 p-0 bg-transparent border-none outline-none text-gray-200 text-[10px] tabular-nums",
                       "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
                       isDragging ? "cursor-ew-resize" : "cursor-ew-resize"
                     )}
@@ -358,10 +369,34 @@ export function VariableAwareSizeInput({
               )}
             </div>
 
+            {/* 単位セレクター（fixed モードで変数リンクがない場合のみ）。
+                箱の中にあるので、押してもモード切替のメニューは開かない */}
+            {hasUnit && (
+              <select
+                value={currentUnit}
+                onChange={handleUnitChange}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                disabled={disabled}
+                title="単位"
+                data-size-unit
+                className={cn(
+                  "h-full shrink-0 px-0.5 appearance-none bg-transparent border-none outline-none",
+                  "text-[9px] text-gray-400 hover:text-white cursor-pointer",
+                  "disabled:text-gray-500"
+                )}
+              >
+                {unitList.map((u) => (
+                  <option key={u} value={u}>{u}</option>
+                ))}
+              </select>
+            )}
+
             {/* ドロップダウンアイコン */}
             <button
               type="button"
-              className="h-full px-0.5 flex items-center justify-center text-gray-500 hover:text-white transition-colors"
+              className="h-full w-4 shrink-0 flex items-center justify-center text-gray-500 hover:text-white transition-colors"
               disabled={disabled}
             >
               <ChevronDown className="h-2.5 w-2.5" />
@@ -557,32 +592,6 @@ export function VariableAwareSizeInput({
         </PopoverContent>
       </Popover>
 
-      {/* 単位セレクター（fixed モードで変数リンクがない場合のみ） */}
-      {mode === 'fixed' && !isLinked && (
-        <select
-          value={currentUnit}
-          onChange={handleUnitChange}
-          disabled={disabled}
-          className={cn(
-            "h-5 w-10 px-0 text-[8px] border border-l-0 rounded-r border-[#4a4a4a]",
-            "bg-[#4a4a4a] text-gray-300 focus:outline-none focus:border-[#0d99ff]",
-            "disabled:bg-[#383838] disabled:text-gray-500 cursor-pointer"
-          )}
-        >
-          {unitList.map((u) => (
-            <option key={u} value={u}>{u}</option>
-          ))}
-        </select>
-      )}
-
-      {/* fill/hug モードまたはリンク時は角丸を調整 */}
-      {(mode !== 'fixed' || isLinked) && (
-        <style>{`
-          :global(.group\\/size-input > div:first-of-type > div:first-child) {
-            border-radius: 0.25rem !important;
-          }
-        `}</style>
-      )}
     </div>
   );
 }

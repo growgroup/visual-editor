@@ -420,12 +420,19 @@ const isPlainPxValue = (raw: string | number | undefined | null): boolean => {
 };
 
 /** サイズ欄の最小・最大。raw は SelectedElementInfo の読み戻し先 */
+// 2 列の格子に行優先で並べるので、左の列(W の下)が幅、右の列(H の下)が高さになる順にする
 const SIZE_LIMIT_FIELDS = [
-  { id: "min-w", prop: "minWidth", raw: "rawMinWidth", label: "最小W", title: "最小幅(min-width)", dimension: "width" },
-  { id: "max-w", prop: "maxWidth", raw: "rawMaxWidth", label: "最大W", title: "最大幅(max-width)", dimension: "width" },
-  { id: "min-h", prop: "minHeight", raw: "rawMinHeight", label: "最小H", title: "最小の高さ(min-height)", dimension: "height" },
-  { id: "max-h", prop: "maxHeight", raw: "rawMaxHeight", label: "最大H", title: "最大の高さ(max-height)", dimension: "height" },
+  { id: "min-w", prop: "minWidth", raw: "rawMinWidth", label: "最小", title: "最小幅(min-width)", dimension: "width" },
+  { id: "min-h", prop: "minHeight", raw: "rawMinHeight", label: "最小", title: "最小の高さ(min-height)", dimension: "height" },
+  { id: "max-w", prop: "maxWidth", raw: "rawMaxWidth", label: "最大", title: "最大幅(max-width)", dimension: "width" },
+  { id: "max-h", prop: "maxHeight", raw: "rawMaxHeight", label: "最大", title: "最大の高さ(max-height)", dimension: "height" },
 ] as const;
+
+/**
+ * サイズ欄のラベルの列(W / H / 最小 / 最大)。幅をそろえて、どの行も箱の左端と右端が縦に並ぶようにする。
+ * 幅は「最小」の 2 文字(パネルでは 12px)が収まる 24px
+ */
+const SIZE_LABEL_CLASS = "text-[10px] text-gray-500 w-6 block whitespace-nowrap";
 
 /**
  * 表示値の決定
@@ -1637,11 +1644,7 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                         });
                       }
                     }}
-                    label={
-                      <span className="text-[10px] text-gray-500 w-3 text-center block">
-                        W
-                      </span>
-                    }
+                    label={<span className={SIZE_LABEL_CLASS}>W</span>}
                     dimension="width"
                     canFill={isParentFlexContainer}
                     canHug={true}
@@ -1731,11 +1734,7 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                         });
                       }
                     }}
-                    label={
-                      <span className="text-[10px] text-gray-500 w-3 text-center block">
-                        H
-                      </span>
-                    }
+                    label={<span className={SIZE_LABEL_CLASS}>H</span>}
                     dimension="height"
                     canFill={isParentFlexContainer}
                     canHug={true}
@@ -1784,7 +1783,7 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                             onChangeMode={() => {}}
                             onChangeValue={(val) => updateElementStyle({ [f.prop]: val })}
                             label={
-                              <span className="text-[10px] text-gray-500 block whitespace-nowrap" title={f.title}>
+                              <span className={SIZE_LABEL_CLASS} title={f.title}>
                                 {f.label}
                               </span>
                             }

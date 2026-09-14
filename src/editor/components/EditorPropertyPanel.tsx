@@ -1742,7 +1742,11 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                   既定では隠し、「+ 最小・最大」で出す。値が入っている要素では最初から出す。
                   適用は W / H と同じ updateElementStyle(複数選択なら全要素に同じ値)。空にすると指定を消す */}
               {(() => {
-                const hasLimit = SIZE_LIMIT_FIELDS.some((f) => !!selectedElement[f.raw]);
+                // 最小の 0(Tailwind の min-w-0。構成ラフに多い)は「制約なし」と見分けがつかないので、それだけでは開かない
+                const hasLimit = SIZE_LIMIT_FIELDS.some((f) => {
+                  const v = selectedElement[f.raw];
+                  return !!v && !(f.prop.startsWith("min") && /^0(px)?$/.test(v));
+                });
                 const visible = hasLimit || sizeLimitsOpen;
                 return (
                   <>

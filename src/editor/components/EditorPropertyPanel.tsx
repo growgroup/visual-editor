@@ -418,11 +418,6 @@ const isPlainPxValue = (raw: string | number | undefined | null): boolean => {
   return /^-?\d+(\.\d+)?px$/.test(raw.trim());
 };
 
-/**
- * 表示値の決定
- * raw が var(--x) / % / vw など「px 以外の指定」なら、実測 px で上書きせず raw をそのまま返す。
- * これをしないと変数参照や % 指定が数値に潰れてバインドが静かに壊れる。
- */
 /** サイズ欄の最小・最大。raw は SelectedElementInfo の読み戻し先 */
 const SIZE_LIMIT_FIELDS = [
   { id: "min-w", prop: "minWidth", raw: "rawMinWidth", label: "最小W", title: "最小幅(min-width)", dimension: "width" },
@@ -431,6 +426,11 @@ const SIZE_LIMIT_FIELDS = [
   { id: "max-h", prop: "maxHeight", raw: "rawMaxHeight", label: "最大H", title: "最大の高さ(max-height)", dimension: "height" },
 ] as const;
 
+/**
+ * 表示値の決定
+ * raw が var(--x) / % / vw など「px 以外の指定」なら、実測 px で上書きせず raw をそのまま返す。
+ * これをしないと変数参照や % 指定が数値に潰れてバインドが静かに壊れる。
+ */
 function liveOrRaw(
   raw: string | undefined,
   live: number | null | undefined,

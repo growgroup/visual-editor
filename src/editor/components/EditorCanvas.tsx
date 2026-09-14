@@ -27,6 +27,7 @@ import {
 } from "../utils/dom-utils";
 import { generateEditableHtml } from "../utils/html-utils";
 import { setupInlineFormatToolbar } from "../utils/inline-format";
+import { setupLineBreakOnEnter } from "../utils/text-line-break";
 import { recalculateViewportUnits } from "../utils/viewport-utils";
 import { useMultiPageCanvasOptional } from "../contexts/MultiPageCanvasContext";
 import { applyDocumentAttributes } from "./multi-page/PageFramePreview";
@@ -533,6 +534,8 @@ export function EditorCanvas() {
     cleanupFunctions.push(setupSelectionListeners(iframeDoc));
     // テキスト編集中の範囲選択に、マーカー・太字のツールバーを出す
     cleanupFunctions.push(setupInlineFormatToolbar(iframeDoc));
+    // テキスト編集中の Enter は段落を分けず、同じ要素の中の改行(<br>)にする
+    cleanupFunctions.push(setupLineBreakOnEnter(iframeDoc));
 
     // コンテキストメニュー
     cleanupFunctions.push(setupContextMenuListener(iframeDoc));

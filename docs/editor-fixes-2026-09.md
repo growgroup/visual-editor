@@ -41,13 +41,22 @@
 
 ## 4. 最小・最大の幅と高さ(min-width / max-width / min-height / max-height)
 
-- サイズ欄の右上の「+ 最小・最大」で、最小W・最大W・最小H・最大H の欄を出す。値が入っている要素を選んだときは最初から出る。別の要素を選ぶと閉じる
+- サイズ欄の右上の「+ 最小・最大」で、最小・最大の欄を出す(W の列に幅、H の列に高さ。ラベルは「最小」「最大」)。ラベルの列は W / H と同じ 24px にそろえ、どの行も箱の左端・右端が縦に並ぶ。値が入っている要素を選んだときは最初から出る。別の要素を選ぶと閉じる
 - 欄は W / H と同じ `VariableAwareSizeInput`(`variant="limit"`)。px / % / vw・vh / em / rem と変数を扱う。空にすると指定を消す。モードの切替は出さない
 - 適用は W / H と同じ `updateElementStyle`(複数選択なら全要素に同じ値、履歴 1 段)。Web ページ(構成ラフ)とスライドの両方
 - 保存形は W / H と同じく、任意値のクラス(`min-w-[300px]`)とインラインの指定の両方。
   この 4 つは特殊値(`100%` → `min-w-full`)でもインラインを残す(`LAYOUT_CRITICAL_PROPERTIES`)。ページの Tailwind にクラスが無くても効き、欄に読み戻せる
 - 読み戻し(`extractElementInfo` の `rawMinWidth` など): インライン → Tailwind の任意値・特殊値のクラス → 同じ系統の名前付きクラス(`max-w-6xl`)なら計算値。`none` / `auto` は指定なし
-- `applyTailwindStyles` は空の値で、競合クラスに加えてインラインの指定も外すようにした(これまではクラスだけ消えていた。`: ''` の直書きと計算キーで探した範囲では、空を渡す呼び出し元は他に無い)
+- `applyTailwindStyles` は空の値で、競合クラスに加えてインラインの指定も外すようにした(これまではクラスだけ消えていた)。呼び出し元を洗い出した結果:
+  - `applyTailwindStyles` を呼ぶのは 4 か所(`updateElementStyle`、`pasteStyle`、`convertInlineStylesToTailwind`、文字の一部の書式)。
+    `pasteStyle` と `convertInlineStylesToTailwind` は値が空でないものだけを集めて渡すので、空は届かない
+  - `updateElementStyle` の直接の呼び出し 83 か所(EditorPropertyPanel 79・ScalePanel 3・`updateTextStyle` 1)、
+    セクション部品の `onStyleChange` 50 か所(EditorSidebar などから 7 か所で渡す)、`updateTextStyle` 10 か所。空の値を直書きしている所は無い
+  - 実行時に空が届くのは、最小・最大の欄を空にしたとき(意図どおり)と、`EditorSidebar` の部品の文字入力
+    (FillSection の背景色・BorderSection の線色の 16 進、TypographySection の行高・字間)を空にしたときだけ。
+    後者は「クラスだけ消えてインラインは残る」から「インラインも消える」に変わる。`EditorSidebar` はパッケージの中でも
+    構成ラフ・デッキの殻でも描かれておらず、パッケージの入口(`exports` の `.` = `src/index.ts`)からも出していない
+  - それ以外は空にならない(`VariableAwareUnitInput` は空欄を `0` + 単位で返す、W / H の箱は `auto`、選択肢・色は常に値を持つ)
 - 選択枠のハンドルでのリサイズも、要素の min / max で止める(`computeResizeGeometry` の `limits`、開始時に計算値を読む。px で読めない軸は制約なし)。
   止まった軸を「効かないハンドル」と誤判定しない。左・上のハンドルでは、止まった分だけ対辺が動かない
 - 最小の 0(`min-w-0` など。構成ラフのページに数百か所ある)だけの要素では欄を自動で開かない。0 は制約なしと見分けがつかないため。開けば 0 が入っている
@@ -103,6 +112,7 @@ Playwright(headless Chromium)で、`npm pack` した tgz を入れた構成ラ�
   読み直しても同じ大きさ → 素の文字の一部(お電話)だけが 20px になり span が 1 つ増える → ⌘Z 1 回で span ごと戻る →
   大きさの違う文字をまたぐと「混在」→ 太さ・字間は選んだ所だけ、行間は段落全体 → 範囲を選ばない・文字を全部選んだときは要素全体(span を作らない)→
   共同編集に接続中でも相手の紙面に一部の文字だけの大きさが届く
+- サイズ欄のそろい: パネル幅 280 / 303 / 480 で、最小・最大の 4 つに 1820 / 790.5 を入れた状態で、W・最小・最大の箱の左端・右端が同じ位置、H の列も同じ。ラベルと数値の `scrollWidth <= clientWidth`
 - わざと壊した版で落ちること: `<br>` の除外を外す → 3 件 FAIL、日本語入力の判定を外す → 4 件 FAIL
 
 ## 分かっている穴

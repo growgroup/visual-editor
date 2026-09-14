@@ -159,6 +159,10 @@ export interface SelectedElementInfo {
   // CSS Variable references (raw inline style values if they contain var())
   rawWidth?: string;          // width (e.g., "var(--spacing-lg)")
   rawHeight?: string;         // height
+  rawMinWidth?: string;       // min-width(サイズ欄の最小・最大。指定が無ければ undefined)
+  rawMaxWidth?: string;       // max-width
+  rawMinHeight?: string;      // min-height
+  rawMaxHeight?: string;      // max-height
   rawPaddingTop?: string;     // padding-top
   rawPaddingRight?: string;   // padding-right
   rawPaddingBottom?: string;  // padding-bottom

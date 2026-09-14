@@ -423,6 +423,14 @@ const isPlainPxValue = (raw: string | number | undefined | null): boolean => {
  * raw が var(--x) / % / vw など「px 以外の指定」なら、実測 px で上書きせず raw をそのまま返す。
  * これをしないと変数参照や % 指定が数値に潰れてバインドが静かに壊れる。
  */
+/** サイズ欄の最小・最大。raw は SelectedElementInfo の読み戻し先 */
+const SIZE_LIMIT_FIELDS = [
+  { id: "min-w", prop: "minWidth", raw: "rawMinWidth", label: "最小W", title: "最小幅(min-width)", dimension: "width" },
+  { id: "max-w", prop: "maxWidth", raw: "rawMaxWidth", label: "最大W", title: "最大幅(max-width)", dimension: "width" },
+  { id: "min-h", prop: "minHeight", raw: "rawMinHeight", label: "最小H", title: "最小の高さ(min-height)", dimension: "height" },
+  { id: "max-h", prop: "maxHeight", raw: "rawMaxHeight", label: "最大H", title: "最大の高さ(max-height)", dimension: "height" },
+] as const;
+
 function liveOrRaw(
   raw: string | undefined,
   live: number | null | undefined,
@@ -942,6 +950,13 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
     direction: 'left', // 左端をドラッグしてリサイズ
     storageKey: 'editor-property-panel-width',
   });
+
+  // サイズ欄の「最小・最大」を開いているか(値が入っている要素では常に出す。これは空の要素で開いたとき)。
+  // 別の要素を選んだら閉じる
+  const [sizeLimitsOpen, setSizeLimitsOpen] = useState(false);
+  useEffect(() => {
+    setSizeLimitsOpen(false);
+  }, [selectedElement?.id]);
 
   const [openSections, setOpenSections] = useState<PanelSections>({
     position: editorMode !== "webpage", // 流し込みのページでは詳細操作として畳む
@@ -1526,7 +1541,7 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
               />
 
               {/* サイズ W/H */}
-              <div>
+              <div className="relative" data-size-section>
                 <Label className="text-[10px] text-gray-500 mb-1 block">
                   サイズ
                 </Label>
@@ -1722,6 +1737,54 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                   </LiveGeom>
                 </div>
               </div>
+
+              {/* 最小・最大の幅と高さ(min-width / max-width / min-height / max-height)。
+                  既定では隠し、「+ 最小・最大」で出す。値が入っている要素では最初から出す。
+                  適用は W / H と同じ updateElementStyle(複数選択なら全要素に同じ値)。空にすると指定を消す */}
+              {(() => {
+                const hasLimit = SIZE_LIMIT_FIELDS.some((f) => !!selectedElement[f.raw]);
+                const visible = hasLimit || sizeLimitsOpen;
+                return (
+                  <>
+                    {!hasLimit && (
+                      <button
+                        type="button"
+                        data-size-limits-toggle
+                        aria-expanded={visible}
+                        onClick={() => setSizeLimitsOpen((v) => !v)}
+                        className="absolute right-0 top-0 text-[10px] text-gray-400 hover:text-white"
+                        title="最小・最大の幅と高さ"
+                      >
+                        {visible ? "− 最小・最大" : "+ 最小・最大"}
+                      </button>
+                    )}
+                    {visible && (
+                      <div className="grid grid-cols-2 gap-x-2 gap-y-1.5 mt-1.5" data-size-limits>
+                        {SIZE_LIMIT_FIELDS.map((f) => (
+                          <VariableAwareSizeInput
+                            key={f.id}
+                            fieldId={f.id}
+                            variant="limit"
+                            value={selectedElement[f.raw] ?? ""}
+                            mode="fixed"
+                            onChangeMode={() => {}}
+                            onChangeValue={(val) => updateElementStyle({ [f.prop]: val })}
+                            label={
+                              <span className="text-[10px] text-gray-500 block whitespace-nowrap" title={f.title}>
+                                {f.label}
+                              </span>
+                            }
+                            placeholder="—"
+                            dimension={f.dimension}
+                            min={0}
+                            conversionContext={conversionContext}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
               {/* [修復] 「サイズ」ブロックの閉じタグ。
                   縦横比ロックの追加作業が中断され、この1つが欠けていた */}
               </div>

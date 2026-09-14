@@ -45,6 +45,15 @@ interface VariableAwareSizeInputProps {
   dimension?: 'width' | 'height';
   /** 単位変換コンテキスト */
   conversionContext?: UnitConversionContext;
+  /** 欄の名前(data-size-field)。省略時は dimension から w / h */
+  fieldId?: string;
+  /**
+   * 'size' … W / H(固定・Fill・Hug を切り替える)
+   * 'limit' … 最小・最大の幅と高さ。空にできる(空 = 指定なし)。モードの切替とメニューの矢印は出さない
+   */
+  variant?: 'size' | 'limit';
+  /** 値が空のときに出す文字(variant="limit") */
+  placeholder?: string;
 }
 
 export function VariableAwareSizeInput({
@@ -60,6 +69,9 @@ export function VariableAwareSizeInput({
   canHug = false,
   dimension = 'width',
   conversionContext,
+  fieldId,
+  variant = 'size',
+  placeholder,
 }: VariableAwareSizeInputProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -93,6 +105,9 @@ export function VariableAwareSizeInput({
     const varName = extractVariableName(value);
     return variables.find(v => v.cssName === varName);
   }, [isLinked, value, variables]);
+
+  // 最小・最大の欄で指定が無い
+  const isEmpty = variant === 'limit' && (value === '' || value === undefined || value === null);
 
   // 値と単位をパース
   const parsed = useMemo(() => {
@@ -135,11 +150,12 @@ export function VariableAwareSizeInput({
 
   // 表示値
   const displayValue = useMemo(() => {
+    if (isEmpty) return '';
     if (isLinked && linkedVariable) {
       return linkedVariable.name;
     }
     return parsed.numericValue;
-  }, [isLinked, linkedVariable, parsed]);
+  }, [isEmpty, isLinked, linkedVariable, parsed]);
 
   // 変数を選択
   const handleSelectVariable = useCallback((variable: CSSVariableDefinition) => {
@@ -155,9 +171,9 @@ export function VariableAwareSizeInput({
     if (linkedVariable) {
       onChangeValue(linkedVariable.value);
     } else {
-      onChangeValue('auto');
+      onChangeValue(variant === 'limit' ? '' : 'auto');
     }
-  }, [linkedVariable, onChangeValue]);
+  }, [linkedVariable, onChangeValue, variant]);
 
   // モード変更
   const handleModeChange = useCallback((newMode: SizeMode) => {
@@ -170,6 +186,12 @@ export function VariableAwareSizeInput({
     const newValue = e.target.value;
     setLocalValue(newValue);
 
+    // 最小・最大の欄は、空にすると指定を消す
+    if (variant === 'limit' && newValue.trim() === '') {
+      onChangeValue('');
+      return;
+    }
+
     const num = parseFloat(newValue);
     if (!isNaN(num)) {
       let clampedValue = num;
@@ -177,11 +199,16 @@ export function VariableAwareSizeInput({
       if (max !== undefined) clampedValue = Math.min(max, clampedValue);
       onChangeValue(formatValueWithUnit(clampedValue, currentUnit));
     }
-  }, [onChangeValue, min, max, currentUnit]);
+  }, [onChangeValue, min, max, currentUnit, variant]);
 
   // 単位変更（値を変換）
   const handleUnitChange = useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
     const newUnit = e.target.value;
+    // 指定が無いときは単位だけ覚える(0 を書き込まない)
+    if (isEmpty) {
+      setTrackedUnit(newUnit);
+      return;
+    }
     const context: UnitConversionContext = {
       ...conversionContext,
       property: dimension === 'height' ? 'height' : 'width',
@@ -190,14 +217,14 @@ export function VariableAwareSizeInput({
     // 新しい単位を追跡
     setTrackedUnit(newUnit);
     onChangeValue(formatValueWithUnit(convertedValue, newUnit));
-  }, [onChangeValue, parsed.numericValue, currentUnit, conversionContext, dimension]);
+  }, [onChangeValue, parsed.numericValue, currentUnit, conversionContext, dimension, isEmpty]);
 
   // 入力のフォーカス時
   const handleInputFocus = useCallback(() => {
-    if (!isLinked) {
-      setLocalValue(String(Math.round(parsed.numericValue)));
-    }
-  }, [isLinked, parsed.numericValue]);
+    if (isLinked || isEmpty) return;
+    // W / H は整数で打つ前提で丸める。最小・最大は入っている値をそのまま出す
+    setLocalValue(String(variant === 'limit' ? parsed.numericValue : Math.round(parsed.numericValue)));
+  }, [isLinked, isEmpty, variant, parsed.numericValue]);
 
   // 現在の値から変数を作成
   const handleCreateVariable = useCallback(() => {
@@ -299,7 +326,7 @@ export function VariableAwareSizeInput({
     // 中の数値と単位は枠を持たず、箱(下の .group.h-5)が 1 つの入力として見える
     <div
       className="group flex items-center gap-1 min-w-0"
-      data-size-field={dimension === 'height' ? 'h' : 'w'}
+      data-size-field={fieldId ?? (dimension === 'height' ? 'h' : 'w')}
     >
       {/* Label area (W/H) */}
       {label && <div className="shrink-0">{label}</div>}
@@ -314,6 +341,7 @@ export function VariableAwareSizeInput({
             className={cn(
               "group flex flex-1 min-w-0 items-center h-5 bg-[#383838] border border-[#4a4a4a] rounded cursor-pointer",
               "hover:border-[#5d5d5d]",
+              variant === 'limit' && "pr-1",
               disabled && "opacity-50 cursor-not-allowed",
               isOpen && "ring-1 ring-[#0d99ff] border-[#0d99ff]"
             )}
@@ -346,8 +374,11 @@ export function VariableAwareSizeInput({
                     ref={inputRef}
                     type="number"
                     value={localValue || displayValue}
+                    placeholder={placeholder}
                     onChange={handleInputChange}
                     onFocus={handleInputFocus}
+                    // 打ちかけの文字は外れたら捨てる(次に選んだ要素の値の上に残さない)
+                    onBlur={() => setLocalValue('')}
                     onMouseDown={handleMouseDown}
                     onClick={(e) => e.stopPropagation()}
                     disabled={disabled}
@@ -393,14 +424,16 @@ export function VariableAwareSizeInput({
               </select>
             )}
 
-            {/* ドロップダウンアイコン */}
-            <button
-              type="button"
-              className="h-full w-4 shrink-0 flex items-center justify-center text-gray-500 hover:text-white transition-colors"
-              disabled={disabled}
-            >
-              <ChevronDown className="h-2.5 w-2.5" />
-            </button>
+            {/* ドロップダウンアイコン(最小・最大の欄は幅を数値に回すので出さない。箱を押せばメニューは開く) */}
+            {variant === 'size' && (
+              <button
+                type="button"
+                className="h-full w-4 shrink-0 flex items-center justify-center text-gray-500 hover:text-white transition-colors"
+                disabled={disabled}
+              >
+                <ChevronDown className="h-2.5 w-2.5" />
+              </button>
+            )}
           </div>
         </PopoverTrigger>
 
@@ -426,7 +459,8 @@ export function VariableAwareSizeInput({
           </div>
 
           <ScrollArea className="max-h-56">
-            {/* リサイズモード */}
+            {/* リサイズモード(最小・最大の欄では出さない) */}
+            {variant === 'size' && (
             <div className="p-1 border-b border-[#444444]">
               <div className="px-2 py-0.5 text-[9px] text-gray-500 uppercase">
                 リサイズ
@@ -487,6 +521,7 @@ export function VariableAwareSizeInput({
                 {mode === 'hug' && <span>✓</span>}
               </button>
             </div>
+            )}
 
             {/* スペーシング変数 */}
             <div className="p-1">

@@ -28,6 +28,8 @@ import {
   isOutOfFlowPosition,
   measureStyleSize,
   roundPx,
+  readSizeLimits,
+  type SizeLimits,
 } from '../utils/geometry';
 import {
   shouldReorder,
@@ -219,6 +221,8 @@ interface ResizeSnapshot {
    */
   wroteWidth: boolean;
   wroteHeight: boolean;
+  /** 要素の min / max-width・height。ハンドルでもここで止める(開始時に読む) */
+  limits: SizeLimits;
 }
 
 /**
@@ -641,6 +645,7 @@ export function useDragResize(
         heightInert: false,
         wroteWidth: false,
         wroteHeight: false,
+        limits: readSizeLimits(element, iframeDoc),
       };
     },
     [layoutModeRef]
@@ -794,7 +799,7 @@ export function useDragResize(
         handle,
         deltaX,
         deltaY,
-        { shiftKey: mods.shiftKey, altKey: mods.altKey }
+        { shiftKey: mods.shiftKey, altKey: mods.altKey, limits: snapshot.limits }
       );
 
       // 掴んだハンドルが実際に動かす軸だけを書く。

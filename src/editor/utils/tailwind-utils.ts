@@ -373,6 +373,12 @@ function isArbitraryValueClass(className: string): boolean {
  * 既存CSSルールとの競合を避けるため、インラインスタイルも併用する
  */
 const LAYOUT_CRITICAL_PROPERTIES = new Set([
+  // 最小・最大の幅と高さ(サイズ欄)は、特殊値(100% → min-w-full など)でもインラインの指定を残す。
+  // ページの Tailwind がそのクラスを持っていなくても紙面に効き、欄にも読み戻せるように
+  'minWidth',
+  'maxWidth',
+  'minHeight',
+  'maxHeight',
   'display',
   'flexDirection',
   'flexWrap',
@@ -439,6 +445,12 @@ export function applyTailwindStyles(
   Object.entries(styles).forEach(([property, value]) => {
     // 競合クラスを削除
     removeConflictingClasses(element, property);
+
+    // 空の値は「指定を消す」。競合クラス(上)に加えて、インラインの指定も外す
+    if (value === '') {
+      clearInlineStyle(element, property);
+      return;
+    }
 
     // 変換
     const { className, styleValue } = cssToTailwindClass(property, value);

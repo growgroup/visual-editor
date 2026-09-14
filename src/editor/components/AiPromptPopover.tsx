@@ -11,6 +11,7 @@ import { Sparkles, X, Loader2, Send, Paperclip, FileImage, FileText, Trash2 } fr
 import { Button } from '../../components/ui/button';
 import { Textarea } from '../../components/ui/textarea';
 import type { AttachedFile } from '../../lib/agent/slide-agent/types';
+import { readStorage, writeStorage } from '../utils/storage';
 
 // サポートするファイルタイプ
 const SUPPORTED_FILE_TYPES = {
@@ -44,7 +45,7 @@ export function AiPromptPopover({
   const [prompt, setPrompt] = useState('');
   // [移植時の追加] 生成に使うAIエンジン(ローカルCLI)を選択する
   const [engine, setEngine] = useState<'codex' | 'claude'>(() => {
-    const saved = typeof window !== 'undefined' ? localStorage.getItem('gg-ai-engine') : null;
+    const saved = readStorage('gg-ai-engine');
     return saved === 'claude' ? 'claude' : 'codex';
   });
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
@@ -333,7 +334,7 @@ export function AiPromptPopover({
                   type="button"
                   onClick={() => {
                     setEngine(e);
-                    localStorage.setItem('gg-ai-engine', e);
+                    writeStorage('gg-ai-engine', e);
                   }}
                   className={`rounded px-1.5 py-0.5 text-[10px] transition-colors ${
                     engine === e

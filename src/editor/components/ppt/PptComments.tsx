@@ -23,6 +23,7 @@ import { useDeck, applyDeck } from '../../../components/viewer/useDeck';
 import { commentAction, type SlideComment } from '../../../lib/deck';
 import { can, io, type CommentRect, type EditorDeck } from '../../../io';
 import { useResizablePanel } from '../../hooks/useResizablePanel';
+import { readStorage, writeStorage } from '../../utils/storage';
 import { ConfirmDialog } from '../shell/ConfirmDialog';
 import { PPT_PALETTES, type PptTheme } from './PptChrome';
 
@@ -155,18 +156,12 @@ export function findAnchored(root: HTMLElement, value: string, label?: string): 
 }
 
 export function loadAuthor(): string {
-  try {
-    return localStorage.getItem(AUTHOR_KEY) || '';
-  } catch {
-    return '';
-  }
+  return readStorage(AUTHOR_KEY) || '';
 }
 
 /** 名前を記憶する。右パネルとコメントボードで同じ置き場を使う */
 export function storeAuthor(value: string): void {
-  try {
-    localStorage.setItem(AUTHOR_KEY, value);
-  } catch { /* 記憶できなくても続行 */ }
+  writeStorage(AUTHOR_KEY, value);
 }
 
 /** 未解決コメント数(サムネイルのバッジ用) */

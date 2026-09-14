@@ -118,6 +118,53 @@ setEditorIO({
 操作(⌘+ホイールで拡大縮小、Space+ドラッグで移動、⇧1 全体、⇧2 編集中のページ、⇧R 定規)と仕組みは
 [docs/multi-frame-canvas-2026-09.md](docs/multi-frame-canvas-2026-09.md)。
 
+### リアルタイム共同編集(Figma 風、0.6.0)
+
+`io.collab` を渡すと、同じページを複数人が同時に編集できます。渡さなければ今までどおり
+(接続もせず、共同編集の UI も出ません)。中継は [Hocuspocus](https://tiptap.dev/hocuspocus)で、
+本文は Y.Text に載せた HTML の文字列 ── 衝突は文字単位で混ざります。
+
+```tsx
+setEditorIO({
+  collab: {
+    url: "wss://…",                                   // Hocuspocus
+    projectRoom: "wf/<案件の乱数>__@project",          // 居場所とページの版(rev)
+    roomFor: (id) => `wf/<案件の乱数>__${encodeURIComponent(routeOf(id))}`, // ページの部屋(null で共同編集しない)
+    routeFor: (id) => routeOf(id),                    // 案件の部屋でのページのキー
+    user: { id: "tanaka", name: "田中" },              // color は省略すると id から決まる
+    // 保存する形と共有する形が違うときだけ(構成ラフは CSS の塊を外して共有する)
+    encode: (clean) => withoutStyle(clean),
+    decode: (shared) => withStyle(shared, css),
+    requireBridge: true,                              // 書き戻し役が居ないとき警告を出し続ける
+  },
+});
+```
+
+- **部屋は名前が鍵**です。中継は認証しないので、案件ごとに推測できない乱数を部屋名に入れてください
+- **部屋名には中継が保存する形があります**。外れた部屋も中継はされますが保存されないので、
+  エディタは繋がずに「共同編集できません(部屋名)」を出します(保存は今までどおりファイルへ行われます)。
+  形は `wf/<room>__<encodeURIComponent(route)>` か `wf/<room>__@project`、
+  room は `[A-Za-z0-9_-]` の 8〜100 文字、route は `/` 始まりを `encodeURIComponent` した正規形(16 進は大文字)で 1024 文字以内。
+  殻や書き戻し役でも同じ検査ができるように `checkCollabRoom(name)` を公開しています
+
+  ```ts
+  import { checkCollabRoom } from "@growgroup/visual-editor";
+  const r = checkCollabRoom(`wf/${room}__@project`);
+  if (!r.ok) console.warn(r.reason); // 例: room は [A-Za-z0-9_-] の 8〜100 文字にする
+  ```
+
+- 接続している間、エディタは **`onSave` の自動保存を呼びません**(ファイルへ書くのは書き戻し役 = dev サーバーの役目)。
+  手動保存(保存ボタン)も「同期済み」を出すだけです。未同期のまま閉じようとすると離脱の警告が出ます
+- 取り消し(⌘Z)は `Y.UndoManager` に切り替わり、**自分の変更だけ**が戻ります
+- 表示: ヘッダーに参加者のアバター(クリックでその人のページへ)・書き戻し先の数・接続状態(同期済み / 同期中 / オフライン / 部屋名のエラー)、
+  キャンバスのフレーム名とページ一覧に参加者の色の点、紙面に他人の選択枠(名前札)とカーソル
+- 相手が文字を打っている要素に掛かる変更は、その人が入力を終える(blur)まで反映を待ちます
+- 誰がどのページに居るかは `useCollabPresence()` で利用側からも読めます
+- **記憶(localStorage)が使えない文脈**(「サイトデータをブロック」設定など)でも動きます。
+  ただし `Content-Security-Policy: sandbox` に `allow-same-origin` が無い配信では、
+  ブラウザがページから iframe の中を読ませないため、エディタ自体が動きません
+- 仕組みと確かめたことは [docs/collab-2026-09.md](docs/collab-2026-09.md)
+
 ## 設計
 
 ### io — 保存先との唯一の境界

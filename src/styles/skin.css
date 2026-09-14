@@ -240,6 +240,23 @@
 .gg-editor-ui .ed-save-status[data-save-status="dirty"] { color: var(--ed-warning); }
 .gg-editor-ui .ed-save-status[data-save-status="error"] { color: var(--ed-danger); }
 .gg-editor-ui .ed-save-status[data-save-status="saved"] svg { color: var(--ed-success); }
+/* 共同編集(io.collab): 参加者のアバター・書き戻し先・接続状態・ページの点 */
+.gg-editor-ui .ed-collab-presence { display: inline-flex; align-items: center; gap: 10px; }
+.gg-editor-ui .ed-collab-avatars { display: inline-flex; align-items: center; padding-left: 4px; }
+.gg-editor-ui .ed-collab-avatar { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; margin-left: -4px; padding: 0; border-radius: 50%; border: 2px solid var(--ed-panel); color: #fff; font-size: 11px; font-weight: 700; line-height: 1; cursor: pointer; flex-shrink: 0; }
+.gg-editor-ui .ed-collab-avatar:hover { transform: translateY(-1px); }
+.gg-editor-ui .ed-collab-avatar-self { cursor: default; margin-left: 4px; box-shadow: 0 0 0 1px var(--ed-line-strong); }
+.gg-editor-ui .ed-collab-avatar-self:hover, .gg-editor-ui .ed-collab-avatar-more:hover { transform: none; }
+.gg-editor-ui .ed-collab-avatar-more { background: var(--ed-panel-raised); color: var(--ed-text); cursor: default; }
+.gg-editor-ui .ed-collab-bridge { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; color: var(--ed-muted); }
+.gg-editor-ui .ed-collab-bridge-warn { color: var(--ed-warning); }
+.gg-editor-ui .ed-collab-bridge-alert { color: #fff; background: var(--ed-danger); padding: 3px 8px; border-radius: var(--ed-radius); font-weight: 600; }
+.gg-editor-ui .ed-save-status[data-collab-status="synced"] svg { color: var(--ed-success); }
+.gg-editor-ui .ed-save-status[data-collab-status="offline"] { color: var(--ed-danger); }
+.gg-editor-ui .ed-save-status[data-collab-status="error"] { color: var(--ed-danger); font-weight: 600; }
+.gg-editor-ui .ed-save-status[data-collab-pending] { color: var(--ed-warning); }
+.gg-editor-ui .ed-collab-dots { display: inline-flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.gg-editor-ui .ed-collab-dot { width: 7px; height: 7px; border-radius: 50%; box-shadow: 0 0 0 1px var(--ed-panel); }
 .gg-editor-ui .ed-panel-heading { height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 16px; border-bottom: 1px solid var(--ed-line); flex-shrink: 0; font-size: 14px; font-weight: 600; }
 .gg-editor-ui .ed-toolbar { border: 1px solid var(--ed-line); border-radius: 12px; padding: 8px; background: var(--ed-panel-raised); color: var(--ed-text); box-shadow: var(--ed-shadow); }
 .gg-editor-ui .ed-footer { height: 36px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 16px; border-top: 1px solid var(--ed-line); background: var(--ed-panel); color: var(--ed-muted); font-size: 12px; flex-shrink: 0; }

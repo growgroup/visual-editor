@@ -5,6 +5,8 @@ import { VisualEditor, setEditorIO, type EditorDeck, type EditorIO } from '../sr
 import { applyDeck } from '../src/components/viewer/useDeck';
 import { webpage, slides, webpagePages } from './samples';
 import { partsLibrary, partsPage, createPartsStore } from './parts-samples';
+import { getCleanHtml } from '../src/editor/utils/html-utils';
+import { socketFor } from '../src/editor/collab/connection';
 import '../dist/editor.css';
 import './playground.css';
 
@@ -97,11 +99,45 @@ const adapter: EditorIO = {
   } : {}),
   ...(parts ? partsIo : {}),
 };
-setEditorIO(minimal ? {} : adapter);
+/**
+ * ?collab=ws://127.0.0.1:5418&name=A&room=pg … リアルタイム共同編集(io.collab)。
+ * room が同じタブどうしが同じ部屋に入る。route はページ 1 が "/"、以降 "/page-<id>"。
+ * &uid= で参加者の id(省略時は name)、&requireBridge で書き戻し役が居ない警告を出し続ける。
+ * &badroute でページの部屋だけ保存されない形にする(部屋名の検査の確認用)
+ */
+const collabUrl = params.get('collab');
+const collabRoom = params.get('room') || 'pg-local';
+const routeOf = (id: string) => (id === '1' ? '/' : `/page-${id}`);
+const collabIo: EditorIO['collab'] = collabUrl
+  ? {
+      url: collabUrl,
+      projectRoom: `wf/${collabRoom}__@project`,
+      // ?badroute … ページの部屋だけ中継が保存しない形(encode していない route)にする検証用
+      roomFor: (id) =>
+        params.has('badroute') ? `wf/${collabRoom}__${routeOf(id)}` : `wf/${collabRoom}__${encodeURIComponent(routeOf(id))}`,
+      routeFor: routeOf,
+      user: { id: params.get('uid') || params.get('name') || 'A', name: params.get('name') || 'A' },
+      requireBridge: params.has('requireBridge'),
+    }
+  : undefined;
+setEditorIO(minimal ? {} : { ...adapter, ...(collabIo ? { collab: collabIo } : {}) });
 applyDeck(minimal ? { version: 0, title: '', slides: [] } : clone());
 
+/** 編集中の紙面の保存 HTML(getCleanHtml)。検証で「共同編集の層が保存に混ざらない」ことを見る */
+const editorCleanHtml = () => {
+  const frames = Array.from(document.querySelectorAll<HTMLIFrameElement>('.gg-editor-ui iframe')).filter((f) => !f.closest('[data-page-preview]'));
+  const doc = frames.map((f) => f.contentDocument).find((d) => d?.getElementById('artboard'));
+  return doc ? getCleanHtml(doc) : null;
+};
+
 // ローカル検証用。公開APIや配布物には含まれない。
-Object.assign(window, { editorPlayground: { saveLog, failure, documents, deck: () => clone(), parts: partsStore } });
+Object.assign(window, {
+  editorPlayground: {
+    saveLog, failure, documents, deck: () => clone(), parts: partsStore, cleanHtml: editorCleanHtml,
+    // 共同編集の WebSocket(検証で切断 → 再接続を起こす)
+    collabSocket: () => (collabUrl ? socketFor(collabUrl) : null),
+  },
+});
 
 function Playground() {
   const [page, setPage] = useState(1);

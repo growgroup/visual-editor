@@ -24,7 +24,7 @@ export const SNAP_THRESHOLD_SCREEN_PX = 4;
 /** ガイドの候補にしないオーバーレイ類(エディタが描いている飾り) */
 const OVERLAY_SELECTOR =
   '.selection-box,.marquee-selection-box,.resize-handle,.rotation-handle,' +
-  '.size-label,.element-breadcrumb,.gg-comment-layer,.gg-crop-ui,' +
+  '.size-label,.element-breadcrumb,.gg-comment-layer,.gg-collab-layer,.gg-crop-ui,' +
   '#gg-measure-layer,#gg-smart-guides,[data-drag-ghost],[data-flex-drop-indicator]';
 
 /** 整列の候補座標。x/y ともに昇順ソート済み */

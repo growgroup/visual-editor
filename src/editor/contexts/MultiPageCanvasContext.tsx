@@ -40,6 +40,7 @@ import { useEditorView } from './EditorViewContext';
 import { SLIDE_HEIGHT, SLIDE_WIDTH, WEBPAGE_WIDTH } from '../constants';
 import type { EditorMode } from './EditorToolContext';
 import { io, type PreviewStyle } from '../../io';
+import { readStorage, writeStorage } from '../utils/storage';
 
 // ============================================================
 // 定数
@@ -220,6 +221,11 @@ export interface MultiPageCanvasContextValue {
   zoomToActual: () => void;
   /** 指定のフレームが画面に入っていなければ、見える位置まで寄せる(倍率は変えない) */
   revealPage: (id: string) => void;
+  /**
+   * そのページへ視点を寄せる。見えていなければ寄せ、点にしか見えない倍率ならページに合わせる
+   * (ホスト発のページ切替・共同編集のアバターのクリックで使う)
+   */
+  focusPage: (id: string) => void;
 
   // ---- ページ切替
   /**
@@ -504,9 +510,9 @@ interface MultiPageCanvasProviderProps {
 type PersistedView = { zoom: number; offset: { x: number; y: number }; rulers?: boolean };
 
 function readPersistedView(key: string | null | undefined): PersistedView | null {
-  if (!key || typeof localStorage === 'undefined') return null;
+  if (!key) return null;
   try {
-    const raw = localStorage.getItem(`gg-editor:canvas-view:${key}`);
+    const raw = readStorage(`gg-editor:canvas-view:${key}`);
     if (!raw) return null;
     const v = JSON.parse(raw) as PersistedView;
     if (!Number.isFinite(v.zoom) || !v.offset || !Number.isFinite(v.offset.x) || !Number.isFinite(v.offset.y)) return null;
@@ -673,19 +679,15 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
 
   // 見えている範囲の保存(変化が止まってから)
   useEffect(() => {
-    if (!storageKey || typeof localStorage === 'undefined') return;
+    if (!storageKey) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const persist = () => {
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
-        try {
-          const { canvasZoom, canvasOffset } = viewStore.get();
-          const v: PersistedView = { zoom: canvasZoom, offset: canvasOffset, rulers: rulersRef.current };
-          localStorage.setItem(`gg-editor:canvas-view:${storageKey}`, JSON.stringify(v));
-        } catch {
-          /* 保存できなくても表示には影響しない */
-        }
+        const { canvasZoom, canvasOffset } = viewStore.get();
+        const v: PersistedView = { zoom: canvasZoom, offset: canvasOffset, rulers: rulersRef.current };
+        writeStorage(`gg-editor:canvas-view:${storageKey}`, JSON.stringify(v));
       }, 250);
     };
     const unsubscribe = viewStore.subscribe(persist);
@@ -1121,6 +1123,7 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
       zoomToPage,
       zoomToActual,
       revealPage,
+      focusPage,
       activatePage,
       activatingPageId,
       registerContainer,
@@ -1139,7 +1142,7 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     [
       enabled, editorMode, pages, bounds, layout, getPage, updatePageFrame, setPageHtml, invalidatePages, artboard.documentAttributes,
       setPageHeight, ensurePageHtml, previewStyles, viewStore, setCanvasOffset, setCanvasZoom, setView, zoomAt, zoomTo, zoomIn, zoomOut, zoomToFit, zoomToPage,
-      zoomToActual, revealPage, activatePage, activatingPageId, registerContainer, isInteracting, markInteracting,
+      zoomToActual, revealPage, focusPage, activatePage, activatingPageId, registerContainer, isInteracting, markInteracting,
       persisted, rulersVisible, toggleRulers, requestPreviewSlot, releasePreviewSlot,
       getPreviewImageZoomCap, reportThumbnailWidth, previewImageCapVersion,
     ],

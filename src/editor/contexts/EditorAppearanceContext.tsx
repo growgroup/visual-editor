@@ -2,15 +2,15 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import type { PptTheme } from '../components/ppt/PptChrome';
+import { readStorage, writeStorage } from '../utils/storage';
 
 const THEME_KEY = 'gg-editor:ppt-theme';
 export const EditorAppearanceContext = createContext<PptTheme | undefined>(undefined);
 
 export function initialEditorTheme(): PptTheme {
-  try {
-    const saved = localStorage.getItem(THEME_KEY);
-    if (saved === 'light' || saved === 'dark') return saved;
-  } catch { /* ストレージが使えなくてもOS設定で開く */ }
+  // ストレージが使えなくても(共有ドロップの opaque origin など)OS 設定で開く
+  const saved = readStorage(THEME_KEY);
+  if (saved === 'light' || saved === 'dark') return saved;
   return typeof matchMedia !== 'undefined' && matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
@@ -28,7 +28,7 @@ export function useEditorTheme() {
   }, []);
   const toggleTheme = () => {
     const next = theme === 'dark' ? 'light' : 'dark';
-    try { localStorage.setItem(THEME_KEY, next); } catch { /* 今回の表示には適用する */ }
+    writeStorage(THEME_KEY, next);
     setTheme(next);
   };
   return { theme, toggleTheme };

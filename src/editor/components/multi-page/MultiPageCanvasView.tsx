@@ -52,6 +52,7 @@ import { CanvasRulers } from './CanvasRulers';
 import { CanvasFrameDecor } from './CanvasFrameDecor';
 import { cn } from '../../../lib/utils';
 import { ArrowUpRight } from 'lucide-react';
+import { CollabPageDots } from '../../collab/CollabPresence';
 
 /** フレーム名の高さ(px、画面上)。フレームの上端との間隔 */
 const LABEL_HEIGHT = 20;
@@ -168,6 +169,8 @@ const FrameChrome = memo(function FrameChrome({ page, showLabel, showLink, isSel
             <span className="ed-frame-label-index">{page.index + 1}</span>
             <span className="ed-frame-label-title">{page.title || page.id}</span>
             {page.isDirty && <span className="ed-frame-label-dirty" aria-label="未保存の変更" />}
+            {/* 共同編集: このページに居る参加者の色の点(io.collab が無ければ何も出ない) */}
+            <CollabPageDots contentId={page.id} />
             {isBusy && <span className="ed-frame-label-loading" aria-label="読み込み中" />}
           </button>
           {page.href && showLink && (

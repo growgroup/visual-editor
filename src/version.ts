@@ -6,4 +6,4 @@
  * 利用側はこの値と node_modules の package.json を見比べて、食い違っていれば
  * 「再起動してください」と出せる(構成ラフのテンプレートが行っている)
  */
-export const EDITOR_VERSION = '0.4.1';
+export const EDITOR_VERSION = '0.6.0';

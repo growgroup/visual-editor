@@ -196,6 +196,35 @@ export type EditorIO = {
   loadVariables?: () => Promise<CSSVariableDefinition[]>;
   /** CSS 変数の保存。無ければブラウザ内(localStorage)に持つ */
   saveVariables?: (variables: CSSVariableDefinition[]) => Promise<void>;
+
+  /**
+   * リアルタイム共同編集(Figma 風)。Hocuspocus の部屋に本文と居場所を載せる。
+   * 無ければ今までどおり(共同編集の UI も出さず、接続もしない)。
+   * あるページの部屋に入っている間は onSave の自動保存を呼ばない(ファイルに書くのは書き戻し役)
+   */
+  collab?: EditorCollab;
+};
+
+/** 共同編集の参加者。color が無ければ id から決める */
+export type EditorCollabUser = { id: string; name: string; color?: string };
+
+export type EditorCollab = {
+  /** Hocuspocus の URL(wss://…) */
+  url: string;
+  /** contentId → ページの部屋名。null ならそのページは共同編集しない */
+  roomFor: (contentId: string) => string | null;
+  /** 案件の部屋名(居場所・pages) */
+  projectRoom: string;
+  /** contentId → route(案件の部屋の awareness と pages のキー) */
+  routeFor: (contentId: string) => string | null;
+  user: EditorCollabUser;
+  token?: () => Promise<string | undefined>;
+  /** getCleanHtml の結果 → 共有する本文。無ければそのまま */
+  encode?: (cleanHtml: string) => string;
+  /** 共有する本文 → エディタに渡す HTML。無ければそのまま */
+  decode?: (shared: string, contentId: string) => string;
+  /** true: 書き戻し役が居ないとき「変更は保存されません」を出し続ける(静的なエディタ) */
+  requireBridge?: boolean;
 };
 
 let current: EditorIO = {};

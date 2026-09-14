@@ -22,7 +22,7 @@ const INDICATOR_CLASS = `selection-box ${PART_DROP_INDICATOR_CLASS}`;
 
 /** 紙面の中身ではなく、エディタが差し込んでいる表示専用のノード */
 const EDITOR_CHROME =
-  '.selection-box,.marquee-selection-box,.gg-comment-layer,.gg-crop-ui,' +
+  '.selection-box,.marquee-selection-box,.gg-comment-layer,.gg-collab-layer,.gg-crop-ui,' +
   '#gg-measure-layer,#gg-smart-guides,.flex-drop-indicator,.nesting-drop-indicator,' +
   '.auto-layout-drop-indicator,.drag-ghost';
 

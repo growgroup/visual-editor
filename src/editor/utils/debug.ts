@@ -16,6 +16,7 @@
  */
 
 const DEBUG_KEY = 'gg-editor:debug';
+import { readStorage } from './storage';
 
 /**
  * デバッグログを出す設定か。
@@ -23,11 +24,7 @@ const DEBUG_KEY = 'gg-editor:debug';
  * 参照そのものが例外を投げるので、必ず握りつぶして false に倒す。
  */
 export function isDebugEnabled(): boolean {
-  try {
-    return typeof localStorage !== 'undefined' && localStorage.getItem(DEBUG_KEY) === '1';
-  } catch {
-    return false;
-  }
+  return readStorage(DEBUG_KEY) === '1';
 }
 
 /** 内部の様子を見るためのログ。既定では出ない */

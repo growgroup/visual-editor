@@ -67,7 +67,8 @@ import {
 import { Checkbox } from "../../components/ui/checkbox";
 import { buildFilterString, buildTransformString } from "../utils/style-utils";
 import { useEditorContext } from "../EditorContext";
-import { useElementActions, useEditorColors } from "../hooks";
+import { useElementActions, useEditorColors, useInlineTextSelection } from "../hooks";
+import { MIXED } from "../utils/inline-text-style";
 import { FONT_WEIGHTS } from "../constants";
 import type { PanelSections, SelectedElementInfo } from "../types";
 import {
@@ -829,6 +830,7 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
   } = useEditorContext();
   const {
     updateElementStyle,
+    updateTextStyle,
     updateLinkAttribute,
     updateElementAttribute,
     deleteElement,
@@ -836,6 +838,14 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
     alignElements,
   } = useElementActions();
   const { colors: editorColors } = useEditorColors();
+  // テキストの一部を選んでいるとき、文字の欄(書体・太さ・大きさ・字間・色・斜体・下線)は
+  // その範囲の値を出し、変えるとその範囲だけに当てる(updateTextStyle)。揃っていなければ「混在」
+  const inlineText = useInlineTextSelection();
+  const partialText =
+    inlineText && selectedElement && inlineText.hostId === selectedElement.id ? inlineText : null;
+  const textFontWeight = partialText ? partialText.fontWeight : selectedElement?.fontWeight;
+  const textFontStyle = partialText ? partialText.fontStyle : selectedElement?.fontStyle;
+  const textDecorationLine = partialText ? partialText.textDecoration : selectedElement?.textDecoration;
 
   // Component instance management
   const {
@@ -2174,30 +2184,39 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                 />
               </CollapsibleTrigger>
               <CollapsibleContent className="space-y-2 pb-3">
+                {partialText && (
+                  <p data-typo-scope="selection" className="text-[10px] text-[#0d99ff]">
+                    選んだ文字だけに当てます(行間・配置は要素全体)
+                  </p>
+                )}
                 <div>
                   <Label className="text-[10px] text-gray-500">フォント</Label>
                   <GoogleFontPicker
-                    value={selectedElement.fontFamily}
+                    value={
+                      partialText
+                        ? partialText.fontFamily === MIXED ? "" : partialText.fontFamily
+                        : selectedElement.fontFamily
+                    }
                     onChange={(value) =>
-                      updateElementStyle({ fontFamily: value })
+                      updateTextStyle({ fontFamily: value })
                     }
                     iframeDoc={iframeRef.current?.contentDocument || null}
                     className="w-full"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  <div>
+                  <div data-typo-field="font-weight">
                     <Label className="text-[10px] text-gray-500">
                       ウェイト
                     </Label>
                     <Select
-                      value={selectedElement.fontWeight}
+                      value={textFontWeight === MIXED ? "" : textFontWeight}
                       onValueChange={(value) =>
-                        updateElementStyle({ fontWeight: value })
+                        updateTextStyle({ fontWeight: value })
                       }
                     >
                       <SelectTrigger className="h-7 text-xs bg-[#383838] border-[#444444] text-white">
-                        <SelectValue />
+                        <SelectValue placeholder={textFontWeight === MIXED ? "混在" : undefined} />
                       </SelectTrigger>
                       <SelectContent>
                         {FONT_WEIGHTS.map((w) => (
@@ -2208,13 +2227,18 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <div>
+                  <div data-typo-field="font-size">
                     <span className="text-[10px] text-gray-500 mb-1 block">
                       サイズ
                     </span>
                     <VariableAwareUnitInput
-                      value={selectedElement.rawFontSize || `${Math.round(selectedElement.fontSize)}px`}
-                      onChange={(val) => updateElementStyle({ fontSize: val })}
+                      value={
+                        partialText
+                          ? partialText.fontSize === MIXED ? "" : `${Math.round(parseFloat(partialText.fontSize) * 100) / 100}px`
+                          : selectedElement.rawFontSize || `${Math.round(selectedElement.fontSize)}px`
+                      }
+                      mixed={partialText?.fontSize === MIXED}
+                      onChange={(val) => updateTextStyle({ fontSize: val })}
                       units={FONT_SIZE_UNITS}
                       defaultUnit="px"
                       category="typography"
@@ -2258,14 +2282,14 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                       variant="ghost"
                       size="icon"
                       onClick={() =>
-                        updateElementStyle({
+                        updateTextStyle({
                           fontWeight:
-                            selectedElement.fontWeight === "700"
+                            textFontWeight === "700"
                               ? "400"
                               : "700",
                         })
                       }
-                      className={`h-7 w-7 text-gray-400 ${selectedElement.fontWeight === "700" ? "bg-[#0d99ff] text-white" : "hover:bg-[#4a4a4a] hover:text-white"}`}
+                      className={`h-7 w-7 text-gray-400 ${textFontWeight === "700" ? "bg-[#0d99ff] text-white" : "hover:bg-[#4a4a4a] hover:text-white"}`}
                     >
                       <Bold className="w-3.5 h-3.5" />
                     </Button>
@@ -2273,14 +2297,14 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                       variant="ghost"
                       size="icon"
                       onClick={() =>
-                        updateElementStyle({
+                        updateTextStyle({
                           fontStyle:
-                            selectedElement.fontStyle === "italic"
+                            textFontStyle === "italic"
                               ? "normal"
                               : "italic",
                         })
                       }
-                      className={`h-7 w-7 text-gray-400 ${selectedElement.fontStyle === "italic" ? "bg-[#0d99ff] text-white" : "hover:bg-[#4a4a4a] hover:text-white"}`}
+                      className={`h-7 w-7 text-gray-400 ${textFontStyle === "italic" ? "bg-[#0d99ff] text-white" : "hover:bg-[#4a4a4a] hover:text-white"}`}
                     >
                       <Italic className="w-3.5 h-3.5" />
                     </Button>
@@ -2288,22 +2312,22 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                       variant="ghost"
                       size="icon"
                       onClick={() =>
-                        updateElementStyle({
+                        updateTextStyle({
                           textDecoration:
-                            selectedElement.textDecoration?.includes(
+                            textDecorationLine?.includes(
                               "underline",
                             )
                               ? "none"
                               : "underline",
                         })
                       }
-                      className={`h-7 w-7 text-gray-400 ${selectedElement.textDecoration?.includes("underline") ? "bg-[#0d99ff] text-white" : "hover:bg-[#4a4a4a] hover:text-white"}`}
+                      className={`h-7 w-7 text-gray-400 ${textDecorationLine?.includes("underline") ? "bg-[#0d99ff] text-white" : "hover:bg-[#4a4a4a] hover:text-white"}`}
                     >
                       <Underline className="w-3.5 h-3.5" />
                     </Button>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-2">
-                    <div>
+                    <div data-typo-field="line-height">
                       <span className="text-[10px] text-gray-500 mb-1 block">
                         行間
                       </span>
@@ -2325,17 +2349,22 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                         conversionContext={conversionContext}
                       />
                     </div>
-                    <div>
+                    <div data-typo-field="letter-spacing">
                       <span className="text-[10px] text-gray-500 mb-1 block">
                         文字間
                       </span>
                       <VariableAwareUnitInput
-                        value={selectedElement.rawLetterSpacing || (() => {
-                          const ls = selectedElement.letterSpacing;
-                          if (!ls || ls === "normal") return "0em";
-                          return ls;
-                        })()}
-                        onChange={(val) => updateElementStyle({ letterSpacing: val })}
+                        value={
+                          partialText
+                            ? partialText.letterSpacing === MIXED ? "" : partialText.letterSpacing === "normal" ? "0em" : partialText.letterSpacing
+                            : selectedElement.rawLetterSpacing || (() => {
+                                const ls = selectedElement.letterSpacing;
+                                if (!ls || ls === "normal") return "0em";
+                                return ls;
+                              })()
+                        }
+                        mixed={partialText?.letterSpacing === MIXED}
+                        onChange={(val) => updateTextStyle({ letterSpacing: val })}
                         units={LETTER_SPACING_UNITS}
                         defaultUnit="em"
                         category="typography"
@@ -2347,13 +2376,14 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                     </div>
                   </div>
                 </div>
+                <div data-typo-field="color">
                 <FigmaColorPicker
-                  label="文字色"
+                  label={partialText?.color === MIXED ? "文字色(混在)" : "文字色"}
                   value={parseCssToFillConfig(
-                    selectedElement.color,
+                    partialText && partialText.color !== MIXED ? partialText.color : selectedElement.color,
                     undefined,
                     undefined,
-                    selectedElement.rawColor,
+                    partialText ? undefined : selectedElement.rawColor,
                   )}
                   onChange={(config) => {
                     if (config.type === "solid" && config.color) {
@@ -2362,22 +2392,23 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                         const r = parseInt(config.color.slice(1, 3), 16);
                         const g = parseInt(config.color.slice(3, 5), 16);
                         const b = parseInt(config.color.slice(5, 7), 16);
-                        updateElementStyle({
+                        updateTextStyle({
                           color: `rgba(${r}, ${g}, ${b}, ${opacity / 100})`,
                         });
                       } else {
-                        updateElementStyle({ color: config.color });
+                        updateTextStyle({ color: config.color });
                       }
                     }
                   }}
                   onVariableSelect={(varRef) => {
-                    updateElementStyle({ color: varRef });
+                    updateTextStyle({ color: varRef });
                   }}
                   presetColors={colorPresets}
                   showImageTab={false}
                   showVariablesTab={true}
                   onClose={restoreFocus}
                 />
+                </div>
               </CollapsibleContent>
             </Collapsible>
           )}

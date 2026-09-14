@@ -21,6 +21,8 @@ import { generateElementId, updateSelectionBox } from '../../utils/dom-utils';
 import { alignElements, distributeElements, type AlignMode, type DistributeAxis } from '../../utils/align-elements';
 import { isEyeDropperSupported, pickScreenColor } from '../../utils/eyedropper';
 import { applyTextHighlight, applyTextColor } from '../../utils/text-highlight';
+import { INLINE_TEXT_PROPERTIES, MIXED, applyInlineTextStyle, getInlineTextRange, type InlineTextSummary } from '../../utils/inline-text-style';
+import { useInlineTextSelection } from '../../hooks/useInlineTextSelection';
 import { SHAPE_GROUPS, setPendingShape, pendingShape, shapeStyles, type ShapeDef } from '../../utils/shape-library';
 import { applyShadowPreset, paintTarget } from '../../utils/element-effects';
 import {
@@ -271,9 +273,21 @@ const PAINT_PROPS = new Set([
   'borderTopWidth', 'borderTopStyle', 'borderTopColor',
 ]);
 
+/** リボンが読む computed style の名前 → 選んだ文字の見た目(InlineTextSummary)の項目 */
+const INLINE_SUMMARY_KEYS: Record<string, keyof InlineTextSummary> = {
+  'font-size': 'fontSize',
+  'font-weight': 'fontWeight',
+  'font-style': 'fontStyle',
+  'text-decoration-line': 'textDecoration',
+  'letter-spacing': 'letterSpacing',
+  color: 'color',
+  'font-family': 'fontFamily',
+};
+
 function useSelectionStyle() {
   const { getIframeDoc, selectedElement, selectedElementIds, notifyIframeChange } =
     useEditorContext();
+  const inlineText = useInlineTextSelection();
 
   const targets = useCallback((): HTMLElement[] => {
     const doc = getIframeDoc();
@@ -292,6 +306,18 @@ function useSelectionStyle() {
     (styles: Record<string, string>) => {
       const els = targets();
       if (!els.length) return;
+      // テキストの一部を選んでいれば、文字の属性はその範囲だけに当てる(右パネルと同じ)
+      const doc = getIframeDoc();
+      const id = els.length === 1 ? els[0].getAttribute('data-element-id') : null;
+      const partial =
+        doc && id && Object.keys(styles).every((k) => INLINE_TEXT_PROPERTIES.has(k))
+          ? getInlineTextRange(doc, id)
+          : null;
+      if (partial) {
+        applyInlineTextStyle(partial, styles);
+        notifyIframeChange();
+        return;
+      }
       for (const el of els) {
         for (const [k, v] of Object.entries(styles)) {
           // 効果用の枠が選択されている場合、塗り・枠線・切り抜きは中身の図形へ、
@@ -302,19 +328,27 @@ function useSelectionStyle() {
       }
       notifyIframeChange();
     },
-    [targets, notifyIframeChange],
+    [targets, notifyIframeChange, getIframeDoc],
   );
 
   const readComputed = useCallback(
     (prop: string): string => {
       const els = targets();
       if (!els.length) return '';
+      const key = INLINE_SUMMARY_KEYS[prop];
+      if (
+        key && inlineText && els.length === 1 &&
+        inlineText.hostId === els[0].getAttribute('data-element-id') &&
+        inlineText[key] !== MIXED
+      ) {
+        return inlineText[key];
+      }
       const camel = prop.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
       const el = PAINT_PROPS.has(camel) ? paintTarget(els[0]) : els[0];
       const win = el.ownerDocument.defaultView;
       return win ? win.getComputedStyle(el).getPropertyValue(prop) : '';
     },
-    [targets],
+    [targets, inlineText],
   );
 
   /** 属性の付け外し(アニメーション data-anim 等)。null で除去 */

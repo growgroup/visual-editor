@@ -23,6 +23,7 @@ import {
 } from '../utils/flex-reorder';
 import { extractElementInfo } from '../utils/style-utils';
 import { applyTailwindStyles, convertInlineStylesToTailwind } from '../utils/tailwind-utils';
+import { INLINE_TEXT_PROPERTIES, applyInlineTextStyle, getInlineTextRange } from '../utils/inline-text-style';
 import { copyElementsToFigma, isFigmaExportAvailable } from '../utils/figma-export';
 import {
   hasViewportUnit,
@@ -588,6 +589,34 @@ export function useElementActions() {
       });
     }
   }, [selectedElement, selectedElementIds, getIframeDoc, notifyIframeChange, setSelectedElement, lastUsedStylesRef, getCanvasDimensions, editorMode]);
+
+  /**
+   * 文字の属性(大きさ・太さ・色・字間など)を変える。テキストの一部を選んでいれば、その範囲だけに当てる。
+   * 範囲が無い・要素の文字を全部選んでいる・文字の属性以外を含む・複数選択のときは
+   * updateElementStyle と同じ(要素全体)
+   */
+  const updateTextStyle = useCallback((styles: Record<string, string>) => {
+    const iframeDoc = getIframeDoc();
+    const single =
+      !!selectedElement &&
+      (selectedElementIds.length === 0 ||
+        (selectedElementIds.length === 1 && selectedElementIds[0] === selectedElement.id));
+    const target =
+      iframeDoc && selectedElement && single && Object.keys(styles).every((k) => INLINE_TEXT_PROPERTIES.has(k))
+        ? getInlineTextRange(iframeDoc, selectedElement.id)
+        : null;
+    if (!iframeDoc || !target) {
+      updateElementStyle(styles);
+      return;
+    }
+    applyInlineTextStyle(target, styles);
+    notifyIframeChange();
+    const info = extractElementInfo(target.host, iframeDoc);
+    if (info) setSelectedElement(info);
+    requestAnimationFrame(() => {
+      refreshSelectionOverlay(iframeDoc);
+    });
+  }, [selectedElement, selectedElementIds, getIframeDoc, notifyIframeChange, setSelectedElement, updateElementStyle]);
 
   // 要素削除（複数選択対応）
   const deleteElement = useCallback(() => {
@@ -1784,6 +1813,7 @@ export function useElementActions() {
 
   return {
     updateElementStyle,
+    updateTextStyle,
     updateLinkAttribute,
     updateElementAttribute,
     deleteElement,

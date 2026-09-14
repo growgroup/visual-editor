@@ -266,6 +266,12 @@ export function applyInlineTextStyle(target: InlineTextRange, styles: Record<str
     });
     Array.from(el.querySelectorAll<HTMLElement>('span')).filter(isBareSpan).forEach(unwrap);
     applyTailwindStyles(el, styles);
+    // 列挙の値(font-bold / font-normal / italic など)は applyTailwindStyles だとクラスだけになり、
+    // ページの CSS にそのクラスが無いと効かない(提案書デッキには font-normal が無い)。
+    // 文字の一部に当てた値は、任意値のクラスと同じくインラインにも書いて、クラスの有無によらず効かせる
+    for (const [prop, value] of Object.entries(styles)) {
+      if (value) (el.style as unknown as Record<string, string>)[prop] = value;
+    }
   }
 
   const startRef = targets[0].firstChild ?? targets[0];

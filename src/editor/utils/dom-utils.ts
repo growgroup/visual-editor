@@ -926,6 +926,15 @@ export function restoreArtboardAutoHeight(iframeDoc: Document): void {
 }
 
 /**
+ * 編集対象(選択・レイヤー)にしない要素か。
+ * 改行(<br>)と改行の候補位置(<wbr>)は文字の一部で、箱として掴むものではない。
+ * 印を付けるとレイヤー一覧に中身の無い「シェイプ」として並び、紙面でも幅 0 の要素として選べてしまう
+ */
+export function isNonEditableTag(el: Element): boolean {
+  return el.tagName === 'BR' || el.tagName === 'WBR';
+}
+
+/**
  * DOMツリー構築の内部実装
  * キャッシュを使用しない純粋な構築処理
  */
@@ -940,6 +949,8 @@ function buildDomTreeInternal(iframeDoc: Document, rootElement?: Element): DOMTr
 
       // スキップする要素
       if (htmlChild.tagName === 'SCRIPT' || htmlChild.tagName === 'STYLE') return;
+      // 改行はレイヤーにしない(印が残っていても出さない)
+      if (isNonEditableTag(htmlChild)) return;
       if (htmlChild.classList?.contains('selection-box')) return;
       if (htmlChild.classList?.contains('resize-handle')) return;
       if (htmlChild.classList?.contains('drawing-preview')) return;

@@ -6,7 +6,7 @@ import { SLIDE_WIDTH, SLIDE_HEIGHT, WEBPAGE_WIDTH, WEBPAGE_MIN_HEIGHT } from '..
 import type { PreviewStyle } from '../../io';
 import type { EditorMode } from '../EditorContext';
 import { prepareHtmlForSave } from './viewport-utils';
-import { classifySaveAndRevert } from './dom-utils';
+import { classifySaveAndRevert, isNonEditableTag } from './dom-utils';
 
 // キャンバス背景色（Figmaライクなダークグレー）
 const CANVAS_BG_COLOR = '#1a1a1a';
@@ -454,6 +454,7 @@ export function makeChildrenEditable(container: HTMLElement): number {
       el.tagName === 'SCRIPT' ||
       el.tagName === 'STYLE' ||
       el.tagName === 'LINK' ||
+      isNonEditableTag(el) ||
       el.classList?.contains('selection-box') ||
       el.classList?.contains('marquee-selection-box') ||
       // [移植時の修正] スライドのキャンバス自体(#artboard と同じ大きさの直下の器)は

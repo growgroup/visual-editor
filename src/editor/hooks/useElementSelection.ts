@@ -20,6 +20,7 @@ import {
   refreshSelectionOverlay,
   syncSelectionOverlayRects,
   lockCaretScroll,
+  isNonEditableTag,
 } from "../utils/dom-utils";
 import { extractElementInfo } from "../utils/style-utils";
 import { MARQUEE_DRAG_THRESHOLD } from "../constants";
@@ -303,8 +304,8 @@ export function useElementSelection(
         return null;
       }
 
-      // 直接data-editableを持っているか
-      if (el.getAttribute("data-editable") === "true") {
+      // 直接data-editableを持っているか(改行 <br> / <wbr> は持っていても親の文字要素を選ぶ)
+      if (el.getAttribute("data-editable") === "true" && !isNonEditableTag(el)) {
         // 真のインライン要素（テキストフロー内）の場合は親のブロック要素を探す
         if (isTrueInlineInTextFlow(el, iframeDoc)) {
           let parent = el.parentElement;
@@ -328,6 +329,7 @@ export function useElementSelection(
         while (current && current !== iframeDoc.body) {
           if (
             current.getAttribute("data-editable") === "true" &&
+            !isNonEditableTag(current) &&
             !isTrueInlineInTextFlow(current, iframeDoc)
           ) {
             return current;

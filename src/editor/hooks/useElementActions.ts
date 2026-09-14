@@ -14,6 +14,7 @@ import {
   canUngroup,
   hasEditableChildren,
   prepareElementDragOrigin,
+  isNonEditableTag,
 } from '../utils/dom-utils';
 import {
   resolveWebpageDrag,
@@ -1248,14 +1249,14 @@ export function useElementActions() {
     children.forEach(child => {
       const el = child as HTMLElement;
       
-      // data-element-idがない場合は付与
-      if (!el.getAttribute('data-element-id')) {
-        el.setAttribute('data-element-id', generateElementId('ungrouped'));
-      }
-      
-      // data-editableを付与
-      if (!el.getAttribute('data-editable')) {
-        el.setAttribute('data-editable', 'true');
+      // data-element-id / data-editable を付与(改行 <br> / <wbr> には付けない)
+      if (!isNonEditableTag(el)) {
+        if (!el.getAttribute('data-element-id')) {
+          el.setAttribute('data-element-id', generateElementId('ungrouped'));
+        }
+        if (!el.getAttribute('data-editable')) {
+          el.setAttribute('data-editable', 'true');
+        }
       }
 
       // 子要素の現在の位置を取得

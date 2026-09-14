@@ -1198,10 +1198,18 @@ export function PptRibbon({
     (color: string) => {
       const doc = getIframeDoc();
       if (!doc) return;
-      if (applyTextColor(doc, targets(), color)) notifyIframeChange();
+      // テキストの一部を選んでいれば、大きさ・太字と同じ経路(apply)で当てる。
+      // 色の入力は選んでいる間ずっと change が来るので、毎回 span を足さずに同じ span へ当て、履歴も 1 段にまとめる
+      const els = targets();
+      const id = els.length === 1 ? els[0].getAttribute('data-element-id') : null;
+      if (id && getInlineTextRange(doc, id)) {
+        apply({ color });
+        return;
+      }
+      if (applyTextColor(doc, els, color)) notifyIframeChange();
       setRev((n) => n + 1);
     },
-    [getIframeDoc, targets, notifyIframeChange],
+    [getIframeDoc, targets, notifyIframeChange, apply],
   );
   // 実機同様、選択が無くなったらコンテキストタブを閉じる
   useEffect(() => {

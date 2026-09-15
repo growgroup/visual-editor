@@ -17,6 +17,9 @@
  *   - 2 回目の mousedown(ダブルクリック)が LINK_NAV_DELAY_MS 以内に来なかった
  *   - 押した点がテキスト編集中の要素の中ではない
  * ときだけ移る。リンクの中の深い要素を移らずに選びたいときは ⌘ + Alt + クリック。
+ *
+ * Mac は ⌘ だけ。Mac の Ctrl + クリックは右クリック扱い(contextmenu が出て click が来ない)で、
+ * エディタのコンテキストメニューが開く。Windows などは Ctrl(と Meta)。
  */
 import { MARQUEE_DRAG_THRESHOLD } from '../constants';
 
@@ -230,7 +233,10 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
   const frameEl = (win?.frameElement as HTMLElement | null) ?? null;
   const hostDoc = frameEl?.ownerDocument ?? null;
   const hostWin = hostDoc?.defaultView ?? null;
-  const mod = isMac() ? '⌘ ' : 'Ctrl + ';
+  const mac = isMac();
+  const mod = mac ? '⌘ ' : 'Ctrl + ';
+  const navKey = (e: MouseEvent | KeyboardEvent) => (mac ? e.metaKey : e.ctrlKey || e.metaKey);
+  const isNavKeyName = (key: string) => key === 'Meta' || (!mac && key === 'Control');
 
   let pointer: { x: number; y: number } | null = null;
   let modifier = false;
@@ -356,7 +362,7 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
 
   const onMouseMove = (e: MouseEvent) => {
     pointer = { x: e.clientX, y: e.clientY };
-    const next = e.metaKey || e.ctrlKey;
+    const next = navKey(e);
     if (next || modifier) {
       modifier = next;
       update(e.buttons);
@@ -368,15 +374,15 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') cancel();
-    if (e.key !== 'Meta' && e.key !== 'Control') {
+    if (!isNavKeyName(e.key)) {
       // ⌘ を離したことに気づけなかった(別のウィンドウで離した等)ときの戻し
-      if (modifier && !(e.metaKey || e.ctrlKey)) {
+      if (modifier && !navKey(e)) {
         modifier = false;
         disarm();
       }
       return;
     }
-    modifier = e.type === 'keydown' ? true : e.metaKey || e.ctrlKey;
+    modifier = e.type === 'keydown' ? true : navKey(e);
     update();
   };
   const onBlur = () => {
@@ -387,7 +393,7 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
   const onMouseDown = (e: MouseEvent) => {
     // 2 回目の mousedown(ダブルクリック)・別のクリックが来たら、前の移動は取り消す
     cancel();
-    if (e.button !== 0 || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+    if (e.button !== 0 || !navKey(e) || e.shiftKey || e.altKey) return;
     if (e.detail > 1 || blocked()) return;
     const link = linkAt(e.clientX, e.clientY);
     if (!link) return;
@@ -403,7 +409,7 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
     const p = pending;
     pending = null;
     if (!p || e.button !== 0 || e.detail > 1) return;
-    if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey || moved(e, p)) return;
+    if (!navKey(e) || e.shiftKey || e.altKey || moved(e, p)) return;
     timer = setTimeout(() => {
       timer = null;
       // 待っている間にテキスト編集に入った・紙面が差し替わった・モードが変わった

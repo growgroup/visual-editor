@@ -1252,13 +1252,16 @@ function FrontendVisualEditorInner({
   }, [getIframeDoc, selectedDomElement, afterFreeLayoutChange]);
 
   /**
-   * 右クリックのメニューの「配置」の出し分け。メニューが開いた瞬間の DOM を見て 1 回だけ決める
-   * (ツリーの判定は木の computed style を読むので、再描画のたびには回さない)。
+   * 右クリックのメニューの「配置」の出し分け。メニューが開いている間の DOM を見て決める
+   * (ツリーの判定は木の computed style を読むので、メニューが開いていない再描画では回さない)。
    *
    * - 中に入れ子の器か、器の外で倒した要素がある … 「このツリーの絶対配置を解除する」
    * - 自身が 1 段だけの器 … 「流し込みに戻す」(見えている順に並べ直す従来の解除)
    * - どちらでもない … 「直下の子だけ絶対配置にする」
    * - 倒せる箱が残っていれば、どの場合も「このツリーをすべて絶対配置にする」
+   *
+   * メニューが閉じている間は何もしない。選択の反映(ELEMENT_SELECTED)はメニューを開く合図より
+   * 1 テンポ遅れて届くことがあるので、選択が変わったら開いたまま決め直す
    */
   const freeLayoutMenu = useMemo(() => {
     if (!isWebpage || !contextMenuPosition) return {};
@@ -1278,8 +1281,16 @@ function FrontendVisualEditorInner({
       onPageFreeLayoutOff: () => setPageFreeLayoutConfirm('off'),
       pageHasFreeLayout: !!doc && hasFreeLayout(doc),
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- メニューが開いた瞬間(contextMenuPosition)だけで決める
-  }, [isWebpage, contextMenuPosition]);
+  }, [
+    isWebpage,
+    contextMenuPosition,
+    getIframeDoc,
+    selectedDomElement,
+    handleFreeLayoutTreeOn,
+    handleFreeLayoutTreeOff,
+    handleFreeLayoutOn,
+    handleFreeLayoutOff,
+  ]);
 
   // 右クリックハンドラ
   const handleContextMenu = useCallback((e: React.MouseEvent) => {

@@ -459,6 +459,26 @@ export function extractElementInfo(
 
   const rawWidth = extractRawStyleValue(element.style.width, 'width');
   const rawHeight = extractRawStyleValue(element.style.height, 'height');
+  // 最小・最大の幅と高さ(サイズ欄)。インラインの指定 → Tailwind の任意値・特殊値のクラス →
+  // 同じ系統の名前付きクラス(max-w-6xl など。値をクラス名から戻せない)なら計算値。
+  // none / auto は「指定なし」と同じ扱い
+  const readSizeLimit = (
+    property: 'minWidth' | 'maxWidth' | 'minHeight' | 'maxHeight',
+    classPrefix: string,
+  ): string | undefined => {
+    const usable = (v: string | null | undefined) => (v && v !== 'none' && v !== 'auto' ? v : undefined);
+    const inline = usable(extractRawStyleValue(element.style[property], property));
+    if (inline) return inline;
+    const fromClass = usable(extractValueFromTailwindClass(element.getAttribute('class') ?? '', property));
+    if (fromClass) return fromClass;
+    const classes = (element.getAttribute('class') ?? '').split(/\s+/);
+    if (classes.some((c) => c.startsWith(classPrefix))) return usable(style[property]);
+    return undefined;
+  };
+  const rawMinWidth = readSizeLimit('minWidth', 'min-w-');
+  const rawMaxWidth = readSizeLimit('maxWidth', 'max-w-');
+  const rawMinHeight = readSizeLimit('minHeight', 'min-h-');
+  const rawMaxHeight = readSizeLimit('maxHeight', 'max-h-');
   const rawPaddingTop = extractRawStyleValue(element.style.paddingTop, 'paddingTop');
   const rawPaddingRight = extractRawStyleValue(element.style.paddingRight, 'paddingRight');
   const rawPaddingBottom = extractRawStyleValue(element.style.paddingBottom, 'paddingBottom');
@@ -623,6 +643,10 @@ export function extractElementInfo(
     // CSS Variable references (raw inline style values if they contain var())
     rawWidth,
     rawHeight,
+    rawMinWidth,
+    rawMaxWidth,
+    rawMinHeight,
+    rawMaxHeight,
     rawPaddingTop,
     rawPaddingRight,
     rawPaddingBottom,

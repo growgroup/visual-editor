@@ -12,6 +12,7 @@ import { useDragResize } from "../hooks/useDragResize";
 import { useContextMenuHandler } from "../hooks/useContextMenuHandler";
 import { useIframeSetup } from "../hooks/useIframeSetup";
 import { useFocusManagement } from "../hooks/useFocusManagement";
+import { useKeepArtboardInPlace } from "../hooks/useKeepArtboardInPlace";
 import {
   SLIDE_WIDTH,
   SLIDE_HEIGHT,
@@ -27,6 +28,8 @@ import {
 } from "../utils/dom-utils";
 import { generateEditableHtml } from "../utils/html-utils";
 import { setupInlineFormatToolbar } from "../utils/inline-format";
+import { setupLineBreakOnEnter } from "../utils/text-line-break";
+import { setupInlineTextSelection } from "../utils/inline-text-style";
 import { recalculateViewportUnits } from "../utils/viewport-utils";
 import { useMultiPageCanvasOptional } from "../contexts/MultiPageCanvasContext";
 import { applyDocumentAttributes } from "./multi-page/PageFramePreview";
@@ -36,6 +39,7 @@ import { io } from "../../io";
 import { COLLAB_DOCUMENT_READY_ATTR, COLLAB_DOCUMENT_READY_EVENT } from "../collab/signals";
 import { showPartDropIndicator, clearPartDropIndicator, findFlowInsertion } from "../utils/drop-target";
 import { debugLog } from '../utils/debug';
+import { useLinkNavigation } from "../hooks/useLinkNavigation";
 import { useEditorComponents } from "../contexts/EditorComponentsContext";
 import type {
   DOMTreeNode,
@@ -129,6 +133,7 @@ export function EditorCanvas() {
     editorMode,
     setShowLayoutHint,
     viewportWidth,
+    iframeReady,
     setIframeReady,
     documentAttributes,
     currentContentId,
@@ -160,6 +165,8 @@ export function EditorCanvas() {
 
   // Figmaライクなキャンバス操作
   useCanvasControls();
+  // 左のパネルを出し入れしても紙面を画面上の同じ位置に留める(1 ページ表示。マルチフレームは MultiPageCanvasView)
+  useKeepArtboardInPlace(containerRef, getIframeDoc, !isInMultiPageMode, iframeReady);
 
   // グループ化/グループ解除/スタイルコピー&ペースト/Figmaエクスポート
   const { groupElements, ungroupElements, copyStyle, pasteStyle, copyToFigma } = useElementActions();
@@ -265,6 +272,9 @@ export function EditorCanvas() {
     marqueeAdditiveRef,
     marqueeGeomRef,
   });
+
+  // ⌘ / Ctrl + クリックでリンク先へ移る(選択の mousedown には手を出さず、クリックが確定してから移る)
+  const { setupLinkNavigation } = useLinkNavigation();
 
   // マーキー選択
   const {
@@ -531,8 +541,14 @@ export function EditorCanvas() {
 
     // 選択リスナー（mousedown, dblclick）
     cleanupFunctions.push(setupSelectionListeners(iframeDoc));
+    // ⌘ / Ctrl + クリックでリンク先へ(ページ・アンカー・外部サイト)
+    cleanupFunctions.push(setupLinkNavigation(iframeDoc));
     // テキスト編集中の範囲選択に、マーカー・太字のツールバーを出す
     cleanupFunctions.push(setupInlineFormatToolbar(iframeDoc));
+    // 範囲選択を覚えておき、パネルで変えた文字の大きさ・太さ・色・字間を選んだ所だけに当てる
+    cleanupFunctions.push(setupInlineTextSelection(iframeDoc));
+    // テキスト編集中の Enter は段落を分けず、同じ要素の中の改行(<br>)にする
+    cleanupFunctions.push(setupLineBreakOnEnter(iframeDoc));
 
     // コンテキストメニュー
     cleanupFunctions.push(setupContextMenuListener(iframeDoc));

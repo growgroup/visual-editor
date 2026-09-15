@@ -16,6 +16,7 @@
  */
 import type { EditorPartDef } from '../io';
 import { findFlowInsertion } from './utils/drop-target';
+import { isNonEditableTag } from './utils/dom-utils';
 
 export const PART_ATTR = 'data-part';
 export const PART_VERSION_ATTR = 'data-part-v';
@@ -318,6 +319,7 @@ export function unlockPartDescendants(root: HTMLElement): number {
   for (const el of Array.from(root.querySelectorAll('*'))) {
     if (el.closest('script, style, svg path, svg g')) continue;
     if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
+    if (isNonEditableTag(el)) continue;
     if (!el.getAttribute('data-element-id')) {
       el.setAttribute('data-editable', 'true');
       el.setAttribute('data-element-id', `el-${stamp}-u${i++}`);

@@ -24,6 +24,9 @@ export { useDragResize } from './useDragResize';
 export { useContextMenuHandler } from './useContextMenuHandler';
 export { useIframeSetup } from './useIframeSetup';
 export { useFocusManagement } from './useFocusManagement';
+export { useInlineTextSelection } from './useInlineTextSelection';
+export { useLinkNavigation } from './useLinkNavigation';
+export { useKeepArtboardInPlace } from './useKeepArtboardInPlace';
 export { useResizablePanel } from './useResizablePanel';
 
 // Component system hooks

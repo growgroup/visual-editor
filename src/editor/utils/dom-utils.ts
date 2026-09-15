@@ -8,6 +8,9 @@
 import type { ElementCapture, DOMTreeNode, MarqueeState } from '../types';
 import { removeConflictingClasses } from './tailwind-utils';
 import { debugLog } from './debug';
+// 目印クラスの定義は free-layout.ts 側が正本。ここでは選択枠の札を出すためだけに読む
+// (循環importになるが、使うのは関数の中だけなので評価順の問題は起きない)
+import { FREELAYOUT_CLASS } from './free-layout';
 
 // ========================================
 // buildDomTree キャッシュ（Phase 2 最適化）
@@ -293,6 +296,29 @@ export function applyCanvasZoomDom(iframeDoc: Document, zoomPct: number): void {
   // 紙面が容器に収まる軸はスクロールを中央へ(拡大時のパンには干渉しない)
   if (w * scale <= cw) container.scrollLeft = Math.max(0, (scrollArea.offsetWidth - cw) / 2);
   if (!topAnchored && h * scale <= ch) container.scrollTop = Math.max(0, (scrollArea.offsetHeight - ch) / 2);
+}
+
+/**
+ * 1 ページ表示のキャンバスを、横のスクロール位置 scrollLeft へ動かす。
+ * スクロールできる範囲の外なら #canvas-scroll-area を左右へ e ずつ広げて届かせる
+ * (紙面は中央寄せなので、広げると紙面が e だけ右へ動く。行き先も e だけ先へ足す)。
+ * 広げた幅は、次に倍率が変わったとき applyCanvasZoomDom が測り直す
+ */
+export function scrollCanvasLeftTo(iframeDoc: Document, scrollLeft: number): void {
+  if (iframeDoc.body?.dataset.embedded === '1') return;
+  const scrollArea = iframeDoc.getElementById('canvas-scroll-area');
+  const container = iframeDoc.getElementById('canvas-container');
+  if (!scrollArea || !container) return;
+  const areaWidth = scrollArea.getBoundingClientRect().width;
+  // 負になりうる(スクロール領域が容器より狭い)。そのときスクロールできるのは 0 だけ
+  const maxRaw = areaWidth - container.clientWidth;
+  let target = scrollLeft;
+  if (target < 0 || target > Math.max(0, maxRaw)) {
+    const e = Math.max(-target, target - maxRaw);
+    scrollArea.style.width = `${areaWidth + e * 2}px`;
+    target += e;
+  }
+  container.scrollLeft = target;
 }
 
 /* ============================ 原本への書き戻し支援 ============================
@@ -926,6 +952,15 @@ export function restoreArtboardAutoHeight(iframeDoc: Document): void {
 }
 
 /**
+ * 編集対象(選択・レイヤー)にしない要素か。
+ * 改行(<br>)と改行の候補位置(<wbr>)は文字の一部で、箱として掴むものではない。
+ * 印を付けるとレイヤー一覧に中身の無い「シェイプ」として並び、紙面でも幅 0 の要素として選べてしまう
+ */
+export function isNonEditableTag(el: Element): boolean {
+  return el.tagName === 'BR' || el.tagName === 'WBR';
+}
+
+/**
  * DOMツリー構築の内部実装
  * キャッシュを使用しない純粋な構築処理
  */
@@ -940,6 +975,8 @@ function buildDomTreeInternal(iframeDoc: Document, rootElement?: Element): DOMTr
 
       // スキップする要素
       if (htmlChild.tagName === 'SCRIPT' || htmlChild.tagName === 'STYLE') return;
+      // 改行はレイヤーにしない(印が残っていても出さない)
+      if (isNonEditableTag(htmlChild)) return;
       if (htmlChild.classList?.contains('selection-box')) return;
       if (htmlChild.classList?.contains('resize-handle')) return;
       if (htmlChild.classList?.contains('drawing-preview')) return;
@@ -1348,6 +1385,14 @@ function drawSelectionBox(
       badge.textContent = `${isRoot ? '部品' : '部品の中'} ${partRoot.getAttribute('data-part') ?? ''}${version ? ` v${version}` : ''}${slotName ? ` › ${slotName}` : ''}`;
       selectionBox.appendChild(badge);
     }
+  }
+  // 自由配置の器は、選んだときに「ここは流し込みではない」と分かる札を出す。
+  // 部品の札(左上)とぶつからないよう右上に置く
+  if (mode !== 'member' && element.classList.contains(FREELAYOUT_CLASS)) {
+    const badge = iframeDoc.createElement('div');
+    badge.className = 'freelayout-badge';
+    badge.textContent = '自由配置';
+    selectionBox.appendChild(badge);
   }
   selectionBox.style.cssText = `
     left: ${relativeLeft}px;

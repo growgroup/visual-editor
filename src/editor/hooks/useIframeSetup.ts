@@ -8,7 +8,7 @@
 
 import { useCallback, useRef, useEffect } from 'react';
 import { useEditorContext } from '../EditorContext';
-import { buildDomTree, isInlineElement } from '../utils/dom-utils';
+import { buildDomTree, isInlineElement, isNonEditableTag } from '../utils/dom-utils';
 import { EDITOR_IFRAME_STYLES } from '../constants';
 import { isLockedInsidePart } from '../parts';
 import { debugLog } from '../utils/debug';
@@ -100,6 +100,13 @@ export function useIframeSetup(): UseIframeSetupReturn {
         element.tagName === 'HEAD'
       )
         return;
+      // 改行(<br> / <wbr>)は文字の一部。印も ID も付けない(前に付いていたら外す)
+      if (isNonEditableTag(element)) {
+        element.removeAttribute('data-editable');
+        element.removeAttribute('data-element-id');
+        element.removeAttribute('data-inline');
+        return;
+      }
       if (element.closest('script, style, svg path, svg g')) return;
       if (element.classList.contains('material-icons')) return;
       if (element.classList.contains('material-icons-outlined')) return;

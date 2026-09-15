@@ -32,7 +32,7 @@ export function EditorSidebar() {
     iframeRef,
   } = useEditorContext();
 
-  const { updateElementStyle } = useElementActions();
+  const { updateElementStyle, updateTextStyle } = useElementActions();
 
   // レイヤーノードの展開/折りたたみ
   const toggleNode = (nodeId: string) => {
@@ -177,7 +177,7 @@ export function EditorSidebar() {
                 onOpenChange={(open) =>
                   setOpenSections((prev) => ({ ...prev, typography: open }))
                 }
-                onStyleChange={updateElementStyle}
+                onStyleChange={updateTextStyle}
                 iframeDoc={iframeRef.current?.contentDocument || null}
               />
 

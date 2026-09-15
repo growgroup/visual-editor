@@ -89,6 +89,37 @@ export interface ResizeModifiers {
   altKey?: boolean;
   /** 最小サイズ（既定 MIN_ELEMENT_SIZE） */
   minSize?: number;
+  /** 要素の min / max-width・height(px)。ハンドルで大きさを変えても、紙面と同じところで止める */
+  limits?: SizeLimits;
+}
+
+/** 要素の最小・最大の幅と高さ(px)。指定が無い・px で読めない軸は 0 / Infinity */
+export interface SizeLimits {
+  minWidth: number;
+  maxWidth: number;
+  minHeight: number;
+  maxHeight: number;
+}
+
+/**
+ * 要素の min / max-width・height を計算値から読む。
+ * % などの相対値は計算値でも px にならないので、その軸は制約なしとして扱う(紙面側の CSS が効く)
+ */
+export function readSizeLimits(element: HTMLElement, doc: Document): SizeLimits {
+  const cs = doc.defaultView?.getComputedStyle(element);
+  const px = (v: string | undefined, fallback: number) =>
+    v && /^-?\d+(\.\d+)?px$/.test(v) ? parseFloat(v) : fallback;
+  return {
+    minWidth: px(cs?.minWidth, 0),
+    maxWidth: px(cs?.maxWidth, Infinity),
+    minHeight: px(cs?.minHeight, 0),
+    maxHeight: px(cs?.maxHeight, Infinity),
+  };
+}
+
+/** CSS と同じく min が max に勝つ */
+function clampToLimit(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
 }
 
 /**
@@ -143,9 +174,16 @@ export function computeResizeGeometry(
     }
   }
 
-  // 4. クランプ
-  const rawWidth = Math.max(minSize, orig.width + dw);
-  const rawHeight = Math.max(minSize, orig.height + dh);
+  // 4. クランプ(最小サイズと、要素の min / max-width・height)
+  const limits = mods.limits;
+  const rawWidth = Math.max(
+    minSize,
+    limits ? clampToLimit(orig.width + dw, limits.minWidth, limits.maxWidth) : orig.width + dw,
+  );
+  const rawHeight = Math.max(
+    minSize,
+    limits ? clampToLimit(orig.height + dh, limits.minHeight, limits.maxHeight) : orig.height + dh,
+  );
 
   // 5. クランプ後の実増分でアンカーを決める
   const appliedDw = rawWidth - orig.width;

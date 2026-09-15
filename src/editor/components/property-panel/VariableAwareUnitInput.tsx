@@ -58,6 +58,8 @@ export interface VariableAwareUnitInputProps {
   hideVariableLink?: boolean;
   /** 単位変換コンテキスト */
   conversionContext?: UnitConversionContext;
+  /** 選んだ文字の中で値が揃っていない。欄を空にして「混在」と出し、打ったときだけ値を返す */
+  mixed?: boolean;
 }
 
 // ============================================
@@ -80,6 +82,7 @@ export function VariableAwareUnitInput({
   enableScrubbing = true,
   hideVariableLink = false,
   conversionContext,
+  mixed = false,
 }: VariableAwareUnitInputProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [isOpen, setIsOpen] = useState(false);
@@ -165,6 +168,8 @@ export function VariableAwareUnitInput({
       const inputValue = e.target.value;
 
       if (inputValue === "" || inputValue === "-") {
+        // 混在のまま消しただけなら何も当てない(0 にしない)
+        if (mixed) return;
         onChange(formatValueWithUnit(0, currentUnit));
         return;
       }
@@ -178,7 +183,7 @@ export function VariableAwareUnitInput({
 
       onChange(formatValueWithUnit(clampedValue, currentUnit));
     },
-    [onChange, currentUnit, min, max]
+    [onChange, currentUnit, min, max, mixed]
   );
 
   // 単位変更ハンドラ（値を変換）
@@ -272,7 +277,7 @@ export function VariableAwareUnitInput({
   // 改善: クリックでフォーカスを許可し、ドラッグ閾値を超えた場合のみスクラブを開始
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLInputElement>) => {
-      if (!enableScrubbing || disabled || isLinked) return;
+      if (!enableScrubbing || disabled || isLinked || mixed) return;
       if (e.button !== 0) return;
       // 既にフォーカスされている場合は通常の入力を許可
       if (document.activeElement === inputRef.current) return;
@@ -325,13 +330,13 @@ export function VariableAwareUnitInput({
       document.addEventListener("mousemove", handleMouseMove);
       document.addEventListener("mouseup", handleMouseUp);
     },
-    [enableScrubbing, disabled, isLinked, parsed, step, min, max, currentUnit, onChange]
+    [enableScrubbing, disabled, isLinked, parsed, step, min, max, currentUnit, onChange, mixed]
   );
 
   // キーボード操作
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (disabled || isLinked) return;
+      if (disabled || isLinked || mixed) return;
 
       const multiplier = e.shiftKey ? 10 : 1;
       let newValue = parsed.numericValue;
@@ -351,7 +356,7 @@ export function VariableAwareUnitInput({
 
       onChange(formatValueWithUnit(newValue, currentUnit));
     },
-    [disabled, isLinked, parsed, step, min, max, currentUnit, onChange]
+    [disabled, isLinked, parsed, step, min, max, currentUnit, onChange, mixed]
   );
 
   const inputWidth = compact ? "w-10" : "w-12";
@@ -493,7 +498,8 @@ export function VariableAwareUnitInput({
         <input
           ref={inputRef}
           type={isLinked ? "text" : "number"}
-          value={isLinked ? (linkedVariable?.name ?? extractVariableName(String(value)) ?? "") : parsed.numericValue}
+          value={isLinked ? (linkedVariable?.name ?? extractVariableName(String(value)) ?? "") : mixed ? "" : parsed.numericValue}
+          placeholder={mixed && !isLinked ? "混在" : undefined}
           onChange={handleNumberChange}
           onMouseDown={handleMouseDown}
           onKeyDown={handleKeyDown}

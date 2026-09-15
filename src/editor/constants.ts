@@ -154,6 +154,11 @@ export const EDITOR_IFRAME_STYLES = `
     opacity: 0.7;
     cursor: grabbing !important;
   }
+  /* ⌘ / Ctrl を押してリンクの上にいる間は指のカーソル(utils/link-navigation.ts が <html> に印を付け外しする) */
+  html[data-gg-link-nav],
+  html[data-gg-link-nav] * {
+    cursor: pointer !important;
+  }
   ::selection {
     background-color: rgba(13, 153, 255, 0.3);
   }

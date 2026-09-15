@@ -38,6 +38,7 @@ import { io } from "../../io";
 import { COLLAB_DOCUMENT_READY_ATTR, COLLAB_DOCUMENT_READY_EVENT } from "../collab/signals";
 import { showPartDropIndicator, clearPartDropIndicator, findFlowInsertion } from "../utils/drop-target";
 import { debugLog } from '../utils/debug';
+import { useLinkNavigation } from "../hooks/useLinkNavigation";
 import { useEditorComponents } from "../contexts/EditorComponentsContext";
 import type {
   DOMTreeNode,
@@ -267,6 +268,9 @@ export function EditorCanvas() {
     marqueeAdditiveRef,
     marqueeGeomRef,
   });
+
+  // ⌘ / Ctrl + クリックでリンク先へ移る(選択の mousedown には手を出さず、クリックが確定してから移る)
+  const { setupLinkNavigation } = useLinkNavigation();
 
   // マーキー選択
   const {
@@ -533,6 +537,8 @@ export function EditorCanvas() {
 
     // 選択リスナー（mousedown, dblclick）
     cleanupFunctions.push(setupSelectionListeners(iframeDoc));
+    // ⌘ / Ctrl + クリックでリンク先へ(ページ・アンカー・外部サイト)
+    cleanupFunctions.push(setupLinkNavigation(iframeDoc));
     // テキスト編集中の範囲選択に、マーカー・太字のツールバーを出す
     cleanupFunctions.push(setupInlineFormatToolbar(iframeDoc));
     // 範囲選択を覚えておき、パネルで変えた文字の大きさ・太さ・色・字間を選んだ所だけに当てる

@@ -62,6 +62,18 @@ interface Segment {
 
 const TOOLBAR_SELECTOR = '#gg-inline-format-toolbar';
 
+/** 紙面の上に重ねた道具。ページの本文(#artboard)の外にあっても「紙面の外の余白」として扱わない */
+const IN_FRAME_TOOLS = [
+  TOOLBAR_SELECTOR,
+  '.selection-box',
+  '.resize-handle',
+  '.rotation-handle',
+  '.border-radius-handle',
+  '.gg-collab-layer',
+  '.gg-comment-layer',
+  '#gg-measure-layer',
+].join(', ');
+
 /** 文字の属性を持てる行内要素。これ以外(ブロック・画像・改行)には当てない */
 const PHRASING_TAGS = new Set([
   'SPAN', 'STRONG', 'B', 'EM', 'I', 'U', 'S', 'SMALL', 'MARK', 'A', 'CODE', 'SUB', 'SUP',
@@ -312,6 +324,28 @@ function summarize(r: InlineTextRange): InlineTextSummary | null {
 }
 
 /**
+ * 紙面の文字の選択を消す(テキスト編集中なら編集も終える)。フレームの外をクリックしたとき用。
+ * 要素の選択には触らない(何も無い所をクリックしたときの既存の処理に任せる)
+ */
+export function clearTextSelection(doc: Document): void {
+  const editing = doc.querySelector<HTMLElement>('[contenteditable="true"]');
+  if (editing) {
+    // フォーカスが残っていれば、blur で EditorCanvas の focusout が編集を終えて変更を履歴へ送る
+    editing.blur();
+    editing.classList.remove('editing');
+    editing.removeAttribute('contenteditable');
+  }
+  const sel = doc.getSelection();
+  if (sel && sel.rangeCount > 0) sel.removeAllRanges();
+  if (remembered?.doc === doc) setRemembered(null);
+}
+
+function hasTextSelection(doc: Document): boolean {
+  const sel = doc.getSelection();
+  return (!!sel && sel.rangeCount > 0 && !sel.isCollapsed) || !!doc.querySelector('[contenteditable="true"]');
+}
+
+/**
  * テキスト編集中の範囲選択を覚える仕組みを iframe に取り付ける。
  * @returns 後片付け関数
  */
@@ -348,12 +382,45 @@ export function setupInlineTextSelection(doc: Document): () => void {
     const t = e.target as Element | null;
     if (t?.closest?.(TOOLBAR_SELECTOR)) return;
     setRemembered(null);
+    // 紙面の外の余白(ページの本文の外)を押したら、編集に入っていない文字の選択も消す。
+    // 編集中の選択は、紙面の mousedown(useElementSelection)が編集を終えるときに消す
+    if (t && !t.closest?.('#artboard') && !t.closest?.(IN_FRAME_TOOLS) && !doc.querySelector('[contenteditable="true"]')) {
+      doc.getSelection()?.removeAllRanges();
+    }
+  };
+  // フレームの外(キャンバスの何も無い所・別のページのフレーム)を押したら、紙面の文字の選択を消す。
+  // キャンバスの何も無い所の mousedown は既定の動きを止めるので、フォーカスが紙面に残り、編集も選択も残っていた。
+  // 右パネル・リボン・ポップアップはキャンバスの外にあるので対象にならない(文字の一部の書式が選択の残りを使う)
+  const hostDoc = doc.defaultView?.frameElement?.ownerDocument ?? null;
+  const onHostPointerDown = (e: Event) => {
+    const t = e.target as Element | null;
+    if (!t?.closest?.('[data-infinite-canvas]') || t.closest('[data-editor-frame]')) return;
+    if (hasTextSelection(doc)) clearTextSelection(doc);
+  };
+  // Esc でも消す。編集中の Esc は既存の処理が編集を終えて選択を消すので、ここでは編集に入っていない選択だけ
+  const onKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape' || e.isComposing || doc.querySelector('[contenteditable="true"]')) return;
+    const sel = doc.getSelection();
+    if (sel && sel.rangeCount > 0 && !sel.isCollapsed) sel.removeAllRanges();
+  };
+  // フォーカスがエディタの外側(キャンバスや本文)にあるときの Esc。入力欄やパネルにフォーカスがあるときの Esc はその欄のもの
+  const onHostKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape' || e.isComposing || !hostDoc) return;
+    const active = hostDoc.activeElement;
+    if (active && active !== hostDoc.body && !active.closest('[data-infinite-canvas]')) return;
+    if (hasTextSelection(doc)) clearTextSelection(doc);
   };
   doc.addEventListener('selectionchange', onSelectionChange);
   doc.addEventListener('pointerdown', onPointerDown, true);
+  doc.addEventListener('keydown', onKeyDown, true);
+  hostDoc?.addEventListener('pointerdown', onHostPointerDown, true);
+  hostDoc?.addEventListener('keydown', onHostKeyDown, true);
   return () => {
     doc.removeEventListener('selectionchange', onSelectionChange);
     doc.removeEventListener('pointerdown', onPointerDown, true);
+    doc.removeEventListener('keydown', onKeyDown, true);
+    hostDoc?.removeEventListener('pointerdown', onHostPointerDown, true);
+    hostDoc?.removeEventListener('keydown', onHostKeyDown, true);
     if (remembered?.doc === doc) setRemembered(null);
   };
 }

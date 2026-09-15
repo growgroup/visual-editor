@@ -266,6 +266,20 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
     return () => observer.disconnect();
   }, [shiftView]);
 
+  // 容器は overflow: hidden で、位置は transform が持つ。ところがフォーカスを移すと(部品パネルを閉じたときに
+  // エディタへ戻す iframe.focus() など)、ブラウザは要素を見せようとして容器そのものをスクロールし、
+  // 紙面がずれたまま戻らない(縮小した構成ラフで縦に 61px。直す前の版から)。容器のスクロールは常に 0 へ戻す
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const reset = () => {
+      if (el.scrollTop) el.scrollTop = 0;
+      if (el.scrollLeft) el.scrollLeft = 0;
+    };
+    el.addEventListener('scroll', reset);
+    return () => el.removeEventListener('scroll', reset);
+  }, []);
+
   // ---- 倍率・位置の反映(React を通さない)
   const [coarseZoom, setCoarseZoom] = useState(() => viewStore.get().canvasZoom);
   const coarseZoomRef = useRef(coarseZoom);

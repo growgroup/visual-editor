@@ -23,6 +23,7 @@ import {
 } from '../utils/flex-reorder';
 import { extractElementInfo } from '../utils/style-utils';
 import { applyTailwindStyles, convertInlineStylesToTailwind } from '../utils/tailwind-utils';
+import { keepsInlineGeometry } from '../utils/free-layout';
 import { INLINE_TEXT_PROPERTIES, applyInlineTextStyle, getInlineTextRange } from '../utils/inline-text-style';
 import { copyElementsToFigma, isFigmaExportAvailable } from '../utils/figma-export';
 import {
@@ -475,7 +476,7 @@ export function useElementActions() {
     // インラインスタイルをTailwindクラスに変換
     const positionProperties = ['left', 'top'];
     elements.forEach(el => {
-      convertInlineStylesToTailwind(el, positionProperties);
+      if (!keepsInlineGeometry(el)) convertInlineStylesToTailwind(el, positionProperties);
     });
 
     notifyIframeChange();

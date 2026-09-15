@@ -72,6 +72,20 @@ import { EditorToolbar } from './EditorToolbar';
 import { MultiPageCanvasView } from './components/multi-page';
 import { useMultiPageCanvasOptional } from './contexts/MultiPageCanvasContext';
 import { convertToAbsolutePositioning, buildDomTree, getArtboardContent, canUngroup, updateSelectionBox } from './utils/dom-utils';
+import {
+  enableFreeLayout,
+  disableFreeLayout,
+  enablePageFreeLayout,
+  disablePageFreeLayout,
+  isFreeLayoutContainer,
+  hasFreeLayout,
+  disableFreeLayoutTree,
+  FREELAYOUT_CLASS,
+  FREELAYOUT_HOLD_CLASS,
+  FREELAYOUT_ITEM_CLASS,
+} from './utils/free-layout';
+import { enableFreeLayoutTree, canEnableFreeLayoutTree, waitForFreeLayoutTreeReady } from './utils/free-layout-tree';
+import { ConfirmDialog } from './components/shell/ConfirmDialog';
 import { extractElementInfo } from './utils/style-utils';
 import { findTableCell, insertRow, insertColumn, deleteRow, deleteColumn } from './utils/table-edit';
 import { Loader2 } from 'lucide-react';
@@ -1137,6 +1151,146 @@ function FrontendVisualEditorInner({
     }
     notifyIframeChange();
   }, [getIframeDoc, selectedElement?.id, notifyIframeChange]);
+
+  // ── 自由配置(webpage 専用) ──────────────────────────────
+  // 構成ラフは流し込みのまま保つのが既定で、ここだけが例外を作る入口。
+  // 「選んだ器の中だけ」と「ページの最上位セクション全部」の2段構えにして、
+  // 全体を倒す側には必ず確認ダイアログを挟む(高さが固定され、以後は
+  // 内容を足しても下へ押し出されなくなるため、取り返しの印象が強い)。
+  const isWebpage = editorMode === 'webpage';
+  const [pageFreeLayoutConfirm, setPageFreeLayoutConfirm] = useState<'on' | 'off' | null>(null);
+
+  /** 右クリック時点の選択要素を DOM から引く */
+  const selectedDomElement = useCallback((): HTMLElement | null => {
+    const doc = getIframeDoc();
+    if (!doc || !selectedElement?.id) return null;
+    return doc.querySelector<HTMLElement>(`[data-element-id="${selectedElement.id}"]`);
+  }, [getIframeDoc, selectedElement?.id]);
+
+  /**
+   * 変換のあとの後始末。
+   * notifyIframeChange が履歴の積み増しとレイヤーツリーの作り直しをやるので、
+   * ここでは選択枠だけを新しい位置へ合わせ直す(変換で矩形が変わるため)
+   */
+  const afterFreeLayoutChange = useCallback(
+    (doc: Document) => {
+      notifyIframeChange();
+      const el = selectedDomElement();
+      if (el) requestAnimationFrame(() => updateSelectionBox(doc, el));
+    },
+    [notifyIframeChange, selectedDomElement],
+  );
+
+  const handleFreeLayoutOn = useCallback(() => {
+    const doc = getIframeDoc();
+    const el = selectedDomElement();
+    if (!doc || !el) return;
+    const n = enableFreeLayout(el, doc);
+    if (n === 0) {
+      toast.error('絶対配置にできませんでした(子が無いか、変換で位置がずれました)');
+      return;
+    }
+    afterFreeLayoutChange(doc);
+    toast.success(`${n}個の子を絶対配置にしました`);
+  }, [getIframeDoc, selectedDomElement, afterFreeLayoutChange]);
+
+  const handleFreeLayoutOff = useCallback(() => {
+    const doc = getIframeDoc();
+    const el = selectedDomElement();
+    if (!doc || !el) return;
+    const n = disableFreeLayout(el, doc);
+    afterFreeLayoutChange(doc);
+    toast.success(`${n}個の子を流し込みに戻しました`);
+  }, [getIframeDoc, selectedDomElement, afterFreeLayoutChange]);
+
+  const handlePageFreeLayoutOn = useCallback(() => {
+    const doc = getIframeDoc();
+    if (!doc) return;
+    const { sections, elements } = enablePageFreeLayout(doc);
+    afterFreeLayoutChange(doc);
+    if (sections === 0) toast.error('自由配置にできるセクションがありませんでした');
+    else toast.success(`${sections}セクション・${elements}要素を自由配置にしました`);
+  }, [getIframeDoc, afterFreeLayoutChange]);
+
+  const handlePageFreeLayoutOff = useCallback(() => {
+    const doc = getIframeDoc();
+    if (!doc) return;
+    const { sections, elements } = disablePageFreeLayout(doc);
+    afterFreeLayoutChange(doc);
+    toast.success(`${sections}セクション・${elements}要素を流し込みに戻しました`);
+  }, [getIframeDoc, afterFreeLayoutChange]);
+
+  // ツリーの絶対配置: 選んだ要素から下の箱を入れ子まで全部倒す(free-layout-tree.ts)。
+  // 書体と画像の読み込みを待ってから測る。待っている間に共同編集の反映などで
+  // 要素が差し替わっていたら何もしない(古い要素を測っても意味がない)
+  const handleFreeLayoutTreeOn = useCallback(async () => {
+    const doc = getIframeDoc();
+    const el = selectedDomElement();
+    if (!doc || !el) return;
+    await waitForFreeLayoutTreeReady(el, doc);
+    if (!el.isConnected) return;
+    const r = enableFreeLayoutTree(el, doc);
+    if (r.error) {
+      toast.error(r.error);
+      return;
+    }
+    if (r.items === 0) {
+      toast.error('絶対配置にできる箱がありませんでした(文字の流れ・表・部品のスロットの外は対象外です)');
+      return;
+    }
+    afterFreeLayoutChange(doc);
+    toast.success(`${r.items}個の要素を絶対配置にしました`);
+  }, [getIframeDoc, selectedDomElement, afterFreeLayoutChange]);
+
+  const handleFreeLayoutTreeOff = useCallback(() => {
+    const doc = getIframeDoc();
+    const el = selectedDomElement();
+    if (!doc || !el) return;
+    const n = disableFreeLayoutTree(el, doc);
+    afterFreeLayoutChange(doc);
+    toast.success(`${n}個の要素を流し込みに戻しました`);
+  }, [getIframeDoc, selectedDomElement, afterFreeLayoutChange]);
+
+  /**
+   * 右クリックのメニューの「配置」の出し分け。メニューが開いている間の DOM を見て決める
+   * (ツリーの判定は木の computed style を読むので、メニューが開いていない再描画では回さない)。
+   *
+   * - 中に入れ子の器か、器の外で倒した要素がある … 「このツリーの絶対配置を解除する」
+   * - 自身が 1 段だけの器 … 「流し込みに戻す」(見えている順に並べ直す従来の解除)
+   * - どちらでもない … 「直下の子だけ絶対配置にする」
+   * - 倒せる箱が残っていれば、どの場合も「このツリーをすべて絶対配置にする」
+   *
+   * メニューが閉じている間は何もしない。選択の反映(ELEMENT_SELECTED)はメニューを開く合図より
+   * 1 テンポ遅れて届くことがあるので、選択が変わったら開いたまま決め直す
+   */
+  const freeLayoutMenu = useMemo(() => {
+    if (!isWebpage || !contextMenuPosition) return {};
+    const doc = getIframeDoc();
+    const el = selectedDomElement();
+    const container = !!el && isFreeLayoutContainer(el);
+    const treeInside =
+      !!el &&
+      (!!el.querySelector(`.${FREELAYOUT_CLASS}`) ||
+        (!container && !!el.querySelector(`.${FREELAYOUT_ITEM_CLASS}, .${FREELAYOUT_HOLD_CLASS}`)));
+    return {
+      onFreeLayoutTreeOn: el && doc && canEnableFreeLayoutTree(el, doc) ? handleFreeLayoutTreeOn : undefined,
+      onFreeLayoutTreeOff: el && treeInside ? handleFreeLayoutTreeOff : undefined,
+      onFreeLayoutOn: el && !container && !treeInside ? handleFreeLayoutOn : undefined,
+      onFreeLayoutOff: el && container && !treeInside ? handleFreeLayoutOff : undefined,
+      onPageFreeLayoutOn: () => setPageFreeLayoutConfirm('on'),
+      onPageFreeLayoutOff: () => setPageFreeLayoutConfirm('off'),
+      pageHasFreeLayout: !!doc && hasFreeLayout(doc),
+    };
+  }, [
+    isWebpage,
+    contextMenuPosition,
+    getIframeDoc,
+    selectedDomElement,
+    handleFreeLayoutTreeOn,
+    handleFreeLayoutTreeOff,
+    handleFreeLayoutOn,
+    handleFreeLayoutOff,
+  ]);
 
   // 右クリックハンドラ
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -2428,6 +2582,25 @@ function FrontendVisualEditorInner({
         onDetachInstance={handleDetachInstance}
         onResetOverrides={handleResetOverrides}
         onPushOverridesToMain={handlePushOverridesToMain}
+        {...freeLayoutMenu}
+      />
+
+      {/* ページ一括の自由配置。版面全体の性格が変わるので必ず確認を挟む */}
+      <ConfirmDialog
+        open={pageFreeLayoutConfirm !== null}
+        onOpenChange={(open) => { if (!open) setPageFreeLayoutConfirm(null); }}
+        title={pageFreeLayoutConfirm === 'off' ? 'ページを流し込みに戻しますか？' : 'このページを自由配置にしますか？'}
+        description={
+          pageFreeLayoutConfirm === 'off'
+            ? '自由配置にしたセクションをすべて流し込みに戻します。要素は今見えている位置の順に並び直り、絶対配置の座標は失われます。'
+            : 'ページの最上位セクションをすべて自由配置にします。セクションの高さが固定され、内容を足しても下に押し出されなくなります。'
+        }
+        confirmLabel={pageFreeLayoutConfirm === 'off' ? '流し込みに戻す' : '自由配置にする'}
+        onConfirm={() => {
+          if (pageFreeLayoutConfirm === 'off') handlePageFreeLayoutOff();
+          else handlePageFreeLayoutOn();
+          setPageFreeLayoutConfirm(null);
+        }}
       />
 
       {/* AI生成ポップオーバー */}

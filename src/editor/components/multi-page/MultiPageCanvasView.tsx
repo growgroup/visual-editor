@@ -209,7 +209,6 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
   const canvas = useMultiPageCanvas();
   const {
     pages,
-    bounds,
     viewStore,
     registerContainer,
     shiftView,
@@ -220,7 +219,7 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
     zoomToActual,
     rulersVisible,
     isInteracting,
-    initialViewRestored,
+    applyInitialView,
     getPreviewImageZoomCap,
     previewImageCapVersion,
   } = canvas;
@@ -355,26 +354,13 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
     };
   }, [zoomToFit, zoomToActual, zoomToPage, activePageId]);
 
-  // 初回の表示: 前回の場所が保存されていて内容と重なるならそこへ。無ければ編集中のページを大きく
-  const initialViewDoneRef = useRef(false);
+  // 初回の表示: 容器の大きさとフレームの並びが揃ったところで 1 回(決め方は applyInitialView)
   useEffect(() => {
-    if (initialViewDoneRef.current || pages.length === 0) return;
+    if (pages.length === 0) return;
     const el = containerRef.current;
     if (!el || el.clientWidth === 0) return;
-    initialViewDoneRef.current = true;
-    if (initialViewRestored) {
-      const { canvasOffset: o, canvasZoom: z } = canvas.viewStore.get();
-      const left = o.x + bounds.minX * z;
-      const top = o.y + bounds.minY * z;
-      const right = o.x + bounds.maxX * z;
-      const bottom = o.y + bounds.maxY * z;
-      const intersects = right > 0 && left < el.clientWidth && bottom > 0 && top < el.clientHeight;
-      if (intersects) return;
-    }
-    if (activePageId) zoomToPage(activePageId);
-    else zoomToFit();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pages.length, activePageId]);
+    applyInitialView();
+  }, [pages.length, activePageId, applyInitialView]);
 
   const [hoverId, setHoverId] = useState<string | null>(null);
   const handleHover = useCallback((id: string | null) => {

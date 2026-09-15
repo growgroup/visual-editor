@@ -29,6 +29,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -252,6 +253,13 @@ export interface MultiPageCanvasContextValue {
   markInteracting: () => void;
   /** 見えている範囲を localStorage から復元できた(初回表示で全体表示を省く) */
   initialViewRestored: boolean;
+  /**
+   * 最初の視点を決める(1 回だけ。容器の大きさとフレームの並びが揃ってから MultiPageCanvasView が呼ぶ)。
+   * 保存した視点が編集中のページのものなら、そのフレームを保存したときと同じ画面上の位置・倍率に戻す。
+   * 別のページのもの・古い形式なら、編集中のフレームが画面に入っているときだけ位置のまま戻す。
+   * それ以外(保存が無い・入っていない)は編集中のページへ寄せる
+   */
+  applyInitialView: () => void;
   /** 定規 */
   rulersVisible: boolean;
   toggleRulers: () => void;
@@ -512,7 +520,16 @@ interface MultiPageCanvasProviderProps {
   storageKey?: string | null;
 }
 
-type PersistedView = { zoom: number; offset: { x: number; y: number }; rulers?: boolean };
+type PersistedView = {
+  zoom: number;
+  offset: { x: number; y: number };
+  rulers?: boolean;
+  /**
+   * 保存したときに編集していたページと、そのフレームの左上の画面上の位置(容器の座標)。
+   * 開き直した直後はフレームの高さを測る前で並びが保存したときと違うので、offset ではなくこれでフレームに合わせて戻す
+   */
+  anchor?: { pageId: string; x: number; y: number };
+};
 
 function readPersistedView(key: string | null | undefined): PersistedView | null {
   if (!key) return null;
@@ -521,6 +538,8 @@ function readPersistedView(key: string | null | undefined): PersistedView | null
     if (!raw) return null;
     const v = JSON.parse(raw) as PersistedView;
     if (!Number.isFinite(v.zoom) || !v.offset || !Number.isFinite(v.offset.x) || !Number.isFinite(v.offset.y)) return null;
+    const a = v.anchor;
+    if (a && (typeof a.pageId !== 'string' || !Number.isFinite(a.x) || !Number.isFinite(a.y))) delete v.anchor;
     return v;
   } catch {
     return null;
@@ -664,6 +683,8 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
   const [rulersVisible, setRulersVisible] = useState<boolean>(persisted?.rulers ?? true);
   const rulersRef = useRef(rulersVisible);
   rulersRef.current = rulersVisible;
+  /** 最初の視点を決めたか(applyInitialView)。決める前は保存しない(戻す前の仮の視点で記憶を上書きしない) */
+  const initialViewAppliedRef = useRef(false);
 
   const setPageHeight = useCallback<MultiPageCanvasContextValue['setPageHeight']>(
     (id, height, source) => {
@@ -690,8 +711,13 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
         timer = null;
-        const { canvasZoom, canvasOffset } = viewStore.get();
+        if (!initialViewAppliedRef.current) return;
+        const { canvasZoom, canvasOffset, activePageId } = viewStore.get();
         const v: PersistedView = { zoom: canvasZoom, offset: canvasOffset, rulers: rulersRef.current };
+        const page = activePageId ? pagesRef.current.find((p) => p.id === activePageId) : undefined;
+        if (page) {
+          v.anchor = { pageId: page.id, x: canvasOffset.x + page.position.x * canvasZoom, y: canvasOffset.y + page.position.y * canvasZoom };
+        }
         writeStorage(`gg-editor:canvas-view:${storageKey}`, JSON.stringify(v));
       }, 250);
     };
@@ -764,6 +790,35 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     animationShiftRef.current = { x: shift.x + dx, y: shift.y + dy };
     viewStore.set((prev) => ({ ...prev, canvasOffset: { x: prev.canvasOffset.x + dx, y: prev.canvasOffset.y + dy } }));
   }, [viewStore]);
+
+  // 編集中のフレームは、並びが変わっても画面上で動かさない。
+  // フレームの高さは紙面(または遠景の画像)を読んで測るまで仮の値で、測れるたびにツリーの行の高さが変わり、
+  // 深い段のフレームほど大きくずれる(トップが 5800px なら、2 段目の子は数千 px 下へ)。視点はそのページに
+  // 合わせて決めたもの(開いた直後の寄せ・前回の視点の復元・ページ切替の寄せ)なので、フレームが動いた分だけ視点も動かす。
+  // useLayoutEffect なのは、フレームの位置が変わった描画と同じフレームで転写層を書き換えるため
+  const activeAnchorRef = useRef<{ id: string; x: number; y: number } | null>(null);
+  useLayoutEffect(() => {
+    if (!enabled) return;
+    const id = viewStore.get().activePageId;
+    const page = id ? pages.find((p) => p.id === id) : undefined;
+    const last = activeAnchorRef.current;
+    if (page && last && last.id === page.id && (last.x !== page.position.x || last.y !== page.position.y)) {
+      const z = viewStore.get().canvasZoom;
+      shiftView((last.x - page.position.x) * z, (last.y - page.position.y) * z);
+    }
+    activeAnchorRef.current = page ? { id: page.id, x: page.position.x, y: page.position.y } : null;
+  }, [enabled, pages, viewStore, shiftView]);
+  // 編集するページが替わったら、そのページの今の位置から追い始める
+  useEffect(
+    () =>
+      viewStore.subscribe(() => {
+        const id = viewStore.get().activePageId;
+        if ((activeAnchorRef.current?.id ?? null) === id) return;
+        const page = id ? pagesRef.current.find((p) => p.id === id) : undefined;
+        activeAnchorRef.current = page ? { id: page.id, x: page.position.x, y: page.position.y } : null;
+      }),
+    [viewStore],
+  );
 
   const setCanvasZoom = useCallback((zoom: number) => {
     cancelAnimation();
@@ -922,6 +977,35 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     },
     [frameScreenRect, revealPage, zoomToPage],
   );
+
+  const applyInitialView = useCallback(() => {
+    if (initialViewAppliedRef.current) return;
+    initialViewAppliedRef.current = true;
+    const id = viewStore.get().activePageId;
+    const page = id ? pagesRef.current.find((p) => p.id === id) : undefined;
+    if (!page) {
+      // 編集中のページが無い: 保存した視点が何かを映していればそのまま、でなければ全体
+      if (persisted) {
+        const { canvasOffset: o, canvasZoom: z } = viewStore.get();
+        const b = boundsRef.current;
+        const { width, height } = containerSize();
+        if (o.x + b.maxX * z > 0 && o.x + b.minX * z < width && o.y + b.maxY * z > 0 && o.y + b.minY * z < height) return;
+      }
+      zoomToFit();
+      return;
+    }
+    if (persisted) {
+      // 同じページの視点なら、フレームを保存したときと同じ画面上の位置・倍率に置く(並びは後から動くが、上の追従が保つ)
+      if (persisted.anchor?.pageId === page.id) {
+        const zoom = clampZoom(persisted.zoom);
+        setView({ zoom, offset: { x: persisted.anchor.x - page.position.x * zoom, y: persisted.anchor.y - page.position.y * zoom } });
+      }
+      // 別のページの視点・古い形式(anchor 無し)は位置のまま。どちらも編集中のフレームが画面に入っていれば戻す
+      if (frameScreenRect(page.id)?.visible) return;
+    }
+    zoomToPage(page.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [persisted, viewStore, setView, zoomToFit, zoomToPage, frameScreenRect]);
 
   /**
    * 直前の activatePage(フレームのクリック・左パネル)の宛先。
@@ -1148,6 +1232,7 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
       isInteracting,
       markInteracting,
       initialViewRestored: !!persisted,
+      applyInitialView,
       rulersVisible,
       toggleRulers,
       requestPreviewSlot,
@@ -1160,7 +1245,7 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
       enabled, editorMode, pages, bounds, layout, getPage, updatePageFrame, setPageHtml, invalidatePages, artboard.documentAttributes,
       setPageHeight, ensurePageHtml, previewStyles, viewStore, setCanvasOffset, shiftView, setCanvasZoom, setView, zoomAt, zoomTo, zoomIn, zoomOut, zoomToFit, zoomToPage,
       zoomToActual, revealPage, focusPage, activatePage, activatingPageId, registerContainer, isInteracting, markInteracting,
-      persisted, rulersVisible, toggleRulers, requestPreviewSlot, releasePreviewSlot,
+      persisted, applyInitialView, rulersVisible, toggleRulers, requestPreviewSlot, releasePreviewSlot,
       getPreviewImageZoomCap, reportThumbnailWidth, previewImageCapVersion,
     ],
   );

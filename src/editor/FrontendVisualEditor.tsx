@@ -79,7 +79,12 @@ import {
   disablePageFreeLayout,
   isFreeLayoutContainer,
   hasFreeLayout,
+  disableFreeLayoutTree,
+  FREELAYOUT_CLASS,
+  FREELAYOUT_HOLD_CLASS,
+  FREELAYOUT_ITEM_CLASS,
 } from './utils/free-layout';
+import { enableFreeLayoutTree, canEnableFreeLayoutTree, waitForFreeLayoutTreeReady } from './utils/free-layout-tree';
 import { ConfirmDialog } from './components/shell/ConfirmDialog';
 import { extractElementInfo } from './utils/style-utils';
 import { findTableCell, insertRow, insertColumn, deleteRow, deleteColumn } from './utils/table-edit';
@@ -1214,6 +1219,67 @@ function FrontendVisualEditorInner({
     afterFreeLayoutChange(doc);
     toast.success(`${sections}セクション・${elements}要素を流し込みに戻しました`);
   }, [getIframeDoc, afterFreeLayoutChange]);
+
+  // ツリーの絶対配置: 選んだ要素から下の箱を入れ子まで全部倒す(free-layout-tree.ts)。
+  // 書体と画像の読み込みを待ってから測る。待っている間に共同編集の反映などで
+  // 要素が差し替わっていたら何もしない(古い要素を測っても意味がない)
+  const handleFreeLayoutTreeOn = useCallback(async () => {
+    const doc = getIframeDoc();
+    const el = selectedDomElement();
+    if (!doc || !el) return;
+    await waitForFreeLayoutTreeReady(el, doc);
+    if (!el.isConnected) return;
+    const r = enableFreeLayoutTree(el, doc);
+    if (r.error) {
+      toast.error(r.error);
+      return;
+    }
+    if (r.items === 0) {
+      toast.error('絶対配置にできる箱がありませんでした(文字の流れ・表・部品のスロットの外は対象外です)');
+      return;
+    }
+    afterFreeLayoutChange(doc);
+    toast.success(`${r.items}個の要素を絶対配置にしました`);
+  }, [getIframeDoc, selectedDomElement, afterFreeLayoutChange]);
+
+  const handleFreeLayoutTreeOff = useCallback(() => {
+    const doc = getIframeDoc();
+    const el = selectedDomElement();
+    if (!doc || !el) return;
+    const n = disableFreeLayoutTree(el, doc);
+    afterFreeLayoutChange(doc);
+    toast.success(`${n}個の要素を流し込みに戻しました`);
+  }, [getIframeDoc, selectedDomElement, afterFreeLayoutChange]);
+
+  /**
+   * 右クリックのメニューの「配置」の出し分け。メニューが開いた瞬間の DOM を見て 1 回だけ決める
+   * (ツリーの判定は木の computed style を読むので、再描画のたびには回さない)。
+   *
+   * - 中に入れ子の器か、器の外で倒した要素がある … 「このツリーの絶対配置を解除する」
+   * - 自身が 1 段だけの器 … 「流し込みに戻す」(見えている順に並べ直す従来の解除)
+   * - どちらでもない … 「直下の子だけ絶対配置にする」
+   * - 倒せる箱が残っていれば、どの場合も「このツリーをすべて絶対配置にする」
+   */
+  const freeLayoutMenu = useMemo(() => {
+    if (!isWebpage || !contextMenuPosition) return {};
+    const doc = getIframeDoc();
+    const el = selectedDomElement();
+    const container = !!el && isFreeLayoutContainer(el);
+    const treeInside =
+      !!el &&
+      (!!el.querySelector(`.${FREELAYOUT_CLASS}`) ||
+        (!container && !!el.querySelector(`.${FREELAYOUT_ITEM_CLASS}, .${FREELAYOUT_HOLD_CLASS}`)));
+    return {
+      onFreeLayoutTreeOn: el && doc && canEnableFreeLayoutTree(el, doc) ? handleFreeLayoutTreeOn : undefined,
+      onFreeLayoutTreeOff: el && treeInside ? handleFreeLayoutTreeOff : undefined,
+      onFreeLayoutOn: el && !container && !treeInside ? handleFreeLayoutOn : undefined,
+      onFreeLayoutOff: el && container && !treeInside ? handleFreeLayoutOff : undefined,
+      onPageFreeLayoutOn: () => setPageFreeLayoutConfirm('on'),
+      onPageFreeLayoutOff: () => setPageFreeLayoutConfirm('off'),
+      pageHasFreeLayout: !!doc && hasFreeLayout(doc),
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- メニューが開いた瞬間(contextMenuPosition)だけで決める
+  }, [isWebpage, contextMenuPosition]);
 
   // 右クリックハンドラ
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
@@ -2505,23 +2571,7 @@ function FrontendVisualEditorInner({
         onDetachInstance={handleDetachInstance}
         onResetOverrides={handleResetOverrides}
         onPushOverridesToMain={handlePushOverridesToMain}
-        {...(isWebpage && contextMenuPosition
-          ? (() => {
-              // メニューが開いた瞬間の DOM を見て項目を出し分ける。
-              // contextMenuPosition が立った再描画でだけ評価されるので、
-              // 毎フレーム DOM を触ることにはならない
-              const doc = getIframeDoc();
-              const el = selectedDomElement();
-              return {
-                onFreeLayoutOn: el && !isFreeLayoutContainer(el) ? handleFreeLayoutOn : undefined,
-                onFreeLayoutOff: el && isFreeLayoutContainer(el) ? handleFreeLayoutOff : undefined,
-                isFreeLayoutContainer: !!el && isFreeLayoutContainer(el),
-                onPageFreeLayoutOn: () => setPageFreeLayoutConfirm('on'),
-                onPageFreeLayoutOff: () => setPageFreeLayoutConfirm('off'),
-                pageHasFreeLayout: !!doc && hasFreeLayout(doc),
-              };
-            })()
-          : {})}
+        {...freeLayoutMenu}
       />
 
       {/* ページ一括の自由配置。版面全体の性格が変わるので必ず確認を挟む */}

@@ -18,6 +18,14 @@
  *                         解除でインラインの position を外してよい合図
  * - gg-freelayout-hold … 器ではないが、子を1つ以上フローから抜いたので高さを固定した。
  *                         抜いた子が全部フローへ戻ったら高さも外す
+ * - gg-freelayout-item … この変換が絶対配置にした要素。解除で幾何を外すのはこの印の要素だけ
+ *                         (元から absolute だった飾りまで static に落とさないため)
+ *
+ * 【--gg-flow-* = 変換前のインラインの幾何】
+ * 変換で上書きするプロパティに元からインラインの値があったときだけ、
+ * `--gg-flow-width: 64px` のようにカスタムプロパティへ控える。style 属性の中なので
+ * 保存 HTML まで届き、読み直したあとでも解除で元の値へ戻せる(data-gg-prestyle は保存で落ちる)。
+ * 値が `unset` の控えは「元は指定なし。この変換が書いた」の意味(器の幅・余白の手当てに使う)。
  *
  * 目印を分けているのは、**再読み込みしたあとでも解除が決定的に効く**ようにするため。
  * data-gg-prestyle(変換前 style の退避)は保存時に剥がされるので、
@@ -37,12 +45,14 @@ export const FREELAYOUT_CLASS = 'gg-freelayout';
 export const FREELAYOUT_REL_CLASS = 'gg-freelayout-rel';
 /** 子を抜いたので高さを固定した印(器ではない親に付く) */
 export const FREELAYOUT_HOLD_CLASS = 'gg-freelayout-hold';
+/** この変換が絶対配置にした要素の印。解除の対象はこれだけ */
+export const FREELAYOUT_ITEM_CLASS = 'gg-freelayout-item';
 
 /** 並べ替え・整列の対象にしない、エディタが描いている飾り */
 const OVERLAY_SELECTOR =
   '.selection-box,.marquee-selection-box,.resize-handle,.rotation-handle,' +
   '.size-label,.element-breadcrumb,.gg-comment-layer,.gg-crop-ui,' +
-  '.flex-drop-indicator,#gg-measure-layer,#gg-smart-guides,#gg-reorder-indicator';
+  '.flex-drop-indicator,#gg-measure-layer,#gg-smart-guides,#gg-reorder-indicator,.gg-collab-layer';
 
 /** 変換が書き込む幾何プロパティ。解除ではこれを全部外す */
 const GEOMETRY_PROPS = [
@@ -58,6 +68,79 @@ const GEOMETRY_PROPS = [
   'flex-grow',
   'flex-shrink',
 ] as const;
+
+/** 絶対配置にした要素へ書くプロパティの longhand。控え(--gg-flow-*)はこの名前で取る */
+const ITEM_LONGHANDS = [
+  'position',
+  'left',
+  'top',
+  'right',
+  'bottom',
+  'width',
+  'height',
+  'margin-top',
+  'margin-right',
+  'margin-bottom',
+  'margin-left',
+  'flex-grow',
+  'flex-shrink',
+  'flex-basis',
+] as const;
+
+const FLOW_RECORD_PREFIX = '--gg-flow-';
+/** 控えの「元は指定なし」 */
+const FLOW_UNSET = 'unset';
+
+/** 控え(--gg-flow-*)を読む。prop 名 → 値 */
+function readFlowRecord(element: HTMLElement): Map<string, string> {
+  const out = new Map<string, string>();
+  const st = element.style;
+  for (let i = 0; i < st.length; i++) {
+    const name = st[i];
+    if (!name.startsWith(FLOW_RECORD_PREFIX)) continue;
+    out.set(name.slice(FLOW_RECORD_PREFIX.length), st.getPropertyValue(name).trim());
+  }
+  return out;
+}
+
+function clearFlowRecord(element: HTMLElement): void {
+  for (const prop of readFlowRecord(element).keys()) element.style.removeProperty(FLOW_RECORD_PREFIX + prop);
+}
+
+/**
+ * 上書きする前に、元からあったインラインの値を控える。
+ * すでに控えがあるプロパティは触らない(最初の変換の前の値が正)。
+ * markUnset のときは、元に値が無くても `unset` を控える(=「この変換が書いた」の記録)
+ */
+export function rememberFlowValues(element: HTMLElement, props: readonly string[], markUnset = false): void {
+  const record = readFlowRecord(element);
+  for (const prop of props) {
+    if (record.has(prop)) continue;
+    const value = element.style.getPropertyValue(prop);
+    if (value) element.style.setProperty(FLOW_RECORD_PREFIX + prop, value);
+    else if (markUnset) element.style.setProperty(FLOW_RECORD_PREFIX + prop, FLOW_UNSET);
+  }
+}
+
+/**
+ * 絶対配置にする要素の、元の幾何を控える。
+ * 器(gg-freelayout / gg-freelayout-hold)だった要素の高さと position はこの変換が書いたもの
+ * なので控えない(控えると、解除で固定した高さが「元の値」として戻ってしまう)
+ */
+export function rememberItemGeometry(element: HTMLElement): void {
+  if (element.classList.contains(FREELAYOUT_ITEM_CLASS)) return;
+  const ours =
+    element.classList.contains(FREELAYOUT_CLASS) || element.classList.contains(FREELAYOUT_HOLD_CLASS);
+  rememberFlowValues(
+    element,
+    ours ? ITEM_LONGHANDS.filter((p) => p !== 'height' && p !== 'position') : ITEM_LONGHANDS,
+  );
+}
+
+/** エディタが紙面に描いている飾り(選択枠・共同編集の札など)か */
+export function isEditorOverlay(element: Element): boolean {
+  return typeof element.closest === 'function' && !!element.closest(OVERLAY_SELECTOR);
+}
 
 /** この要素は「子をすべて絶対配置」にした器か */
 export function isFreeLayoutContainer(element: HTMLElement): boolean {
@@ -93,7 +176,7 @@ export function layoutChildren(container: HTMLElement): HTMLElement[] {
  *
  * 万一 computed が px にならない(auto 等)ときだけ、矩形から割り戻した値に落とす。
  */
-function styleSizeFor(
+export function styleSizeFor(
   cs: CSSStyleDeclaration,
   fallbackBorderBoxWidth: number,
   fallbackBorderBoxHeight: number,
@@ -162,6 +245,9 @@ function freezeHeight(container: HTMLElement, win: Window): void {
   const h = parseFloat(cs.height);
   if (!Number.isFinite(h) || h <= 0) return;
   capturePrestyle(container);
+  if (!container.classList.contains(FREELAYOUT_CLASS) && !container.classList.contains(FREELAYOUT_HOLD_CLASS)) {
+    rememberFlowValues(container, ['height']);
+  }
   container.style.height = cs.height;
 }
 
@@ -193,6 +279,7 @@ export function enableFreeLayout(container: HTMLElement, iframeDoc: Document): n
   const containerCs = win.getComputedStyle(container);
   if (containerCs.position === 'static') {
     capturePrestyle(container);
+    rememberFlowValues(container, ['position']);
     container.style.position = 'relative';
     container.classList.add(FREELAYOUT_REL_CLASS);
   }
@@ -231,6 +318,8 @@ export function enableFreeLayout(container: HTMLElement, iframeDoc: Document): n
   // ⑤ まとめて書く
   for (const p of plans) {
     capturePrestyle(p.el);
+    rememberItemGeometry(p.el);
+    p.el.classList.add(FREELAYOUT_ITEM_CLASS);
     p.el.style.position = 'absolute';
     p.el.style.left = `${Math.round(p.left * 100) / 100}px`;
     p.el.style.top = `${Math.round(p.top * 100) / 100}px`;
@@ -288,14 +377,76 @@ function prestyleValue(element: HTMLElement, prop: string): string | null {
   return m ? m[1].trim() : null;
 }
 
-/** 幾何プロパティを外す。退避に元の値があればそれを書き戻す */
-function stripGeometry(element: HTMLElement): void {
-  for (const prop of GEOMETRY_PROPS) {
-    const original = prestyleValue(element, prop);
-    if (original) element.style.setProperty(prop, original);
-    else element.style.removeProperty(prop);
+/**
+ * 絶対配置にした要素を流し込みへ戻す(幾何を外し、元の値があれば書き戻す)。
+ *
+ * 元の値は控え(--gg-flow-*)を正にする。控えが無い要素は、同一セッション中だけ
+ * 退避(data-gg-prestyle)を見る。どちらにも無ければ外すだけ(元は指定なし)
+ */
+export function restoreItemGeometry(element: HTMLElement): void {
+  const record = readFlowRecord(element);
+  if (record.size > 0) {
+    for (const prop of GEOMETRY_PROPS) element.style.removeProperty(prop);
+    for (const prop of ITEM_LONGHANDS) element.style.removeProperty(prop);
+    for (const [prop, value] of record) {
+      if (value && value !== FLOW_UNSET) element.style.setProperty(prop, value);
+    }
+    clearFlowRecord(element);
+  } else {
+    for (const prop of GEOMETRY_PROPS) {
+      const original = prestyleValue(element, prop);
+      if (original) element.style.setProperty(prop, original);
+      else element.style.removeProperty(prop);
+    }
   }
+  element.classList.remove(FREELAYOUT_ITEM_CLASS, FREELAYOUT_REL_CLASS);
   if (!element.getAttribute('style')) element.removeAttribute('style');
+  if (!element.getAttribute('class')) element.removeAttribute('class');
+}
+
+/**
+ * 流れに残った器(gg-freelayout / gg-freelayout-hold)の手当てを外す。
+ *
+ * 高さの固定は必ずこの変換が書いたもの(器の印がその証拠)。position は gg-freelayout-rel の
+ * ときだけ外す。幅・余白の手当ては控え(`unset` を含む)があるものだけ戻す
+ */
+export function restoreContainerGeometry(container: HTMLElement): void {
+  const record = readFlowRecord(container);
+  const restore = (prop: string): void => {
+    const recorded = record.get(prop);
+    const original = recorded !== undefined ? (recorded === FLOW_UNSET ? null : recorded) : prestyleValue(container, prop);
+    if (original) container.style.setProperty(prop, original);
+    else container.style.removeProperty(prop);
+  };
+  restore('height');
+  if (container.classList.contains(FREELAYOUT_REL_CLASS)) restore('position');
+  for (const prop of record.keys()) {
+    if (prop !== 'height' && prop !== 'position') restore(prop);
+  }
+  clearFlowRecord(container);
+  container.classList.remove(FREELAYOUT_CLASS, FREELAYOUT_HOLD_CLASS, FREELAYOUT_REL_CLASS);
+  if (!container.getAttribute('style')) container.removeAttribute('style');
+  if (!container.getAttribute('class')) container.removeAttribute('class');
+}
+
+/**
+ * 絶対配置の要素を流し込みへ戻すが、その要素自身が器(中の子が絶対配置)なら
+ * 今の高さで固定したまま器として残す。外すと中の子が抜けたぶん高さが 0 に潰れる
+ */
+function restoreItemKeepingContainer(element: HTMLElement, win: Window): void {
+  if (!isFreeLayoutContainer(element)) {
+    restoreItemGeometry(element);
+    return;
+  }
+  const height = win.getComputedStyle(element).height;
+  restoreItemGeometry(element);
+  rememberFlowValues(element, ['height']);
+  element.style.height = height;
+  if (win.getComputedStyle(element).position === 'static') {
+    rememberFlowValues(element, ['position']);
+    element.style.position = 'relative';
+    element.classList.add(FREELAYOUT_REL_CLASS);
+  }
 }
 
 /**
@@ -333,29 +484,76 @@ export function disableFreeLayout(container: HTMLElement, iframeDoc: Document): 
   if (!win) return 0;
 
   const children = layoutChildren(container);
-  const measured = children.map((el) => ({ el, rect: el.getBoundingClientRect() }));
+  // 解除するのはこの変換が倒した子だけ。元から absolute の飾りは位置も並びも触らない
+  const items = children.filter((el) => el.classList.contains(FREELAYOUT_ITEM_CLASS));
+  const measured = items.map((el) => ({ el, rect: el.getBoundingClientRect() }));
   const ordered = sortByVisualOrder(measured);
 
-  for (const el of ordered) stripGeometry(el);
-  // appendChild は既存ノードの移動として働く。見えていた順に並べ直す
-  for (const el of ordered) container.appendChild(el);
-
-  container.classList.remove(FREELAYOUT_CLASS, FREELAYOUT_HOLD_CLASS);
-  // 高さの固定は必ずこの変換が書いたもの(器の印がその証拠)なので外す
-  const originalHeight = prestyleValue(container, 'height');
-  if (originalHeight) container.style.height = originalHeight;
-  else container.style.removeProperty('height');
-  if (container.classList.contains(FREELAYOUT_REL_CLASS)) {
-    const originalPosition = prestyleValue(container, 'position');
-    if (originalPosition) container.style.position = originalPosition;
-    else container.style.removeProperty('position');
-    container.classList.remove(FREELAYOUT_REL_CLASS);
+  for (const el of ordered) restoreItemKeepingContainer(el, win);
+  // 倒した子が占めていた並びの枠に、見えていた順で入れ直す(飾りの位置は変えない)。
+  // insertBefore は既存ノードの移動として働く
+  const slots = children.map((el) => items.includes(el));
+  const marker = iframeDoc.createComment('gg-freelayout');
+  container.insertBefore(marker, children[0] ?? null);
+  let next = 0;
+  for (let i = 0; i < children.length; i++) {
+    container.insertBefore(slots[i] ? ordered[next++] : children[i], marker);
   }
-  if (!container.getAttribute('style')) container.removeAttribute('style');
-  if (!container.getAttribute('class')) container.removeAttribute('class');
+  // 印の手前へ順に入れ直したので、印はもう要らない
+  marker.remove();
+
+  restoreContainerGeometry(container);
 
   debugLog('[disableFreeLayout] 流し込みへ:', ordered.length, '要素');
   return ordered.length;
+}
+
+/**
+ * 選んだ要素から下の自由配置を、入れ子まで全部流し込みへ戻す。
+ *
+ * **並べ替えはしない**。DOM の順はツリーの変換で一度も変えていないので、幾何を外すだけで
+ * 元の流し込み(元の HTML)に戻る。見えている順に並べ直す disableFreeLayout と違い、
+ * flex-row-reverse や order で並びと見た目の順が食い違う器でも元どおりになる。
+ * 深い要素から戻す(親の高さの固定を外すのは子が流れへ戻ってから)。
+ *
+ * 選んだ要素自身が親の器の中で絶対配置(gg-freelayout-item)なら、その位置と大きさは残す
+ * (解除するのは「このツリーの中」だけ)。
+ *
+ * @returns 流し込みへ戻した要素の数
+ */
+export function disableFreeLayoutTree(root: HTMLElement, iframeDoc: Document): number {
+  const win = iframeDoc.defaultView;
+  if (!win) return 0;
+  const inside = Array.from(
+    root.querySelectorAll<HTMLElement>(`.${FREELAYOUT_ITEM_CLASS}, .${FREELAYOUT_CLASS}, .${FREELAYOUT_HOLD_CLASS}`),
+  ).reverse();
+  let items = 0;
+  for (const el of inside) {
+    if (el.classList.contains(FREELAYOUT_ITEM_CLASS)) {
+      restoreItemGeometry(el);
+      el.classList.remove(FREELAYOUT_CLASS, FREELAYOUT_HOLD_CLASS);
+      if (!el.getAttribute('class')) el.removeAttribute('class');
+      items++;
+    } else {
+      restoreContainerGeometry(el);
+    }
+  }
+  if (root.classList.contains(FREELAYOUT_ITEM_CLASS)) {
+    // 自身の絶対配置は親の器のもの。器の印だけ外す(高さは自身の大きさとして残る)
+    root.classList.remove(FREELAYOUT_CLASS, FREELAYOUT_HOLD_CLASS);
+  } else if (isFreeLayoutContainer(root) || root.classList.contains(FREELAYOUT_HOLD_CLASS)) {
+    restoreContainerGeometry(root);
+  }
+  debugLog('[disableFreeLayoutTree] 流し込みへ:', items, '要素');
+  return items;
+}
+
+/** この要素から下に、自由配置の手当て(器・絶対配置にした要素)があるか */
+export function hasFreeLayoutInside(element: HTMLElement): boolean {
+  return (
+    isFreeLayoutContainer(element) ||
+    !!element.querySelector(`.${FREELAYOUT_CLASS}, .${FREELAYOUT_ITEM_CLASS}, .${FREELAYOUT_HOLD_CLASS}`)
+  );
 }
 
 // ────────────────────────────────────────────────────────────
@@ -399,6 +597,7 @@ export function setElementAbsolute(element: HTMLElement, iframeDoc: Document): b
   const parentCs = win.getComputedStyle(parent);
   if (parentCs.position === 'static' && parent !== artboard) {
     capturePrestyle(parent);
+    rememberFlowValues(parent, ['position']);
     parent.style.position = 'relative';
     parent.classList.add(FREELAYOUT_REL_CLASS);
   }
@@ -420,6 +619,8 @@ export function setElementAbsolute(element: HTMLElement, iframeDoc: Document): b
   }
 
   capturePrestyle(element);
+  rememberItemGeometry(element);
+  element.classList.add(FREELAYOUT_ITEM_CLASS);
   element.style.position = 'absolute';
   element.style.left = `${Math.round(left * 100) / 100}px`;
   element.style.top = `${Math.round(top * 100) / 100}px`;
@@ -444,28 +645,12 @@ export function setElementAuto(element: HTMLElement, iframeDoc: Document): boole
   const cs = win.getComputedStyle(element);
   if (cs.position !== 'absolute' && cs.position !== 'fixed') return false;
 
-  stripGeometry(element);
+  restoreItemKeepingContainer(element, win);
 
   const parent = element.parentElement;
   if (parent && parent.classList.contains(FREELAYOUT_HOLD_CLASS)) {
-    const stillOut = layoutChildren(parent).some((c) => {
-      const p = win.getComputedStyle(c).position;
-      return p === 'absolute' || p === 'fixed';
-    });
-    if (!stillOut) {
-      const originalHeight = prestyleValue(parent, 'height');
-      if (originalHeight) parent.style.height = originalHeight;
-      else parent.style.removeProperty('height');
-      parent.classList.remove(FREELAYOUT_HOLD_CLASS);
-      if (parent.classList.contains(FREELAYOUT_REL_CLASS)) {
-        const originalPosition = prestyleValue(parent, 'position');
-        if (originalPosition) parent.style.position = originalPosition;
-        else parent.style.removeProperty('position');
-        parent.classList.remove(FREELAYOUT_REL_CLASS);
-      }
-      if (!parent.getAttribute('style')) parent.removeAttribute('style');
-      if (!parent.getAttribute('class')) parent.removeAttribute('class');
-    }
+    const stillOut = layoutChildren(parent).some((c) => c.classList.contains(FREELAYOUT_ITEM_CLASS));
+    if (!stillOut) restoreContainerGeometry(parent);
   }
   return true;
 }
@@ -508,19 +693,26 @@ export function enablePageFreeLayout(iframeDoc: Document): { sections: number; e
   return { sections, elements };
 }
 
-/** ページ全体を流し込みへ戻す */
+/**
+ * ページ全体を流し込みへ戻す。
+ *
+ * 入れ子の器(ツリーの変換で作ったもの)を含む器は、並べ替えない disableFreeLayoutTree で戻す。
+ * 1 段だけの器は従来どおり、見えている順に並べ直して戻す
+ */
 export function disablePageFreeLayout(iframeDoc: Document): { sections: number; elements: number } {
   let sections = 0;
   let elements = 0;
-  // 入れ子の器も拾う(一括変換のあとに個別で足した器があってもよいように)
   const artboard = iframeDoc.getElementById('artboard');
   if (!artboard) return { sections, elements };
   const containers = [
     ...(isFreeLayoutContainer(artboard) ? [artboard] : []),
     ...Array.from(artboard.querySelectorAll<HTMLElement>(`.${FREELAYOUT_CLASS}`)),
   ];
+  // 外側の器から見る。内側は外側の処理で戻っていることがある
   for (const c of containers) {
-    elements += disableFreeLayout(c, iframeDoc);
+    if (!c.isConnected || !isFreeLayoutContainer(c)) continue;
+    const nested = !!c.querySelector(`.${FREELAYOUT_CLASS}`);
+    elements += nested ? disableFreeLayoutTree(c, iframeDoc) : disableFreeLayout(c, iframeDoc);
     sections++;
   }
   return { sections, elements };

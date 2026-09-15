@@ -44,6 +44,13 @@ Figma と同じく、パネルが出た分だけ見える範囲が狭くなる�
     (幅が変わった後に届くスクロールは詰められた結果)
   - 縦は手当てしていない(左右のパネルは容器の高さを変えない)
 
+### ついでに見つけたもの: 部品パネルを閉じると、キャンバスの紙面が縦にずれた(直す前から)
+
+部品パネルを閉じると、エディタへフォーカスを戻す `iframe.focus()` で、ブラウザが要素を見せようとして
+`overflow: hidden` の容器(`[data-infinite-canvas]`)そのものをスクロールする。位置は transform が持つので、
+紙面がスクロールした分(縮小した構成ラフで上へ 61px)ずれたまま戻らない。直す前の版でも同じ量で起きる。
+`MultiPageCanvasView` で、容器のスクロールが起きたら 0 へ戻す(フォーカスの経路を問わない)
+
 ## 確かめたこと
 
 Playwright(headless Chromium、1440×900)で、`npm pack` した tgz を入れた構成ラフの殻・提案書デッキと、playground で確かめた
@@ -55,8 +62,12 @@ Playwright(headless Chromium、1440×900)で、`npm pack` した tgz を入れ�
 - パネルの幅をドラッグで 80px 広げて戻す
 - 部品パネル(ツールバーの「パネル」→「コンポーネント」)を、左パネルが無いとき / 左パネルの代わりに出して閉じる
 - 選んだ要素の選択枠が、切り替えの前後で要素に重なったまま。要素も画面上で動かない
-- 右のパネルの出し入れで紙面が動くか(測るだけ)
+- 右のパネルの出し入れで紙面が動くか(測るだけ)。どの表示でも 0px
+- 部品パネルを閉じた後、キャンバスの容器のスクロールが 0 のまま(直す前の版は 61)
 - 直す前の版では、上の表のとおり 264px ずれて落ちる
+- 結果: `verify-panel-shift.mjs` 196 / 196。既存の回帰 `verify-canvas.mjs all` 44 / 44、`verify-single.mjs` 30 / 30、`verify-editor-fixes.mjs all` 93 / 93
+  (1 回目は `verify-single` と `verify-editor-fixes` の br で「Failed to load CSS variables: TypeError: Failed to fetch」が 1 件ずつ出た。
+  検証が localStorage を入れるために読み込みを打ち切ったときの fetch の中断で、その 2 つを回し直すと出なかった)
 
 ## 分かっている穴
 

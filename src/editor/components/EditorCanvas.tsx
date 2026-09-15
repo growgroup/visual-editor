@@ -12,6 +12,7 @@ import { useDragResize } from "../hooks/useDragResize";
 import { useContextMenuHandler } from "../hooks/useContextMenuHandler";
 import { useIframeSetup } from "../hooks/useIframeSetup";
 import { useFocusManagement } from "../hooks/useFocusManagement";
+import { useKeepArtboardInPlace } from "../hooks/useKeepArtboardInPlace";
 import {
   SLIDE_WIDTH,
   SLIDE_HEIGHT,
@@ -132,6 +133,7 @@ export function EditorCanvas() {
     editorMode,
     setShowLayoutHint,
     viewportWidth,
+    iframeReady,
     setIframeReady,
     documentAttributes,
     currentContentId,
@@ -163,6 +165,8 @@ export function EditorCanvas() {
 
   // Figmaライクなキャンバス操作
   useCanvasControls();
+  // 左のパネルを出し入れしても紙面を画面上の同じ位置に留める(1 ページ表示。マルチフレームは MultiPageCanvasView)
+  useKeepArtboardInPlace(containerRef, getIframeDoc, !isInMultiPageMode, iframeReady);
 
   // グループ化/グループ解除/スタイルコピー&ペースト/Figmaエクスポート
   const { groupElements, ungroupElements, copyStyle, pasteStyle, copyToFigma } = useElementActions();

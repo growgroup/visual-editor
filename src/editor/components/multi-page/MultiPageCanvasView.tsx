@@ -209,9 +209,9 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
   const canvas = useMultiPageCanvas();
   const {
     pages,
-    bounds,
     viewStore,
     registerContainer,
+    shiftView,
     activatePage,
     activatingPageId,
     zoomToFit,
@@ -219,7 +219,7 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
     zoomToActual,
     rulersVisible,
     isInteracting,
-    initialViewRestored,
+    applyInitialView,
     getPreviewImageZoomCap,
     previewImageCapVersion,
   } = canvas;
@@ -246,6 +246,38 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
     registerContainer(containerRef.current);
     return () => registerContainer(null);
   }, [registerContainer]);
+
+  // 左のパネルを出し入れする(部品パネルに替わる・幅をドラッグする・利用側のレールが変わるも同じ)と、
+  // 容器の左端が動く。位置は容器の左上が基準なので、そのままでは紙面もパネルの幅だけ一緒に動く。
+  // 動いた分だけ逆にずらして、紙面を画面上の同じ位置に留める(Figma と同じ。見える範囲が狭くなるだけ)。
+  // 入口ごとには手当てせず、容器の位置の変化そのものを見る。左端は幅と一緒にしか動かないので ResizeObserver で拾える。
+  // 呼ばれるのはレイアウトの後・描画の前で、viewStore は購読者(転写層の transform)へ同期で書くので、ずれた姿は描かれない
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    let last: { left: number; top: number } | null = null;
+    const observer = new ResizeObserver(() => {
+      const rect = el.getBoundingClientRect();
+      if (last) shiftView(last.left - rect.left, last.top - rect.top);
+      last = { left: rect.left, top: rect.top };
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [shiftView]);
+
+  // 容器は overflow: hidden で、位置は transform が持つ。ところがフォーカスを移すと(部品パネルを閉じたときに
+  // エディタへ戻す iframe.focus() など)、ブラウザは要素を見せようとして容器そのものをスクロールし、
+  // 紙面がずれたまま戻らない(縮小した構成ラフで縦に 61px。直す前の版から)。容器のスクロールは常に 0 へ戻す
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const reset = () => {
+      if (el.scrollTop) el.scrollTop = 0;
+      if (el.scrollLeft) el.scrollLeft = 0;
+    };
+    el.addEventListener('scroll', reset);
+    return () => el.removeEventListener('scroll', reset);
+  }, []);
 
   // ---- 倍率・位置の反映(React を通さない)
   const [coarseZoom, setCoarseZoom] = useState(() => viewStore.get().canvasZoom);
@@ -322,26 +354,13 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
     };
   }, [zoomToFit, zoomToActual, zoomToPage, activePageId]);
 
-  // 初回の表示: 前回の場所が保存されていて内容と重なるならそこへ。無ければ編集中のページを大きく
-  const initialViewDoneRef = useRef(false);
+  // 初回の表示: 容器の大きさとフレームの並びが揃ったところで 1 回(決め方は applyInitialView)
   useEffect(() => {
-    if (initialViewDoneRef.current || pages.length === 0) return;
+    if (pages.length === 0) return;
     const el = containerRef.current;
     if (!el || el.clientWidth === 0) return;
-    initialViewDoneRef.current = true;
-    if (initialViewRestored) {
-      const { canvasOffset: o, canvasZoom: z } = canvas.viewStore.get();
-      const left = o.x + bounds.minX * z;
-      const top = o.y + bounds.minY * z;
-      const right = o.x + bounds.maxX * z;
-      const bottom = o.y + bounds.maxY * z;
-      const intersects = right > 0 && left < el.clientWidth && bottom > 0 && top < el.clientHeight;
-      if (intersects) return;
-    }
-    if (activePageId) zoomToPage(activePageId);
-    else zoomToFit();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pages.length, activePageId]);
+    applyInitialView();
+  }, [pages.length, activePageId, applyInitialView]);
 
   const [hoverId, setHoverId] = useState<string | null>(null);
   const handleHover = useCallback((id: string | null) => {

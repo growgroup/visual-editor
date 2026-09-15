@@ -372,6 +372,10 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
     pointer = null;
     disarm();
   };
+  // mouseleave は文書に届かないことがあるので、文書の外へ出た mouseout(relatedTarget が無い)でも消す
+  const onMouseOut = (e: MouseEvent) => {
+    if (!e.relatedTarget) onMouseLeave();
+  };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') cancel();
     if (!isNavKeyName(e.key)) {
@@ -395,6 +399,8 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
     cancel();
     if (e.button !== 0 || !navKey(e) || e.shiftKey || e.altKey) return;
     if (e.detail > 1 || blocked()) return;
+    // 選択枠のハンドル(リサイズ・回転)を押したのはハンドルの操作。下にリンクがあっても移らない
+    if ((e.target as Element | null)?.closest?.('[data-handle]')) return;
     const link = linkAt(e.clientX, e.clientY);
     if (!link) return;
     pending = { href: link.getAttribute('href') ?? '', link, x: e.clientX, y: e.clientY };
@@ -426,6 +432,7 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
   const capture = { capture: true } as const;
   iframeDoc.addEventListener('mousemove', onMouseMove, { capture: true, passive: true });
   iframeDoc.addEventListener('mouseleave', onMouseLeave);
+  iframeDoc.addEventListener('mouseout', onMouseOut);
   iframeDoc.addEventListener('keydown', onKey, capture);
   iframeDoc.addEventListener('keyup', onKey, capture);
   iframeDoc.addEventListener('mousedown', onMouseDown, capture);
@@ -443,6 +450,7 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
     cancel();
     iframeDoc.removeEventListener('mousemove', onMouseMove, capture);
     iframeDoc.removeEventListener('mouseleave', onMouseLeave);
+    iframeDoc.removeEventListener('mouseout', onMouseOut);
     iframeDoc.removeEventListener('keydown', onKey, capture);
     iframeDoc.removeEventListener('keyup', onKey, capture);
     iframeDoc.removeEventListener('mousedown', onMouseDown, capture);

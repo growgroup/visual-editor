@@ -207,6 +207,11 @@ export interface MultiPageCanvasContextValue {
   /** 倍率・位置。描画に使うなら useCanvasViewState() で購読する。ハンドラから読むだけなら get() */
   viewStore: CanvasViewStore;
   setCanvasOffset: (offset: { x: number; y: number }) => void;
+  /**
+   * 位置を (dx, dy) だけずらす。動いている途中のアニメーションは止めず、行き先も同じだけずらす。
+   * 容器の左端が動いた(左のパネルを出し入れした)とき、紙面を画面上の同じ位置に留める補正に使う
+   */
+  shiftView: (dx: number, dy: number) => void;
   setCanvasZoom: (zoom: number) => void;
   /** 倍率と位置を同時に決める(アニメーションも可) */
   setView: (view: { zoom: number; offset: { x: number; y: number } }, options?: { animate?: boolean }) => void;
@@ -711,6 +716,8 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
 
   // ---- アニメーション
   const animationRef = useRef<number | null>(null);
+  /** アニメーションの途中で shiftView された量。補間した位置に足す */
+  const animationShiftRef = useRef({ x: 0, y: 0 });
   const cancelAnimation = () => {
     if (animationRef.current != null) {
       cancelAnimationFrame(animationRef.current);
@@ -727,14 +734,16 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     }
     const from = { zoom: viewStore.get().canvasZoom, offset: viewStore.get().canvasOffset };
     const start = performance.now();
+    animationShiftRef.current = { x: 0, y: 0 };
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / VIEW_ANIMATION_MS);
       const k = easeOutCubic(t);
       // 倍率は対数で補間する(拡大と縮小で速さが揃う)
       const zoom = Math.exp(Math.log(from.zoom) + (Math.log(target.zoom) - Math.log(from.zoom)) * k);
+      const shift = animationShiftRef.current;
       const offset = {
-        x: from.offset.x + (target.offset.x - from.offset.x) * k,
-        y: from.offset.y + (target.offset.y - from.offset.y) * k,
+        x: from.offset.x + (target.offset.x - from.offset.x) * k + shift.x,
+        y: from.offset.y + (target.offset.y - from.offset.y) * k + shift.y,
       };
       viewStore.set((prev) => ({ ...prev, canvasZoom: zoom, canvasOffset: offset }));
       if (t < 1) animationRef.current = requestAnimationFrame(tick);
@@ -747,6 +756,13 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
   const setCanvasOffset = useCallback((offset: { x: number; y: number }) => {
     cancelAnimation();
     viewStore.set((prev) => ({ ...prev, canvasOffset: offset }));
+  }, [viewStore]);
+
+  const shiftView = useCallback((dx: number, dy: number) => {
+    if (!dx && !dy) return;
+    const shift = animationShiftRef.current;
+    animationShiftRef.current = { x: shift.x + dx, y: shift.y + dy };
+    viewStore.set((prev) => ({ ...prev, canvasOffset: { x: prev.canvasOffset.x + dx, y: prev.canvasOffset.y + dy } }));
   }, [viewStore]);
 
   const setCanvasZoom = useCallback((zoom: number) => {
@@ -1113,6 +1129,7 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
       previewStyles,
       viewStore,
       setCanvasOffset,
+      shiftView,
       setCanvasZoom,
       setView,
       zoomAt,
@@ -1141,7 +1158,7 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     }),
     [
       enabled, editorMode, pages, bounds, layout, getPage, updatePageFrame, setPageHtml, invalidatePages, artboard.documentAttributes,
-      setPageHeight, ensurePageHtml, previewStyles, viewStore, setCanvasOffset, setCanvasZoom, setView, zoomAt, zoomTo, zoomIn, zoomOut, zoomToFit, zoomToPage,
+      setPageHeight, ensurePageHtml, previewStyles, viewStore, setCanvasOffset, shiftView, setCanvasZoom, setView, zoomAt, zoomTo, zoomIn, zoomOut, zoomToFit, zoomToPage,
       zoomToActual, revealPage, focusPage, activatePage, activatingPageId, registerContainer, isInteracting, markInteracting,
       persisted, rulersVisible, toggleRulers, requestPreviewSlot, releasePreviewSlot,
       getPreviewImageZoomCap, reportThumbnailWidth, previewImageCapVersion,

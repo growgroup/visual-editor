@@ -295,6 +295,29 @@ export function applyCanvasZoomDom(iframeDoc: Document, zoomPct: number): void {
   if (!topAnchored && h * scale <= ch) container.scrollTop = Math.max(0, (scrollArea.offsetHeight - ch) / 2);
 }
 
+/**
+ * 1 ページ表示のキャンバスを、横のスクロール位置 scrollLeft へ動かす。
+ * スクロールできる範囲の外なら #canvas-scroll-area を左右へ e ずつ広げて届かせる
+ * (紙面は中央寄せなので、広げると紙面が e だけ右へ動く。行き先も e だけ先へ足す)。
+ * 広げた幅は、次に倍率が変わったとき applyCanvasZoomDom が測り直す
+ */
+export function scrollCanvasLeftTo(iframeDoc: Document, scrollLeft: number): void {
+  if (iframeDoc.body?.dataset.embedded === '1') return;
+  const scrollArea = iframeDoc.getElementById('canvas-scroll-area');
+  const container = iframeDoc.getElementById('canvas-container');
+  if (!scrollArea || !container) return;
+  const areaWidth = scrollArea.getBoundingClientRect().width;
+  // 負になりうる(スクロール領域が容器より狭い)。そのときスクロールできるのは 0 だけ
+  const maxRaw = areaWidth - container.clientWidth;
+  let target = scrollLeft;
+  if (target < 0 || target > Math.max(0, maxRaw)) {
+    const e = Math.max(-target, target - maxRaw);
+    scrollArea.style.width = `${areaWidth + e * 2}px`;
+    target += e;
+  }
+  container.scrollLeft = target;
+}
+
 /* ============================ 原本への書き戻し支援 ============================
  *
  * エディタは開いた時点で全要素を絶対配置へ変換する。この変換はエディタ内の

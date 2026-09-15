@@ -51,7 +51,7 @@ import {
   type GuideCandidates,
   type MovingRect,
 } from '../utils/smart-guides';
-import { computeFreeBounds } from '../utils/free-layout';
+import { computeFreeBounds, keepsInlineGeometry } from '../utils/free-layout';
 import { extractElementInfo } from '../utils/style-utils';
 import { convertInlineStylesToTailwind } from '../utils/tailwind-utils';
 import { isAspectRatioLocked } from '../utils/aspect-lock';
@@ -1266,9 +1266,9 @@ export function useDragResize(
         const resizeProperties = ['width', 'height', 'left', 'top', 'borderRadius'];
         if (resizeState.elements && resizeState.elements.length > 0) {
           resizeState.elements.forEach((el) => {
-            convertInlineStylesToTailwind(el, resizeProperties);
+            if (!keepsInlineGeometry(el)) convertInlineStylesToTailwind(el, resizeProperties);
           });
-        } else {
+        } else if (!keepsInlineGeometry(resizeState.element)) {
           convertInlineStylesToTailwind(resizeState.element, resizeProperties);
         }
 
@@ -1369,13 +1369,14 @@ export function useDragResize(
         // インラインスタイルをTailwindクラスに変換
         // ドラッグ中はパフォーマンスのためインラインスタイルを使用し、
         // 終了時にTailwindクラスに変換する
+        // 自由配置で倒した要素(gg-freelayout-item)はインラインのまま残す(解除で外すため)
         if (dragState.hasMoved) {
           const dragProperties = ['left', 'top'];
           if (dragState.elements.length > 1) {
             dragState.elements.forEach((el) => {
-              convertInlineStylesToTailwind(el, dragProperties);
+              if (!keepsInlineGeometry(el)) convertInlineStylesToTailwind(el, dragProperties);
             });
-          } else {
+          } else if (!keepsInlineGeometry(dragState.element)) {
             convertInlineStylesToTailwind(dragState.element, dragProperties);
           }
 

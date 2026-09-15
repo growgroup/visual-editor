@@ -219,6 +219,25 @@ function rollback(undos: StyleUndo[]): void {
   }
 }
 
+/** 変形が掛かっているか(矩形が外接矩形になり、左上が本当の位置と合わない) */
+function isTransformed(cs: CSSStyleDeclaration): boolean {
+  return (
+    cs.transform !== 'none' ||
+    (!!cs.translate && cs.translate !== 'none') ||
+    (!!cs.rotate && cs.rotate !== 'none') ||
+    (!!cs.scale && cs.scale !== 'none')
+  );
+}
+
+/**
+ * 位置と大きさをインラインのまま持つ要素か(Tailwind のクラスへ畳まない)。
+ * 自由配置で倒した要素の幾何は、解除でインラインから外す約束。ドラッグやリサイズの終わりに
+ * `left-[36px]` のようなクラスへ畳むと、解除のあとにクラスだけが残る
+ */
+export function keepsInlineGeometry(element: HTMLElement): boolean {
+  return element.classList.contains(FREELAYOUT_ITEM_CLASS);
+}
+
 /** translate を落として rotate/scale だけ残す(移動は left/top が担うため) */
 function preserveTransform(transform: string): string {
   if (!transform || transform === 'none') return '';
@@ -287,12 +306,14 @@ export function enableFreeLayout(container: HTMLElement, iframeDoc: Document): n
   // ③ 高さを固定してから倒す(倒したあとだと潰れた 0 を測ってしまう)
   freezeHeight(container, win);
 
-  // ④ 全部測りきる。offsetParent が器になっている素直なケースは offsetLeft/Top を使う
-  //    (offset 系は CSS px で、ズームの transform の影響を受けない)
+  // ④ 全部測りきる。位置は矩形を器の padding box 基準へ割り戻した小数で出す。
+  //    offsetLeft/Top は整数に丸められ、行の高さが端数になる段落の下の要素が 0.5px 未満ずつ
+  //    ずれて文字のにじみが変わる(ツリーの変換を足したときに画素比較で見えた)。
+  //    変形(rotate など)が掛かった子だけは矩形が外接矩形になるので、変形の影響を受けない offset 系を使う
   const plans = children.map((el) => {
     const cs = win.getComputedStyle(el);
     const rect = el.getBoundingClientRect();
-    const useOffset = el.offsetParent === container && typeof el.offsetLeft === 'number';
+    const useOffset = isTransformed(cs) && el.offsetParent === container && typeof el.offsetLeft === 'number';
     const size = styleSizeFor(cs, rect.width / scale, rect.height / scale);
     let left: number;
     let top: number;
@@ -300,7 +321,7 @@ export function enableFreeLayout(container: HTMLElement, iframeDoc: Document): n
       left = el.offsetLeft;
       top = el.offsetTop;
     } else {
-      // SVG など offset 系を持たない要素。器の padding box 基準へ割り戻す
+      // 器の padding box 基準へ割り戻す(SVG など offset 系を持たない要素もここ)
       const cRect = container.getBoundingClientRect();
       const cCs = win.getComputedStyle(container);
       left =
@@ -603,7 +624,8 @@ export function setElementAbsolute(element: HTMLElement, iframeDoc: Document): b
   }
 
   const size = styleSizeFor(cs, rect.width / scale, rect.height / scale);
-  const useOffset = element.offsetParent === parent && typeof element.offsetLeft === 'number';
+  // 位置は小数で出す(enableFreeLayout の④と同じ理由)。変形が掛かった要素だけ offset 系
+  const useOffset = isTransformed(cs) && element.offsetParent === parent && typeof element.offsetLeft === 'number';
   let left: number;
   let top: number;
   if (useOffset) {

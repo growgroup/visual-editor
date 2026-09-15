@@ -105,7 +105,7 @@ import {
   pxValue,
   MIN_ELEMENT_SIZE,
 } from "../utils/geometry";
-import { setElementAbsolute, setElementAuto } from "../utils/free-layout";
+import { setElementAbsolute, setElementAuto, keepsInlineGeometry } from "../utils/free-layout";
 import { extractElementInfo } from "../utils/style-utils";
 import { convertInlineStylesToTailwind } from "../utils/tailwind-utils";
 import {
@@ -481,7 +481,7 @@ function translateGroup(doc: Document, ids: string[], dx: number, dy: number): b
     if (dy !== 0) {
       el.style.top = pxValue((parseFloat(cs?.top ?? "") || 0) + dy);
     }
-    convertInlineStylesToTailwind(el, ["left", "top"]);
+    if (!keepsInlineGeometry(el)) convertInlineStylesToTailwind(el, ["left", "top"]);
     changed = true;
   });
 
@@ -535,7 +535,7 @@ function scaleGroup(
       el.style.height = `${newHeight}px`;
     }
 
-    convertInlineStylesToTailwind(el, ["left", "top", "width", "height"]);
+    if (!keepsInlineGeometry(el)) convertInlineStylesToTailwind(el, ["left", "top", "width", "height"]);
     changed = true;
   });
 

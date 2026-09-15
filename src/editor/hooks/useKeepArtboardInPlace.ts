@@ -62,7 +62,7 @@ export function useKeepArtboardInPlace(
       }
       lastRef.current = {
         left,
-        viewportWidth: doc?.documentElement.clientWidth ?? 0,
+        viewportWidth: doc?.documentElement?.clientWidth ?? 0,
         scrollLeft: scroller?.scrollLeft ?? 0,
       };
     });
@@ -78,7 +78,8 @@ export function useKeepArtboardInPlace(
     if (!doc || !scroller) return;
     const remember = () => {
       const last = lastRef.current;
-      if (last && doc.documentElement.clientWidth === last.viewportWidth) last.scrollLeft = scroller.scrollLeft;
+      // ページを移る途中は文書が差し替わり、documentElement が無いことがある(⌘ クリックのリンク移動で実測)
+      if (last && doc.documentElement && doc.documentElement.clientWidth === last.viewportWidth) last.scrollLeft = scroller.scrollLeft;
     };
     remember();
     scroller.addEventListener('scroll', remember, { passive: true });

@@ -978,7 +978,7 @@ export function EditorCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // iframeのsrcを設定。
+  // 本文をsrcdocで渡す。Blob URLを解決できない埋め込みブラウザでも読み込める。
   // 依存に iframeHtml(=originalHtml由来)を含めることで、ページ切替(サムネイル/URL)で
   // コンテンツが差し替わったときに**iframeだけ**を作り直す。殻(ヘッダー・パネル・
   // サムネイル)は残るので、切替のたびに画面全体がリロードされたようには見えない
@@ -993,14 +993,10 @@ export function EditorCanvas() {
     // マルチフレームのキャンバスはこれを見て、前のページの姿が新しい枠に
     // 見えないようエディタを隠す(読み込みが済むまで見るだけの紙面が透ける)
     setIframeReady(false);
-    const blob = new Blob([iframeHtml], { type: "text/html" });
-    iframe.src = URL.createObjectURL(blob);
+    iframe.srcdoc = iframeHtml;
 
     return () => {
       iframe.removeEventListener("load", handleIframeLoad);
-      if (iframe.src.startsWith("blob:")) {
-        URL.revokeObjectURL(iframe.src);
-      }
 
       // 重要: アンマウント時にすべてのイベントリスナーをクリーンアップ
       // これにより、メモリリークとゴーストリスナーを防ぐ

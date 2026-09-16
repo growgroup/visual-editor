@@ -726,7 +726,7 @@ function FrontendVisualEditorInner({
     async (item: MediaItem) => {
       setIsMediaLibraryOpen(false);
 
-      // blob: iframe では相対パスが解決できないため絶対URLへ（保存時に相対へ戻る）
+      // 埋め込みiframeでも同じ素材を参照できるよう絶対URLへ（保存時に相対へ戻る）
       const src = toEditorMediaUrl(item.url);
 
       if (isImageSelected) {

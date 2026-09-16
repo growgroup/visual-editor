@@ -59,7 +59,7 @@ async function fetchMediaItems(): Promise<MediaItem[]> {
 /**
  * カタログのURL(`/media/...`)をエディタのiframeで解決できる形へ変換する。
  *
- * エディタのキャンバスは blob: URL の iframe なのでルート相対パスが解決できない。
+ * エディタのキャンバスは埋め込みiframe。実行時のbaseに依存させず、元のページと同じ素材を参照する。
  * `src/lib/slide-html.ts` の toEditorUrls / fromEditorUrls と同じ規約に合わせ、
  * 挿入時は絶対URLにしておく（保存時に fromEditorUrls が相対へ戻す）。
  */

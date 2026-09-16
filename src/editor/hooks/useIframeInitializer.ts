@@ -525,14 +525,10 @@ export function useIframeInitializer() {
 
     iframe.addEventListener('load', handleLoad);
 
-    const blob = new Blob([generateEditableHtml(html, editorMode)], { type: 'text/html' });
-    iframe.src = URL.createObjectURL(blob);
+    iframe.srcdoc = generateEditableHtml(html, editorMode);
 
     return () => {
       iframe.removeEventListener('load', handleLoad);
-      if (iframe.src.startsWith('blob:')) {
-        URL.revokeObjectURL(iframe.src);
-      }
     };
   }, []);
 

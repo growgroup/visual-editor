@@ -138,10 +138,7 @@ export function EditorHeader({
   const handleReset = () => {
     const iframe = iframeRef.current;
     if (iframe) {
-      const blob = new Blob([generateEditableHtml(originalHtml, editorMode)], {
-        type: "text/html",
-      });
-      iframe.src = URL.createObjectURL(blob);
+      iframe.srcdoc = generateEditableHtml(originalHtml, editorMode);
     }
     setHtml(originalHtml);
     setSelectedElement(null);

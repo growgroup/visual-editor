@@ -731,6 +731,47 @@ export function convertToAbsolutePositioning(iframeDoc: Document): number {
     });
   });
 
+  // 1.5 編集対象でない、流れの中のブロックの兄弟も一緒に倒す。
+  // 部品(data-part)の中では data-slot だけが編集対象なので、スロットの間にある罫線(h-px の div)などは
+  // 流れに残る。兄弟が絶対配置で抜けると、その分だけ上へ詰まる(ヘッダーの罫線が 116px 上へ動いた実測)。
+  // 自己検証は編集対象しか見ていなかったので、崩れたまま確定していた。
+  // 位置を固定するだけで編集対象にはしない(data-editable は付けない)
+  const captured = new Set<HTMLElement>(captures.map((c) => c.element));
+  const parentsOfCaptured = new Set<HTMLElement>();
+  captures.forEach(({ parent }) => {
+    if (parent && parent !== iframeDoc.body && parent !== artboard) parentsOfCaptured.add(parent);
+  });
+  parentsOfCaptured.forEach((parent) => {
+    Array.from(parent.children).forEach((child) => {
+      const element = child as HTMLElement;
+      if (captured.has(element) || skippedInline.some((s) => s.element === element)) return;
+      if (element.classList.contains('selection-box') || element.classList.contains('gg-comment-layer')) return;
+      if (isNonEditableTag(element)) return;
+      const computedStyle = iframeDoc.defaultView!.getComputedStyle(element);
+      // 流れの外(absolute / fixed)・非表示は兄弟に影響されない
+      if (computedStyle.position === 'absolute' || computedStyle.position === 'fixed') return;
+      if (computedStyle.display === 'none') return;
+      const parentDisplay = iframeDoc.defaultView!.getComputedStyle(parent).display;
+      const isFlexOrGridItem = /(^|\s)(inline-)?(flex|grid)($|\s)/.test(parentDisplay);
+      if (!isFlexOrGridItem && isInlineElement(element, computedStyle)) {
+        skippedInline.push({ element, rect: element.getBoundingClientRect() });
+        return;
+      }
+      captured.add(element);
+      captures.push({
+        element,
+        rect: element.getBoundingClientRect(),
+        parent,
+        parentRect: parent.getBoundingClientRect(),
+        computedStyle,
+        parentComputedStyle: iframeDoc.defaultView!.getComputedStyle(parent),
+        originalTransform: computedStyle.transform,
+        scale,
+        prevStyle: element.getAttribute('style'),
+      });
+    });
+  });
+
   // 2. 親要素を処理（position: relative設定）
   //
   // [採寸より前にやる] offsetLeft/offsetTop は offsetParent 基準の値なので、
@@ -768,13 +809,18 @@ export function convertToAbsolutePositioning(iframeDoc: Document): number {
     if (element.offsetParent !== parent) return;
     // 寸法は offsetWidth(整数へ丸める)ではなく、rect の小数値を**切り上げ**て使う。
     // 例: 必要幅1227.4pxの文字列を1227pxで固定すると最後の1文字だけが折り返す
-    // (284pxの「テキスト」で実害)。位置は1px未満の誤差が折り返しを生まないので offset で良い
+    // (284pxの「テキスト」で実害)。位置は1px未満の誤差が折り返しを生まないので offset で良い。
+    // ただし rect は縮小した紙面の値で、ブラウザは 1/64px に丸めて返す(56px × 0.55 = 30.8 → 30.8125)。
+    // 倍率で割り戻すと 56.02 のように少しだけ大きくなり、そのまま切り上げると全部の要素が 1px 膨らむ
+    // (h-px の罫線が 2px、56px の帯が 57px になった実測)。丸めの分だけ引いてから切り上げる
     const s = capScale || 1;
+    const quantum = 1 / 64 / s + 0.005;
+    const ceilSize = (v: number) => Math.max(0, Math.ceil(v - quantum));
     offsets.set(element, {
       left: element.offsetLeft,
       top: element.offsetTop,
-      width: Math.ceil(rect.width / s),
-      height: Math.ceil(rect.height / s),
+      width: ceilSize(rect.width / s),
+      height: ceilSize(rect.height / s),
     });
   });
 

@@ -314,22 +314,46 @@ const BORDER_STYLE_CLASSES = new Set([
 
 const isBorderTableClass = (cls: string) => /^border-(collapse|separate|spacing(-|$))/.test(cls);
 
-/** 太さの値: 数字(border-2)、長さの任意値(border-[2px] / border-[length:var(--w)])、border-(length:--w) */
-const BORDER_WIDTH_VALUE = String.raw`(-\d+|-\[(?:\d|\.|calc\(|length:)[^\]]*\]|-\(length:[^)]*\))?`;
+/**
+ * important の印を外す(`border-2!` / `!border-2`)。付いていても種類は同じなので、
+ * 判定の前に外して、消すときも同じ種類として消す(付いたまま残ると、新しい太さが !important に負ける)
+ */
+const stripImportant = (cls: string) => cls.replace(/^!/, '').replace(/!$/, '');
 
-/** 太さのクラス。side を渡すとその辺だけ(border-l / border-l-2 / border-l-[3px])。渡さなければ全部の辺と各辺 */
-function isBorderWidthClass(cls: string, side?: 't' | 'r' | 'b' | 'l'): boolean {
-  const sides = side ? `-${side}` : '(-[trblxyse])?';
-  return new RegExp(`^border${sides}${BORDER_WIDTH_VALUE}$`).test(cls);
+/**
+ * 太さの値: 数字(border-2)、長さの任意値(border-[2px] / border-[length:var(--w)] /
+ * border-[min(2px,1vw)] / border-[thin])、border-(length:--w)
+ */
+const BORDER_WIDTH_VALUE = String.raw`(-\d+|-\[(?:\d|\.|calc\(|min\(|max\(|clamp\(|length:|thin|medium|thick)[^\]]*\]|-\(length:[^)]*\))?`;
+
+/** 辺の指定。`bs` / `be`(書字方向の始め・終わり)も Tailwind では辺の太さ */
+const BORDER_SIDE_TOKENS = '(?:[trblxyse]|bs|be)';
+
+/**
+ * 太さのクラス。side を渡すとその辺だけ(border-l / border-l-2 / border-l-[3px])、
+ * '' なら四辺まとめての指定だけ(border / border-2)。渡さなければ全部の辺と各辺
+ */
+export function isBorderWidthClass(cls: string, side?: 't' | 'r' | 'b' | 'l' | 'x' | 'y' | ''): boolean {
+  const sides = side === undefined ? `(-${BORDER_SIDE_TOKENS})?` : side ? `-${side}` : '';
+  return new RegExp(`^border${sides}${BORDER_WIDTH_VALUE}$`).test(stripImportant(cls));
+}
+
+/** スタイルのクラス(border-solid / border-dashed!) */
+const isBorderStyleClass = (cls: string) => BORDER_STYLE_CLASSES.has(stripImportant(cls));
+
+/** 太さ 0 の指定(border-0 / border-l-0 / border-[0px])。「線がある」の判定では数えない */
+export function isZeroBorderWidthClass(cls: string): boolean {
+  return new RegExp(`^border(-${BORDER_SIDE_TOKENS})?-(0|\\[0(?:px|rem|em)?\\])$`).test(stripImportant(cls));
 }
 
 /** 色のクラス(border-wf-ink / border-l-wf-ink / border-[#fff] / border-[var(--x)] / border-wf-ink/50) */
 function isBorderColorClass(cls: string): boolean {
+  const bare = stripImportant(cls);
   return (
-    cls.startsWith('border-') &&
-    !BORDER_STYLE_CLASSES.has(cls) &&
-    !isBorderTableClass(cls) &&
-    !isBorderWidthClass(cls)
+    bare.startsWith('border-') &&
+    !BORDER_STYLE_CLASSES.has(bare) &&
+    !isBorderTableClass(bare) &&
+    !isBorderWidthClass(bare)
   );
 }
 
@@ -368,13 +392,21 @@ export function removeConflictingClasses(
     return;
   }
 
-  // 線の太さ・色は、同じ種類のクラスだけを消す(太さを変えても色・破線は残す。色を変えても左だけの線は残す)
-  if (property === 'borderWidth' || property === 'borderColor' || property in BORDER_SIDE_WIDTH_PROPERTIES) {
+  // 線の太さ・色・スタイルは、同じ種類のクラスだけを消す(太さを変えても色・破線は残す。色を変えても左だけの線は残す)。
+  // スタイルもここで消すのは、important 付き(border-dashed!)を名前の一致では拾えないため
+  if (
+    property === 'borderWidth' ||
+    property === 'borderColor' ||
+    property === 'borderStyle' ||
+    property in BORDER_SIDE_WIDTH_PROPERTIES
+  ) {
     const side = BORDER_SIDE_WIDTH_PROPERTIES[property];
     const conflicts =
       property === 'borderColor'
         ? isBorderColorClass
-        : (cls: string) => isBorderWidthClass(cls, side);
+        : property === 'borderStyle'
+          ? isBorderStyleClass
+          : (cls: string) => isBorderWidthClass(cls, side);
     const currentClasses = getElementClassName(element).split(/\s+/).filter(Boolean);
     setElementClassName(element, currentClasses.filter((cls) => !conflicts(cls)).join(' '));
     return;

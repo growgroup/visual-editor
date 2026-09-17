@@ -527,7 +527,7 @@ export function extractElementInfo(
   const rawLineHeight = extractRawStyleValue(element.style.lineHeight, 'lineHeight');
   const rawLetterSpacing = extractRawStyleValue(element.style.letterSpacing, 'letterSpacing');
   // 片側だけの線(border-l-2 など)は、見えている辺の値を出す(utils/border-sides.ts)
-  const border = summarizeBorder(style);
+  const border = summarizeBorder(style, element);
   const rawBorderWidth = border.sides
     ? extractRawStyleValue(element.style.getPropertyValue(borderSideWidthCss(border.sides[0])), 'borderWidth')
     : extractRawStyleValue(element.style.borderWidth, 'borderWidth');

@@ -1,5 +1,5 @@
 /**
- * ⌘ / Ctrl + クリックで、紙面の中のリンク(`<a href>`)の先へ移る。
+ * Alt(Mac は ⌥ Option)+ クリックで、紙面の中のリンク(`<a href>`)の先へ移る。
  *
  * - 同じサイトのページ(contentList[].href と照らし合わせる) … そのページを編集中にする
  * - 同じページのアンカー(`#id`) … その要素が見える位置へ紙面を移す
@@ -7,19 +7,27 @@
  * - `mailto:` / `tel:` / `javascript:` など … 何もしない
  * - ページ一覧に無い同じオリジンの URL … 短く知らせる
  *
- * [既存の ⌘ / Ctrl クリックとの両立]
- * useElementSelection の mousedown では ⌘ / Ctrl は「階層を無視して最深要素を選ぶ」、
- * ⌘ + Shift は「最深要素の追加・解除」、⌘ + ドラッグは自由配置(useDragResize)、
- * ⌘ + ダブルクリックはテキスト編集。押した瞬間にはどれになるか決められないので、
- * ここは mousedown で候補を覚えるだけにして選択には手を出さず、
+ * [⌘ / Ctrl ではなく Alt にした理由]
+ * 0.7.0 では ⌘ / Ctrl + クリックで移っていたが、⌘ / Ctrl + クリックはレイヤーパネルでは
+ * 「選択に足す・外す」(EditorLayerPanel)、紙面では「最深要素を選ぶ」で、複数選択のつもりの
+ * ⌘ クリックがリンクの上だとページ移動になった。紙面のクリックで Alt が空いている:
+ * Alt の既存の意味はホバーの距離メジャー(useAltMeasure、mousemove だけ)・中心からのリサイズ
+ * (ハンドルのドラッグ)・ズームツールの縮小(zoom-tool の間。下で止める)で、クリックには無い。
+ *
+ * [紙面のクリックとの両立]
+ * useElementSelection の mousedown は Alt を見ない(Alt + クリックは素のクリックと同じ選択)。
+ * Alt + ドラッグは移動、Alt + ダブルクリックは素のダブルクリック(潜る・テキスト編集)。
+ * 押した瞬間にはどれになるか決められないので、ここは mousedown で候補を覚えるだけにして
+ * 選択には手を出さず、
  *   - 動かさずに離した(ドラッグではない)
- *   - Shift / Alt を押していない
+ *   - ⌘ / Ctrl / Shift を押していない(⌘ + Alt + クリックは最深要素を選ぶだけで移らない)
  *   - 2 回目の mousedown(ダブルクリック)が LINK_NAV_DELAY_MS 以内に来なかった
  *   - 押した点がテキスト編集中の要素の中ではない
- * ときだけ移る。リンクの中の深い要素を移らずに選びたいときは ⌘ + Alt + クリック。
+ * ときだけ移る。
  *
- * Mac は ⌘ だけ。Mac の Ctrl + クリックは右クリック扱い(contextmenu が出て click が来ない)で、
- * エディタのコンテキストメニューが開く。Windows などは Ctrl(と Meta)。
+ * Alt + クリックのリンクの既定の動作は、ブラウザによってはダウンロード(Chromium で実測)。
+ * 紙面のリンクの click は useElementSelection の handleClick が preventDefault するが、
+ * トリミング中は止めないので、Alt + クリックはここ(capture)でも必ず止める。
  */
 import { MARQUEE_DRAG_THRESHOLD } from '../constants';
 
@@ -175,17 +183,29 @@ export function clearPendingAnchor(id?: string): void {
 
 /**
  * 1 回目のクリックから移るまでの待ち。この間に 2 回目の mousedown が来たら
- * ダブルクリック(⌘ + ダブルクリック = テキスト編集)として移動を取り消す
+ * ダブルクリック(潜る・テキスト編集)として移動を取り消す
  */
 export const LINK_NAV_DELAY_MS = 350;
 
-/** ⌘ / Ctrl を押してリンクの上にいる間、紙面の <html> に付ける(カーソルを指にする) */
+/** Alt を押してリンクの上にいる間、紙面の <html> に付ける(カーソルを指にする) */
 export const LINK_NAV_ATTR = 'data-gg-link-nav';
 
 const OVERLAY_SELECTOR =
   '.selection-box,.marquee-selection-box,[data-editor-overlay],#gg-smart-guides,#gg-measure-layer';
-/** 描画・テキスト・コメント・手のひら・トリミングの間は、クリックに別の意味がある */
-const BLOCKING_BODY_CLASSES = ['draw-mode', 'text-mode', 'comment-mode', 'move-mode', 'pan-mode', 'panning', 'gg-cropping'];
+/**
+ * 描画・テキスト・コメント・手のひら・トリミング・ズームの間は、クリックに別の意味がある
+ * (ズームツールの Alt + クリックは縮小)
+ */
+const BLOCKING_BODY_CLASSES = [
+  'draw-mode',
+  'text-mode',
+  'comment-mode',
+  'move-mode',
+  'pan-mode',
+  'panning',
+  'gg-cropping',
+  'zoom-tool',
+];
 
 const isMac = () => {
   if (typeof navigator === 'undefined') return false;
@@ -226,7 +246,7 @@ export interface LinkNavigationOptions {
 }
 
 /**
- * 紙面(iframe の文書)に ⌘ / Ctrl + クリックの移動を付ける。戻り値は後始末
+ * 紙面(iframe の文書)に Alt + クリックの移動を付ける。戻り値は後始末
  */
 export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigationOptions): () => void {
   const win = iframeDoc.defaultView;
@@ -234,9 +254,9 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
   const hostDoc = frameEl?.ownerDocument ?? null;
   const hostWin = hostDoc?.defaultView ?? null;
   const mac = isMac();
-  const mod = mac ? '⌘ ' : 'Ctrl + ';
-  const navKey = (e: MouseEvent | KeyboardEvent) => (mac ? e.metaKey : e.ctrlKey || e.metaKey);
-  const isNavKeyName = (key: string) => key === 'Meta' || (!mac && key === 'Control');
+  const mod = mac ? '⌥ ' : 'Alt + ';
+  /** Alt だけ。⌘ / Ctrl / Shift と一緒なら選択の操作(最深要素・追加)なので移らない */
+  const navKey = (e: MouseEvent | KeyboardEvent) => e.altKey && !e.metaKey && !e.ctrlKey && !e.shiftKey;
 
   let pointer: { x: number; y: number } | null = null;
   let modifier = false;
@@ -330,7 +350,7 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
     if (hint) hint.hidden = true;
   };
 
-  /** ⌘ / Ctrl を押してリンクの上にいれば、指のカーソルと行き先の案内を出す */
+  /** Alt を押してリンクの上にいれば、指のカーソルと行き先の案内を出す */
   const update = (buttons = 0) => {
     if (!modifier || !pointer || buttons !== 0 || blocked()) {
       disarm();
@@ -378,16 +398,26 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
   };
   const onKey = (e: KeyboardEvent) => {
     if (e.key === 'Escape') cancel();
-    if (!isNavKeyName(e.key)) {
-      // ⌘ を離したことに気づけなかった(別のウィンドウで離した等)ときの戻し
-      if (modifier && !navKey(e)) {
-        modifier = false;
-        disarm();
+    if (e.key === 'Alt') {
+      // Alt の keydown で altKey が立たない実装があっても、押したことを優先する
+      modifier = e.type === 'keydown' ? !(e.metaKey || e.ctrlKey || e.shiftKey) : navKey(e);
+      update();
+      return;
+    }
+    if (e.key === 'Meta' || e.key === 'Control' || e.key === 'Shift') {
+      // Alt を押したまま ⌘ / Ctrl / Shift を足す(移らなくなる)・離す(移れるようになる)
+      const next = navKey(e);
+      if (next !== modifier) {
+        modifier = next;
+        update();
       }
       return;
     }
-    modifier = e.type === 'keydown' ? true : navKey(e);
-    update();
+    // Alt を離したことに気づけなかった(別のウィンドウで離した等)ときの戻し
+    if (modifier && !navKey(e)) {
+      modifier = false;
+      disarm();
+    }
   };
   const onBlur = () => {
     modifier = false;
@@ -397,7 +427,7 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
   const onMouseDown = (e: MouseEvent) => {
     // 2 回目の mousedown(ダブルクリック)・別のクリックが来たら、前の移動は取り消す
     cancel();
-    if (e.button !== 0 || !navKey(e) || e.shiftKey || e.altKey) return;
+    if (e.button !== 0 || !navKey(e)) return;
     if (e.detail > 1 || blocked()) return;
     // 選択枠のハンドル(リサイズ・回転)を押したのはハンドルの操作。下にリンクがあっても移らない
     if ((e.target as Element | null)?.closest?.('[data-handle]')) return;
@@ -408,14 +438,16 @@ export function attachLinkNavigation(iframeDoc: Document, options: LinkNavigatio
   const moved = (e: MouseEvent, p: { x: number; y: number }) =>
     Math.abs(e.clientX - p.x) > MARQUEE_DRAG_THRESHOLD || Math.abs(e.clientY - p.y) > MARQUEE_DRAG_THRESHOLD;
   const onMouseUp = (e: MouseEvent) => {
-    // ⌘ + ドラッグ(自由配置)だった
+    // Alt + ドラッグ(移動)だった
     if (pending && moved(e, pending)) pending = null;
   };
   const onClick = (e: MouseEvent) => {
+    // 移らないとき(ズームツール・トリミング中・⌘ と一緒など)も、リンクのダウンロードはさせない
+    if (e.altKey && (e.target as Element | null)?.closest?.('a[href]')) e.preventDefault();
     const p = pending;
     pending = null;
     if (!p || e.button !== 0 || e.detail > 1) return;
-    if (!navKey(e) || e.shiftKey || e.altKey || moved(e, p)) return;
+    if (!navKey(e) || moved(e, p)) return;
     timer = setTimeout(() => {
       timer = null;
       // 待っている間にテキスト編集に入った・紙面が差し替わった・モードが変わった

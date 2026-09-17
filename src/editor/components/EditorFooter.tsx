@@ -7,7 +7,9 @@ import { Popover, PopoverContent, PopoverTrigger } from '../../components/ui/pop
 
 export function EditorFooter() {
   const { activeTool, editorMode, selectedElement, selectedElementIds } = useEditorContext();
-  const cmd = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
+  const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
+  const cmd = isMac ? '⌘' : 'Ctrl+';
+  const alt = isMac ? '⌥' : 'Alt+';
   const hint = activeTool === 'move' ? 'ドラッグで紙面を移動 · V で選択に戻る'
     : activeTool === 'scale' ? 'ドラッグで拡大・縮小 · V で選択に戻る'
     : activeTool === 'comment' ? '紙面をドラッグして範囲を指定 · クリックで点 · Esc で選択に戻る'
@@ -21,6 +23,7 @@ export function EditorFooter() {
     ['保存', `${cmd}S`], ['複製', `${cmd}D`],
     ['全体表示 / 100% / 選択範囲', `${cmd}0 / ${cmd}1 / ${cmd}2`],
     ['複数選択', 'Shift＋クリック'], ['最下層の要素を選択', `${cmd}クリック`],
+    ['リンク先へ移動', `${alt}クリック`],
     ['選択・入力を終了', 'Esc'],
   ];
   return (

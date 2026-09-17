@@ -1,5 +1,5 @@
 /**
- * ⌘ / Ctrl + クリックでリンク先へ移る(utils/link-navigation.ts)の、エディタ側の行き先。
+ * Alt(⌥)+ クリックでリンク先へ移る(utils/link-navigation.ts)の、エディタ側の行き先。
  *
  * ページの切替は、ページ一覧で切り替えるときと同じ経路を通す
  * (未保存の変更は FrontendVisualEditor.handleContentChange が保存してから移る):
@@ -122,7 +122,7 @@ export function useLinkNavigation() {
     [revealAnchor],
   );
 
-  /** 紙面に ⌘ / Ctrl + クリックの移動を付ける。戻り値は後始末 */
+  /** 紙面に Alt(⌥)+ クリックの移動を付ける。戻り値は後始末 */
   const setupLinkNavigation = useCallback(
     (iframeDoc: Document) => {
       const detach = attachLinkNavigation(iframeDoc, {

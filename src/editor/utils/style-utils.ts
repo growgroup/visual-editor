@@ -5,6 +5,7 @@
 import type { SelectedElementInfo, ImageFillMode } from '../types';
 import { getArtboardScale } from './dom-utils';
 import { extractValueFromTailwindClass } from './tailwind-utils';
+import { summarizeBorder, borderSideWidthCss } from './border-sides';
 
 /**
  * RGB/RGBA色をHEXに変換
@@ -525,7 +526,11 @@ export function extractElementInfo(
   const rawFontSize = extractRawStyleValue(element.style.fontSize, 'fontSize');
   const rawLineHeight = extractRawStyleValue(element.style.lineHeight, 'lineHeight');
   const rawLetterSpacing = extractRawStyleValue(element.style.letterSpacing, 'letterSpacing');
-  const rawBorderWidth = extractRawStyleValue(element.style.borderWidth, 'borderWidth');
+  // 片側だけの線(border-l-2 など)は、見えている辺の値を出す(utils/border-sides.ts)
+  const border = summarizeBorder(style, element);
+  const rawBorderWidth = border.sides
+    ? extractRawStyleValue(element.style.getPropertyValue(borderSideWidthCss(border.sides[0])), 'borderWidth')
+    : extractRawStyleValue(element.style.borderWidth, 'borderWidth');
   const rawGap = extractRawStyleValue(element.style.gap, 'gap');
   // Position values (left/top)
   const rawLeft = extractRawStyleValue(element.style.left, 'left');
@@ -573,9 +578,10 @@ export function extractElementInfo(
     imagePositionX: parseBackgroundPositionX(style.backgroundPosition),
     imagePositionY: parseBackgroundPositionY(style.backgroundPosition),
     imageScale: parseBackgroundScale(style.backgroundSize),
-    borderWidth: parseFloat(style.borderWidth) || 0,
-    borderColor: style.borderColor,
-    borderStyle: style.borderStyle,
+    borderWidth: border.width,
+    borderColor: border.color,
+    borderStyle: border.style,
+    borderSides: border.sides,
     borderRadius: parseFloat(style.borderRadius) || 0,
     borderRadiusTopLeft: parseFloat(style.borderTopLeftRadius) || 0,
     borderRadiusTopRight: parseFloat(style.borderTopRightRadius) || 0,

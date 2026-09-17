@@ -46,6 +46,7 @@ import { moveSlide, deleteSlide, duplicateSlide, updateSlideMeta, insertSlide } 
 import { startCleanup } from '../../../components/SaveNote';
 import { unresolvedCount } from './PptComments';
 import { enterCropMode, type CropSession } from '../../utils/crop-mode';
+import { borderWidthStyles, summarizeBorder } from '../../utils/border-sides';
 import { useGoogleFonts } from '../../hooks/useGoogleFonts';
 import { DeckSlideRender } from '../../../components/DeckSlideRender';
 const PptDesignProposals = lazy(() => import('./PptDesignProposals').then((m) => ({ default: m.PptDesignProposals })));
@@ -270,7 +271,11 @@ function Dropdown({
 const PAINT_PROPS = new Set([
   'backgroundColor', 'background', 'backgroundImage', 'clipPath', 'borderRadius',
   'border', 'borderColor', 'borderWidth', 'borderStyle',
+  // 辺ごとの線も中身の図形へ(片側だけの線の読み書き。上の辺だけだと、枠の右・下・左を枠の外側から読んでいた)
   'borderTopWidth', 'borderTopStyle', 'borderTopColor',
+  'borderRightWidth', 'borderRightStyle', 'borderRightColor',
+  'borderBottomWidth', 'borderBottomStyle', 'borderBottomColor',
+  'borderLeftWidth', 'borderLeftStyle', 'borderLeftColor',
 ]);
 
 /** リボンが読む computed style の名前 → 選んだ文字の見た目(InlineTextSummary)の項目 */
@@ -1264,13 +1269,22 @@ export function PptRibbon({
 
   /** 枠線の色/太さを変えるとき、枠線が無ければ実線を立てる(PowerPointの挙動) */
   const ensureBorder = useCallback((styles: Record<string, string>) => {
-    const w = parseFloat(readComputed('border-top-width'));
-    const st = readComputed('border-top-style');
-    const out = { ...styles };
-    if (!('borderWidth' in out) && (!Number.isFinite(w) || w === 0)) out.borderWidth = '2px';
-    if (!('borderStyle' in out) && (st === 'none' || st === '')) out.borderStyle = 'solid';
+    // 片側だけの線(border-l-2 など)は上の辺が 0 なので、上だけ見ると「線が無い」と判定して
+    // 四辺に 2px を足していた。辺ごとに見て、線が見えていれば足さず、太さはその辺だけに当てる
+    const first = targets()[0];
+    const border = summarizeBorder({ getPropertyValue: readComputed }, first ? paintTarget(first) : null);
+    let out: Record<string, string> = { ...styles };
+    if ('borderWidth' in out && border.sides) {
+      const { borderWidth, ...rest } = out;
+      out = { ...rest, ...borderWidthStyles(borderWidth, border.sides) };
+    }
+    // 線が無ければ 2px を立てる(片側だけの線を 0 にしていたら、その辺に)
+    if (!('borderWidth' in styles) && (!Number.isFinite(border.width) || border.width === 0)) {
+      Object.assign(out, borderWidthStyles('2px', border.sides));
+    }
+    if (!('borderStyle' in out) && (border.style === 'none' || border.style === '')) out.borderStyle = 'solid';
     apply(out);
-  }, [readComputed, apply]);
+  }, [readComputed, apply, targets]);
 
   const borderRadiusPx = useMemo(() => {
     const v = parseFloat(readComputed('border-radius'));

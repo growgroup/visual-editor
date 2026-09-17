@@ -3,6 +3,8 @@
  * (スライド、ページ、コンポーネント等で共用)
  */
 
+import type { BorderSide } from './utils/border-sides';
+
 // 再エクスポート（既存の型）
 export type {
   EditorTool,
@@ -184,7 +186,9 @@ export interface SelectedElementInfo {
   rawFontSize?: string;       // font-size
   rawLineHeight?: string;     // line-height
   rawLetterSpacing?: string;  // letter-spacing
-  rawBorderWidth?: string;    // border-width
+  rawBorderWidth?: string;    // border-width(片側だけの線ならその辺の値)
+  /** 線が見えている辺が 1〜3 辺のときだけ、その辺(utils/border-sides.ts)。線幅の変更をその辺だけに当てる */
+  borderSides?: BorderSide[];
   rawGap?: string;            // gap (flexbox/grid)
   rawLeft?: string;           // left (position)
   rawTop?: string;            // top (position)

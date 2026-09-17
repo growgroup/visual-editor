@@ -676,6 +676,11 @@ export function convertToAbsolutePositioning(iframeDoc: Document): number {
 
   // 1. まず全要素の現在の位置・サイズをキャプチャ（インライン要素は除外）
   const captures: ElementCapture[] = [];
+  // 変換しないインライン要素の、変換前の位置(自己検証で使う)。
+  // 変換しなかった要素は流れの中に残るので、ブロックの兄弟が絶対配置で流れから抜けると
+  // その分だけ上へ詰まる。例: <td><div>見出し</div><span class="mt-[10px] inline-block">ラベル</span></td>
+  // で見出しだけが抜け、ラベルが見出しに重なる
+  const skippedInline: { element: HTMLElement; rect: DOMRect }[] = [];
 
   editableElements.forEach((el) => {
     const element = el as HTMLElement;
@@ -694,6 +699,7 @@ export function convertToAbsolutePositioning(iframeDoc: Document): number {
 
     // インライン要素はスキップ(ただし flex/grid アイテムは除く)
     if (!isFlexOrGridItem && isInlineElement(element, computedStyle)) {
+      skippedInline.push({ element, rect: element.getBoundingClientRect() });
       return;
     }
 
@@ -900,11 +906,21 @@ export function convertToAbsolutePositioning(iframeDoc: Document): number {
     const overY = element.scrollHeight - element.clientHeight > 2;
     return (overX || overY) && element.getAttribute('data-gg-pre-overflow') !== 'true';
   });
-  if (moved.length > 0) {
+  // 変換しなかったインライン要素も、流れの中で動いていないかを見る。
+  // 変換した要素だけを比べていたため、ブロックの兄弟が抜けて詰まったラベルを見逃し、
+  // 等倍で採寸が正確なキャンバス表示でだけ崩れた姿が確定していた
+  // (1 枚表示は縮小による端数で別の要素がずれ、たまたま巻き戻っていた)
+  const movedInline = skippedInline.filter(({ element, rect }) => {
+    const now = element.getBoundingClientRect();
+    return Math.abs(now.left - rect.left) > 1.5 || Math.abs(now.top - rect.top) > 1.5;
+  });
+  if (moved.length > 0 || movedInline.length > 0) {
     console.warn(
       '[convertToAbsolutePositioning] 変換で',
       moved.length,
-      '要素がずれたため巻き戻します(採寸タイミングの問題の可能性)',
+      '要素がずれた・変換しないインライン要素が',
+      movedInline.length,
+      '個動いたため巻き戻します(採寸タイミング、または流れに残る要素が詰まった可能性)',
     );
     captures.forEach(({ element, prevStyle }) => {
       if (prevStyle == null) element.removeAttribute('style');

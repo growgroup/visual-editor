@@ -16,6 +16,7 @@ import {
 } from '../../../components/ui/collapsible';
 import { Circle, ChevronRight } from 'lucide-react';
 import { rgbToHex } from '../../utils/style-utils';
+import { borderWidthStyles } from '../../utils/border-sides';
 import { BORDER_STYLES } from '../../constants';
 import type { SelectedElementInfo } from '../../types';
 
@@ -52,7 +53,8 @@ export function BorderSection({
               value={Math.round(selectedElement.borderWidth)}
               onChange={(e) =>
                 onStyleChange({
-                  borderWidth: `${e.target.value}px`,
+                  // 片側だけの線は、その辺の線幅だけを変える
+                  ...borderWidthStyles(`${e.target.value}px`, selectedElement.borderSides),
                   borderStyle:
                     selectedElement.borderStyle === 'none'
                       ? 'solid'

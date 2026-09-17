@@ -273,7 +273,7 @@ export function EditorCanvas() {
     marqueeGeomRef,
   });
 
-  // ⌘ / Ctrl + クリックでリンク先へ移る(選択の mousedown には手を出さず、クリックが確定してから移る)
+  // Alt(⌥)+ クリックでリンク先へ移る(選択の mousedown には手を出さず、クリックが確定してから移る)
   const { setupLinkNavigation } = useLinkNavigation();
 
   // マーキー選択
@@ -541,7 +541,7 @@ export function EditorCanvas() {
 
     // 選択リスナー（mousedown, dblclick）
     cleanupFunctions.push(setupSelectionListeners(iframeDoc));
-    // ⌘ / Ctrl + クリックでリンク先へ(ページ・アンカー・外部サイト)
+    // Alt(⌥)+ クリックでリンク先へ(ページ・アンカー・外部サイト)
     cleanupFunctions.push(setupLinkNavigation(iframeDoc));
     // テキスト編集中の範囲選択に、マーカー・太字のツールバーを出す
     cleanupFunctions.push(setupInlineFormatToolbar(iframeDoc));

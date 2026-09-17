@@ -1,6 +1,6 @@
 # 線(border)の欄の直し(2026-09-17)
 
-利用者の報告から 3 件(3 は 2 を直す途中で見つけたもの)。構成ラフの instance のページで、左に線を引いた要素(`border-l-2 border-wf-ink`)を編集していて起きた。
+利用者の報告から 3 件(3 は 2 を直す途中で見つけたもの)。構成ラフのページで、左に線を引いた要素(`border-l-2 border-wf-ink`)を編集していて起きた。
 
 ## 1. スタイルを「なし」にしても紙面が変わらない
 
@@ -12,7 +12,7 @@
 ## 2. 線色・線幅を変えると、左の線や色・破線のクラスまで消える
 
 - 原因: `TAILWIND_CONFLICT_GROUPS` の `borderWidth` / `borderColor` が接頭辞 `border-` で、太さ・色・スタイル・表のクラスを区別せず全部消していた。
-  線色を白にすると `border-l-2` が消えて線が見えなくなり(instance の 9 要素はこれで `border-[#ffffff] border-none` になった)、
+  線色を白にすると `border-l-2` が消えて線が見えなくなり(実案件のページの 9 要素がこれで `border-[#ffffff] border-none` になった)、
   線幅を変えると `border-wf-ink` や `border-dashed` が消えた。表の `border-collapse` / `border-spacing-*` も線色の変更で消えていた
 - 直し: `removeConflictingClasses` で、線の太さ・色・スタイルは同じ種類のクラスだけを消す。クラスの形で見分ける
   - スタイル: `border-{solid,dashed,dotted,double,hidden,none}`
@@ -104,4 +104,4 @@ headless Chrome で、実際にクリック・入力して右パネルとリボ�
 - 見えている辺が複数で太さが違う(左 4px + 上 1px など)と、線幅の変更で同じ太さにそろう。色も四辺に当てるので、辺ごとの色は 1 色になる
 - スタイルの変更は四辺に当たる(太さが 0 の辺は見えないので、見た目は線のある辺だけが変わる)
 - 線幅・スタイルはクラスに加えてインラインも書くので、ページファイルに `style` が増える
-- instance の `recruit/about/message/index.html` の 9 要素(`border-[#ffffff] border-none` になったもの)は戻していない
+- 実案件で線のクラスを失った要素(`border-[#ffffff] border-none` になったもの)は、この変更では戻らない(手で直す)

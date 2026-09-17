@@ -379,6 +379,11 @@ const LAYOUT_CRITICAL_PROPERTIES = new Set([
   'maxWidth',
   'minHeight',
   'maxHeight',
+  // 線のスタイル(なし / 実線 / 破線 / 点線)も同じ理由でインラインを残す。
+  // 紙面の CSS はファイルに書かれたクラスの分しか作られない(Vite の @source 走査)ので、
+  // 付けたばかりの border-none / border-solid にはルールが無く、紙面が変わらない。
+  // 右パネルは紙面の computed style を読み直すため、「なし」を選んでも「実線」に戻って見えていた
+  'borderStyle',
   'display',
   'flexDirection',
   'flexWrap',

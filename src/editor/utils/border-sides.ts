@@ -7,7 +7,7 @@
  * 線が見えている辺が 1〜3 辺なら、その辺の値を出し、線幅の変更もその辺だけに当てる。
  */
 
-import { isBorderWidthClass, isZeroBorderWidthClass } from './tailwind-utils';
+import { isBorderWidthClass, isZeroBorderWidthClass, type SideLetter } from './tailwind-utils';
 
 export type BorderSide = 'top' | 'right' | 'bottom' | 'left';
 
@@ -45,13 +45,27 @@ export function declaredBorderSides(element: Element): BorderSide[] | undefined 
   const classes = (element.getAttribute('class') || '').split(/\s+/).filter(Boolean);
   // 四辺まとめての太さ(border / border-2。border-0 は除く)があれば、辺ごとの指定があっても四辺とみなす
   if (classes.some((cls) => isBorderWidthClass(cls, '') && !isZeroBorderWidthClass(cls))) return undefined;
-  const has = (letter: 't' | 'r' | 'b' | 'l' | 'x' | 'y') => classes.some((cls) => isBorderWidthClass(cls, letter));
+  // 太さ 0 のクラス(border-b-0 など)は「線を消す指定」なので、辺を名乗るものとして数えない。
+  // 欄で線幅を 0 にしたときは、同時に書くインラインの辺ごとの線幅(上)で辺が分かる
+  const has = (letter: SideLetter) =>
+    classes.some((cls) => isBorderWidthClass(cls, letter) && !isZeroBorderWidthClass(cls));
   const classSides: BorderSide[] = [];
-  if (has('t') || has('y')) classSides.push('top');
-  if (has('r') || has('x')) classSides.push('right');
-  if (has('b') || has('y')) classSides.push('bottom');
-  if (has('l') || has('x')) classSides.push('left');
-  const sides = BORDER_SIDES.filter((side) => inlineSides.includes(side) || classSides.includes(side));
+  // s / e は書字方向の始め・終わり、bs / be はブロック方向。LTR の横書きを既定として当てる
+  if (has('t') || has('y') || has('bs')) classSides.push('top');
+  if (has('r') || has('x') || has('e')) classSides.push('right');
+  if (has('b') || has('y') || has('be')) classSides.push('bottom');
+  if (has('l') || has('x') || has('s')) classSides.push('left');
+  // その辺を 0 にするクラス(border-x-2 border-l-0 の左)は、辺から外す
+  const zero = (letter: SideLetter) =>
+    classes.some((cls) => isBorderWidthClass(cls, letter) && isZeroBorderWidthClass(cls));
+  const zeroSides = new Set<BorderSide>();
+  if (zero('t') || zero('y') || zero('bs')) zeroSides.add('top');
+  if (zero('r') || zero('x') || zero('e')) zeroSides.add('right');
+  if (zero('b') || zero('y') || zero('be')) zeroSides.add('bottom');
+  if (zero('l') || zero('x') || zero('s')) zeroSides.add('left');
+  const sides = BORDER_SIDES.filter(
+    (side) => inlineSides.includes(side) || (classSides.includes(side) && !zeroSides.has(side)),
+  );
   return sides.length > 0 && sides.length < BORDER_SIDES.length ? sides : undefined;
 }
 

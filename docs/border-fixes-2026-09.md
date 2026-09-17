@@ -17,8 +17,9 @@
 - 直し: `removeConflictingClasses` で、線の太さ・色・スタイルは同じ種類のクラスだけを消す。クラスの形で見分ける
   - スタイル: `border-{solid,dashed,dotted,double,hidden,none}`
   - 表: `border-collapse` / `border-separate` / `border-spacing*`
-  - 太さ: `border` / `border-2` / `border-l` / `border-l-2` / `border-[2px]` / `border-[min(2px,1vw)]` / `border-[thin]` /
-    `border-[length:var(--w)]` / `border-(length:--w)`(辺 `t r b l x y s e` と `bs` `be`)
+  - 太さ: `border` / `border-2` / `border-l` / `border-l-2` / `border-[2px]` / `border-[min(2px,1vw)]` /
+    `border-[length:var(--w)]` / `border-(length:--w)`(辺 `t r b l x y s e` と `bs` `be`)。
+    太さのキーワードは `border-[thin]` `border-[medium]` `border-[thick]` の厳密一致(`border-[mediumblue]` は色)
   - 色: 上のどれでもない `border-*`(`border-wf-ink`・`border-l-wf-ink`・`border-[#fff]`・`border-[var(--x)]`・`border-wf-ink/50`)。テーマの色名を名簿で持たない
   - `!` 付き(`border-2!` / `!border-2` / `border-dashed!`)は、外して同じ種類として消す。
     残すと、新しい太さ・スタイルが `!important` に負けて紙面が変わらない(スタイルの `border-dashed!` は元から消せていなかった)
@@ -34,8 +35,10 @@
   - `summarizeBorder`: 線が見えている辺(太さ > 0 でスタイルが none / hidden でない)が 1〜3 辺なら、最初の辺の太さ・スタイル・色と、辺の一覧を返す。
     四辺とも・線なしは今までどおり省略形の値
   - `declaredBorderSides`: 線が**見えていない**とき(線幅 0・スタイル「なし」・リボンの「枠線なし」のあと)は、要素自身の指定から辺を読む。
-    インラインの辺ごとの線幅と、辺の太さのクラス(`border-l-0` / `border-x-2`)を見る。四辺まとめての太さ(`border` / `border-2`。`border-0` は除く)や
-    インラインの `border-width` があれば四辺とみなす。これが無いと、線を消したあとに太さを入れ直すと四辺の枠になっていた
+    インラインの辺ごとの線幅と、辺の太さのクラス(`border-x-2` など。`s` / `e` は左右、`bs` / `be` は上下として扱う)を見る。
+    四辺まとめての太さ(`border` / `border-2`。`border-0` は除く)やインラインの `border-width` があれば四辺とみなす。
+    太さ 0 のクラス(`border-b-0`。親の線を消すための指定)は辺として数えず、`border-x-2 border-l-0` の左のように 0 にされた辺は外す。
+    これが無いと、線を消したあとに太さを入れ直すと四辺の枠になっていた
   - `borderWidthStyles`: 辺の一覧があれば、線幅の変更を `borderLeftWidth` などその辺だけにする
   - `extractElementInfo` が `borderSides` を右パネルへ渡す(`rawBorderWidth` もその辺のインラインの値)。右パネル・`BorderSection`・リボンの `ensureBorder` がそれを使う
 - 線色の変更で、スタイルは線が無いときだけ実線にする(今までは今のスタイルを毎回書き直していて、片側だけの線では `none none none solid` がインラインに入った)
@@ -82,6 +85,13 @@ headless Chrome で、実際にクリック・入力して右パネルとリボ�
 - 軽微: `border-2!` などの important 付きを見分けられず、太さを変えても紙面が変わらない → `!` を外して判定・削除
 - 軽微: `border-[min(2px,1vw)]` / `border-bs-2` / `border-[thin]` を色とみなして消していた → 太さの値と辺の名前を足した
 
+直した版にもう一度レビューをかけて、さらに 4 件(重大・中なし):
+
+- 軽微: `border-[mediumblue]` などの色を太さと誤判定していた(`thin|medium|thick` の前方一致)→ キーワードは厳密一致にした
+- 軽微: 線を消したあとの辺の判定に `border-s-*` / `border-bs-*` が入っていなかった → 左右・上下として扱う
+- 軽微: `border-b-0` だけを持つ要素(親の線を消す指定)で、線幅を入れると下だけに線が出ていた → 太さ 0 のクラスは辺として数えない
+- 未確認として残したもの: 表(`border-collapse`)のセルと `display: contents` の要素で、computed の辺の太さが実際と食い違う可能性(下の穴に書いた)
+
 ## 分かっている穴
 
 - 複数選択では、辺の判定は主に選ばれている要素で行い、同じ指定を全部の要素に当てる(左の線 2 つは確認済み。左の線と四辺の枠を一緒に選ぶと、四辺の枠の側は左だけが変わる)
@@ -89,6 +99,8 @@ headless Chrome で、実際にクリック・入力して右パネルとリボ�
   線が見えていれば computed から正しく読む
 - `border-b md:border-b-0` のように画面幅で消える線は、見えていない幅で線幅を入れると、インラインなのでどの幅でも線が付く
 - `border-[thin]` は tailwind-merge が色とみなすので、線色を変えると消える(Tailwind 自身は太さとして扱う)
+- 表(`border-collapse: collapse`)のセルと `display: contents` の要素で、辺の判定が実際と食い違う可能性がある(レビューの指摘。Chrome で確かめていない)。
+  食い違っても、線の指定がその辺に寄るだけでデータは壊れない
 - 見えている辺が複数で太さが違う(左 4px + 上 1px など)と、線幅の変更で同じ太さにそろう。色も四辺に当てるので、辺ごとの色は 1 色になる
 - スタイルの変更は四辺に当たる(太さが 0 の辺は見えないので、見た目は線のある辺だけが変わる)
 - 線幅・スタイルはクラスに加えてインラインも書くので、ページファイルに `style` が増える

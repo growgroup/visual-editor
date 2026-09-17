@@ -322,9 +322,10 @@ const stripImportant = (cls: string) => cls.replace(/^!/, '').replace(/!$/, '');
 
 /**
  * 太さの値: 数字(border-2)、長さの任意値(border-[2px] / border-[length:var(--w)] /
- * border-[min(2px,1vw)] / border-[thin])、border-(length:--w)
+ * border-[min(2px,1vw)])、太さのキーワード(border-[thin] など。`border-[mediumblue]` は色なので厳密一致)、
+ * border-(length:--w)
  */
-const BORDER_WIDTH_VALUE = String.raw`(-\d+|-\[(?:\d|\.|calc\(|min\(|max\(|clamp\(|length:|thin|medium|thick)[^\]]*\]|-\(length:[^)]*\))?`;
+const BORDER_WIDTH_VALUE = String.raw`(-\d+|-\[(?:thin|medium|thick)\]|-\[(?:\d|\.|calc\(|min\(|max\(|clamp\(|length:)[^\]]*\]|-\(length:[^)]*\))?`;
 
 /** 辺の指定。`bs` / `be`(書字方向の始め・終わり)も Tailwind では辺の太さ */
 const BORDER_SIDE_TOKENS = '(?:[trblxyse]|bs|be)';
@@ -333,7 +334,10 @@ const BORDER_SIDE_TOKENS = '(?:[trblxyse]|bs|be)';
  * 太さのクラス。side を渡すとその辺だけ(border-l / border-l-2 / border-l-[3px])、
  * '' なら四辺まとめての指定だけ(border / border-2)。渡さなければ全部の辺と各辺
  */
-export function isBorderWidthClass(cls: string, side?: 't' | 'r' | 'b' | 'l' | 'x' | 'y' | ''): boolean {
+/** 辺を表す文字。`s` / `e` は書字方向、`bs` / `be` はブロック方向 */
+export type SideLetter = 't' | 'r' | 'b' | 'l' | 'x' | 'y' | 's' | 'e' | 'bs' | 'be';
+
+export function isBorderWidthClass(cls: string, side?: SideLetter | ''): boolean {
   const sides = side === undefined ? `(-${BORDER_SIDE_TOKENS})?` : side ? `-${side}` : '';
   return new RegExp(`^border${sides}${BORDER_WIDTH_VALUE}$`).test(stripImportant(cls));
 }

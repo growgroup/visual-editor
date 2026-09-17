@@ -46,6 +46,7 @@ import { moveSlide, deleteSlide, duplicateSlide, updateSlideMeta, insertSlide } 
 import { startCleanup } from '../../../components/SaveNote';
 import { unresolvedCount } from './PptComments';
 import { enterCropMode, type CropSession } from '../../utils/crop-mode';
+import { borderWidthStyles, summarizeBorder } from '../../utils/border-sides';
 import { useGoogleFonts } from '../../hooks/useGoogleFonts';
 import { DeckSlideRender } from '../../../components/DeckSlideRender';
 const PptDesignProposals = lazy(() => import('./PptDesignProposals').then((m) => ({ default: m.PptDesignProposals })));
@@ -1264,11 +1265,20 @@ export function PptRibbon({
 
   /** 枠線の色/太さを変えるとき、枠線が無ければ実線を立てる(PowerPointの挙動) */
   const ensureBorder = useCallback((styles: Record<string, string>) => {
+    // 片側だけの線(border-l-2 など)は上の辺が 0 なので、上だけ見ると「線が無い」と判定して
+    // 四辺に 2px を足していた。辺ごとに見て、線が見えていれば足さず、太さはその辺だけに当てる
+    const border = summarizeBorder({ getPropertyValue: readComputed });
     const w = parseFloat(readComputed('border-top-width'));
     const st = readComputed('border-top-style');
-    const out = { ...styles };
-    if (!('borderWidth' in out) && (!Number.isFinite(w) || w === 0)) out.borderWidth = '2px';
-    if (!('borderStyle' in out) && (st === 'none' || st === '')) out.borderStyle = 'solid';
+    let out: Record<string, string> = { ...styles };
+    if ('borderWidth' in out && border.sides) {
+      const { borderWidth, ...rest } = out;
+      out = { ...rest, ...borderWidthStyles(borderWidth, border.sides) };
+    }
+    if (!border.sides) {
+      if (!('borderWidth' in out) && (!Number.isFinite(w) || w === 0)) out.borderWidth = '2px';
+      if (!('borderStyle' in out) && (st === 'none' || st === '')) out.borderStyle = 'solid';
+    }
     apply(out);
   }, [readComputed, apply]);
 

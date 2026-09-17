@@ -69,6 +69,7 @@ import { buildFilterString, buildTransformString } from "../utils/style-utils";
 import { useEditorContext } from "../EditorContext";
 import { useElementActions, useEditorColors, useInlineTextSelection } from "../hooks";
 import { MIXED } from "../utils/inline-text-style";
+import { borderWidthStyles } from "../utils/border-sides";
 import { FONT_WEIGHTS } from "../constants";
 import type { PanelSections, SelectedElementInfo } from "../types";
 import {
@@ -2571,7 +2572,8 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                       const needsStyleChange = selectedElement.borderStyle === "none" &&
                         !val.startsWith('var(') && parseFloat(val) > 0;
                       updateElementStyle({
-                        borderWidth: val,
+                        // 片側だけの線(border-l-2 など)は、その辺の線幅だけを変える(四辺の枠にしない)
+                        ...borderWidthStyles(val, selectedElement.borderSides),
                         ...(needsStyleChange ? { borderStyle: "solid" } : {}),
                       });
                     }}
@@ -2613,12 +2615,10 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                 )}
                 onChange={(config) => {
                   if (config.type === "solid" && config.color) {
+                    // スタイルは線が無いときだけ実線にする(今のスタイルを書き直さない)
                     updateElementStyle({
                       borderColor: config.color,
-                      borderStyle:
-                        selectedElement.borderStyle === "none"
-                          ? "solid"
-                          : selectedElement.borderStyle,
+                      ...(selectedElement.borderStyle === "none" ? { borderStyle: "solid" } : {}),
                     });
                   } else if (config.type === "none") {
                     updateElementStyle({ borderStyle: "none" });
@@ -2627,10 +2627,7 @@ export const EditorPropertyPanel = memo(function EditorPropertyPanel() {
                 onVariableSelect={(varRef) => {
                   updateElementStyle({
                     borderColor: varRef,
-                    borderStyle:
-                      selectedElement.borderStyle === "none"
-                        ? "solid"
-                        : selectedElement.borderStyle,
+                    ...(selectedElement.borderStyle === "none" ? { borderStyle: "solid" } : {}),
                   });
                 }}
                 presetColors={colorPresets}

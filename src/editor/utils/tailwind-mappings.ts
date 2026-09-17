@@ -94,13 +94,9 @@ export const TAILWIND_CONFLICT_GROUPS: Record<string, string[]> = {
   borderTopRightRadius: ['rounded-tr-'],
   borderBottomRightRadius: ['rounded-br-'],
   borderBottomLeftRadius: ['rounded-bl-'],
-  borderWidth: ['border-'],
-  borderTopWidth: ['border-t-'],
-  borderRightWidth: ['border-r-'],
-  borderBottomWidth: ['border-b-'],
-  borderLeftWidth: ['border-l-'],
-  borderColor: ['border-'],
-  borderStyle: ['border-solid', 'border-dashed', 'border-dotted', 'border-none'],
+  // borderWidth / border*Width / borderColor は tailwind-utils の removeConflictingClasses が
+  // クラスの形で見分けて消す(接頭辞 border- では太さ・色・スタイルが区別できない)
+  borderStyle: ['border-solid', 'border-dashed', 'border-dotted', 'border-double', 'border-hidden', 'border-none'],
 
   // Typography
   // 注意: fontSize と color は両方 text- プレフィックスを使用するが、

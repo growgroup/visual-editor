@@ -294,6 +294,52 @@ function isTextColorClass(cls: string): boolean {
   return false;
 }
 
+// ------------------------------------------------------------
+// 線(border-*)のクラスの見分け
+// ------------------------------------------------------------
+// border- で始まるクラスには、太さ(border-2 / border-l-2)・色(border-wf-ink)・
+// スタイル(border-dashed)・表(border-collapse)が混ざっている。
+// 以前は線色・線幅の変更で「border- で始まるもの」を全部消していたので、
+// 左だけの線(border-l-2)や色・破線まで消えていた。tailwind-merge と同じ見分け方にする
+// (太さ・スタイル・表の形でないものを色とみなす。テーマの色名を名簿で持たずに済む)
+
+const BORDER_STYLE_CLASSES = new Set([
+  'border-solid',
+  'border-dashed',
+  'border-dotted',
+  'border-double',
+  'border-hidden',
+  'border-none',
+]);
+
+const isBorderTableClass = (cls: string) => /^border-(collapse|separate|spacing(-|$))/.test(cls);
+
+/** 太さの値: 数字(border-2)、長さの任意値(border-[2px] / border-[length:var(--w)])、border-(length:--w) */
+const BORDER_WIDTH_VALUE = String.raw`(-\d+|-\[(?:\d|\.|calc\(|length:)[^\]]*\]|-\(length:[^)]*\))?`;
+
+/** 太さのクラス。side を渡すとその辺だけ(border-l / border-l-2 / border-l-[3px])。渡さなければ全部の辺と各辺 */
+function isBorderWidthClass(cls: string, side?: 't' | 'r' | 'b' | 'l'): boolean {
+  const sides = side ? `-${side}` : '(-[trblxyse])?';
+  return new RegExp(`^border${sides}${BORDER_WIDTH_VALUE}$`).test(cls);
+}
+
+/** 色のクラス(border-wf-ink / border-l-wf-ink / border-[#fff] / border-[var(--x)] / border-wf-ink/50) */
+function isBorderColorClass(cls: string): boolean {
+  return (
+    cls.startsWith('border-') &&
+    !BORDER_STYLE_CLASSES.has(cls) &&
+    !isBorderTableClass(cls) &&
+    !isBorderWidthClass(cls)
+  );
+}
+
+const BORDER_SIDE_WIDTH_PROPERTIES: Record<string, 't' | 'r' | 'b' | 'l'> = {
+  borderTopWidth: 't',
+  borderRightWidth: 'r',
+  borderBottomWidth: 'b',
+  borderLeftWidth: 'l',
+};
+
 /**
  * 競合するクラスを要素から削除
  *
@@ -319,6 +365,18 @@ export function removeConflictingClasses(
     const currentClasses = getElementClassName(element).split(/\s+/).filter(Boolean);
     const filteredClasses = currentClasses.filter(cls => !isTextColorClass(cls));
     setElementClassName(element, filteredClasses.join(' '));
+    return;
+  }
+
+  // 線の太さ・色は、同じ種類のクラスだけを消す(太さを変えても色・破線は残す。色を変えても左だけの線は残す)
+  if (property === 'borderWidth' || property === 'borderColor' || property in BORDER_SIDE_WIDTH_PROPERTIES) {
+    const side = BORDER_SIDE_WIDTH_PROPERTIES[property];
+    const conflicts =
+      property === 'borderColor'
+        ? isBorderColorClass
+        : (cls: string) => isBorderWidthClass(cls, side);
+    const currentClasses = getElementClassName(element).split(/\s+/).filter(Boolean);
+    setElementClassName(element, currentClasses.filter((cls) => !conflicts(cls)).join(' '));
     return;
   }
 
@@ -384,6 +442,12 @@ const LAYOUT_CRITICAL_PROPERTIES = new Set([
   // 付けたばかりの border-none / border-solid にはルールが無く、紙面が変わらない。
   // 右パネルは紙面の computed style を読み直すため、「なし」を選んでも「実線」に戻って見えていた
   'borderStyle',
+  // 線幅も同じ。border-0 / border-l-0 などは紙面の CSS に無いことが多い(構成ラフの殻で実測)
+  'borderWidth',
+  'borderTopWidth',
+  'borderRightWidth',
+  'borderBottomWidth',
+  'borderLeftWidth',
   'display',
   'flexDirection',
   'flexWrap',

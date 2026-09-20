@@ -110,6 +110,7 @@ import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
 import { clearPartDropIndicator } from './utils/drop-target';
 import { insertHtmlToElement, resolveInsertionPoint } from './utils/catalog-inserts';
+import { triggerTailwindRecompile } from './utils/tailwind-utils';
 import { debugLog } from './utils/debug';
 import { readStorage, writeStorage } from './utils/storage';
 import { useCollab } from './collab/useCollab';
@@ -1236,6 +1237,10 @@ function FrontendVisualEditorInner({
         element.setAttribute('data-element-id', `el-${Date.now()}-insert`);
       }
       makeChildrenEditable(element);
+      // 台帳の HTML は Tailwind のクラスが付いたまま来る。紙面の Tailwind ブラウザ版は
+      // 足しただけの class を知らないので、その場で生成し直させる
+      // (生成先は紙面の <head>。#artboard の中身は変わらないので履歴には載らない)
+      triggerTailwindRecompile(element);
 
       notifyIframeChange(true);
 

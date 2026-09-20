@@ -109,6 +109,18 @@ slide モードでは `level` が `TPL` / `PAG` の項目を目録から外し(�
 紙面の MutationObserver は `data-editable` の付け直しとレイヤー一覧の作り直しだけで履歴に触らないので、
 履歴はここ 1 回で 1 段になる。
 
+## 挿したクラスの CSS
+
+台帳の HTML は **Tailwind のクラスが付いたまま**来る。紙面の Tailwind ブラウザ版
+(`/vendor/tailwindcss-browser.js`。利用側が配る)は、足しただけの class を知らないので、
+挿したあとに `triggerTailwindRecompile`(`tailwind-utils.ts`。中身は
+`window.tailwindcss.refresh()`)を **1 回だけ**呼ぶ。もともと右パネルで class を
+書き換えたときに呼んでいた関数を export して使い回している。
+
+生成した CSS は紙面の `<head>` に入るので、`#artboard` の中身(= 保存 HTML・履歴)は変わらない。
+`reloadStyles` のような io は足していない。色はトークン名なので、
+利用側の CSS が解決できないものは地の色のまま出る(構成ラフでは意図した姿)。
+
 ## サニタイズは `<script>` と `on*` だけ
 
 貼り付け用の `paste-sanitizer.ts`(DOMPurify)は**通していない**。あちらは許可する属性を
@@ -173,6 +185,8 @@ playground に `?mode=inserts` を足し(`playground/inserts-samples.ts` が目�
 | slide で挿すと `#artboard` の直下に入る | 入る |
 | PowerPoint 風の殻の「挿入」タブにボタンが出る | 出る |
 | 見本の iframe が中身を持つ | 7/7 |
+| 挿入のあと `window.tailwindcss.refresh()` が呼ばれる | 1 回(紙面に模擬を置いて計測)|
+| その呼び出しで `#artboard` に `style` / `link` が増えない | 0 件・Undo はいまも 1 段 |
 | `npx tsc --noEmit -p .` / `npm run build` | 通る |
 
 ## 穴(分かっていて直していないこと)
@@ -188,6 +202,9 @@ playground に `?mode=inserts` を足し(`playground/inserts-samples.ts` が目�
 - サニタイズは `<script>` と `on*` だけ。`<iframe>` / `<style>` / `<link>` は**落としていない**。
   台帳が利用側のものである前提に乗っている
 - 見本の iframe に **`sandbox` を付けていない**。同上
+- 再コンパイルは **playground では実物で確かめていない**。playground が
+  `/vendor/tailwindcss-browser.js` を配っていないため、`window.tailwindcss.refresh` の
+  模擬を紙面に置いて「1 回呼ばれること」だけを見た。実物での見え方は利用側(殻)で確かめる
 - 目録は**パネルを開くたびに読む**(キャッシュしない)。台帳が大きくなったら `loadInserts` の側で持つ
 - 挿した HTML に `data-slot` があっても、`data-part` が無いのでスロットのロックは効かない
   (全部が編集できる)。台帳の部品を「部品」として扱いたくなったら、

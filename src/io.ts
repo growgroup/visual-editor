@@ -247,7 +247,8 @@ export type EditorIO = {
   /**
    * 1 件の HTML(断片)。`dummy` は見出し・リード文を赤字ダミーにする利用側の整形で、
    * パネルのチェック(既定 ON)がそのまま渡る。整形しない利用側は無視してよい。
-   * `name` を返すと挿入後の案内に使う
+   * `name` はいまのエディタでは使っていない(目録の name を出している)。
+   * 目録と実体が食い違いうる利用側のために受け口だけ空けてある
    */
   fetchInsert?: (id: string, opts: { dummy: boolean }) => Promise<{ html: string; name?: string }>;
   /**

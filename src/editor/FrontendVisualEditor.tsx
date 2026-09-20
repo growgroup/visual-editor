@@ -1193,6 +1193,29 @@ function FrontendVisualEditorInner({
   // (紙面の MutationObserver は data-editable の付け直しとレイヤー再構築だけで、履歴には触らない)
   const revealElement = useRevealElement();
 
+  /**
+   * パネルを開いた時点の選択要素(挿入の基準)。
+   *
+   * 【なぜ挿入のときに選択を読み直さないか / なぜ紙面の `.selected` も見るか】
+   * 保存(自動保存を含む)が終わると `originalHtml` が今の姿に更新され、それを見ている
+   * 既存の effect(「ページ切替で選択が残らないように」)が選択の**状態**を空にする。
+   * 紙面の見た目(`.selected` の枠)は残るので、利用者には選んだままに見える。
+   * パネルを開いて見比べている数秒のあいだに自動保存が挟まると、選んだつもりなのに
+   * 「選択なし」= 末尾へ飛ぶ、という当たらない動きになる。
+   *
+   * そこで基準は「開いた時点」に固定し、状態が空なら紙面の `.selected` を採る
+   * (利用者が見ている選択に合わせる)。パネルは modal なので開いている間は紙面を
+   * 選び直せない = 開いた時点の選択が答えでよい。
+   * 開いている間に要素が消えた(Undo)場合は resolveInsertionPoint が弾く
+   */
+  const catalogAnchorRef = useRef<HTMLElement | null>(null);
+
+  const openCatalogInserts = useCallback(() => {
+    catalogAnchorRef.current =
+      selectedDomElement() ?? getIframeDoc()?.querySelector<HTMLElement>('#artboard .selected') ?? null;
+    setIsCatalogInsertOpen(true);
+  }, [selectedDomElement, getIframeDoc]);
+
   const handleCatalogInsert = useCallback(
     async (item: EditorInsertItem, opts: { dummy: boolean }) => {
       const fetchInsert = io().fetchInsert;
@@ -1204,7 +1227,7 @@ function FrontendVisualEditorInner({
       const element = insertHtmlToElement(iframeDoc, fragment);
       if (!element) throw new Error(`「${item.name}」の中身が空でした`);
 
-      const { parent, before } = resolveInsertionPoint(iframeDoc, selectedDomElement());
+      const { parent, before } = resolveInsertionPoint(iframeDoc, catalogAnchorRef.current);
       parent.insertBefore(element, before);
 
       // エディタの印。ルート自身と、中の編集できる要素に付ける(部品の実体化と同じ手順)
@@ -1220,6 +1243,9 @@ function FrontendVisualEditorInner({
       if (elementInfo) {
         setSelectedElement(elementInfo);
         setSelectedElementIds([element.getAttribute('data-element-id')!]);
+        // 前の選択の枠は先に外す(付けっぱなしだと 2 つ選ばれているように見え、
+        // 次に挿すときの基準にも前の要素が残る)
+        iframeDoc.querySelectorAll('.selected').forEach((el) => el.classList.remove('selected'));
         element.classList.add('selected');
       }
       // 挿したものが画面の外だと「押したのに何も起きない」に見える。紙面をそこへ寄せる
@@ -2369,7 +2395,7 @@ function FrontendVisualEditorInner({
                 selectedElement?.id && hasUngroupableChildren(selectedElement.id) ? ungroupElements : undefined,
               openFilePicker: () => openFilePicker({ x: 100, y: 100 }),
               openMediaLibrary: () => setIsMediaLibraryOpen(true),
-              openCatalogInserts: can('loadInserts') ? () => setIsCatalogInsertOpen(true) : undefined,
+              openCatalogInserts: can('loadInserts') ? openCatalogInserts : undefined,
               openComponents: () => setIsComponentPanelOpen(true),
               openVariables: () => setIsVariablesPanelOpen(true),
               activeTool,
@@ -2569,7 +2595,7 @@ function FrontendVisualEditorInner({
             onImageUpload={() => openFilePicker({ x: 100, y: 100 })}
             onOpenMediaLibrary={can('apiFetch') ? () => setIsMediaLibraryOpen(true) : undefined}
             isMediaReplaceMode={isImageSelected}
-            onOpenCatalogInserts={can('loadInserts') ? () => setIsCatalogInsertOpen(true) : undefined}
+            onOpenCatalogInserts={can('loadInserts') ? openCatalogInserts : undefined}
             canComment={can('commentAction')}
             onAiRegenerate={can('apiFetch') && selectedElement && selectedElementIds.length <= 1 ? openAiPrompt : undefined}
             onOpenVariables={() => setIsVariablesPanelOpen(true)}
@@ -2853,6 +2879,7 @@ function FrontendVisualEditorInner({
         isOpen={isCatalogInsertOpen}
         onClose={() => {
           setIsCatalogInsertOpen(false);
+          catalogAnchorRef.current = null;
           // ショートカットが引き続き機能するようフォーカスを復元
           requestAnimationFrame(() => {
             restoreFocus();

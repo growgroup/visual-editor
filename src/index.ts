@@ -60,6 +60,10 @@ export type {
   EditorPartDef,
   EditorPartCategory,
   EditorPartsLibrary,
+  EditorInsertCatalog,
+  EditorInsertGroup,
+  EditorInsertItem,
+  EditorInsertLevel,
   EditorCollab,
   EditorCollabUser,
 } from "./io";

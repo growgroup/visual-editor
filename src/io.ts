@@ -122,6 +122,53 @@ export type EditorPartsLibrary = {
   categories?: EditorPartCategory[];
 };
 
+/**
+ * 台帳から挿入(「台帳から挿入」パネル)。
+ *
+ * 【役割分担】
+ * - 利用側 … 何が挿せるかの目録(loadInserts)と、1 件の HTML(fetchInsert)を作る。
+ *            HTML は断片(`<section class="wf-ds" data-ds="…" data-ds-v="…">…</section>` の形で
+ *            利用側が包んでおく)。エディタは包み直さない
+ * - エディタ … 紙面のどこに入れるかを決め、編集の印を付け、履歴に 1 段で載せる
+ *
+ * 目録・HTML の中身(何が台帳にあるか・どう整形するか)はエディタの関心事ではない。
+ * `loadInserts` を渡さなければ「台帳から挿入」の入口ごと出さない。
+ */
+export type EditorInsertLevel =
+  /** セクション(紙面に 1 段として入る) */
+  | 'SEC'
+  /** パーツ(セクションより小さい部品) */
+  | 'MOL'
+  /** ページの雛形(挿入ではなく「新しいページを作る」) */
+  | 'TPL'
+  /** ページ(同上) */
+  | 'PAG'
+  // 利用側が独自の階層を足せるように文字列も受ける(補完は上の 4 つが出る)
+  | (string & {});
+
+export type EditorInsertItem = {
+  /** 一意な識別子。`fetchInsert` / `createContent` にそのまま渡す */
+  id: string;
+  /** 表示名 */
+  name: string;
+  /** 系統(絞り込みの単位。ヘッダー・ヒーロー・フォーム など) */
+  family?: string;
+  description?: string;
+  /**
+   * 階層。`TPL` / `PAG` は紙面に挿さず「ページを作る」に回る。
+   * 省略時は挿入(セクション扱い)
+   */
+  level?: EditorInsertLevel;
+  /** 見本の URL(あればカードと右の大きいプレビューに iframe で出す) */
+  previewUrl?: string;
+  /** 出どころ。表示の区別だけに使う */
+  source?: 'ledger' | 'local';
+};
+
+export type EditorInsertGroup = { id: string; label: string; items: EditorInsertItem[] };
+
+export type EditorInsertCatalog = { groups: EditorInsertGroup[] };
+
 export type EditorIO = {
   /** 一覧とコメントを取る。無ければ空の一覧として振る舞う */
   loadDeck?: () => Promise<EditorDeck>;
@@ -191,6 +238,29 @@ export type EditorIO = {
   savePart?: (part: EditorPartDef) => Promise<EditorPartDef | void>;
   /** 部品を消す。無ければ削除を出さない */
   deletePart?: (id: string) => Promise<void>;
+
+  /**
+   * 台帳の目録(利用側が束ねる)。無ければ「台帳から挿入」は出さない。
+   * パネルを開くたびに呼ぶ(利用側で束ねたものを返すだけでよい)
+   */
+  loadInserts?: () => Promise<EditorInsertCatalog>;
+  /**
+   * 1 件の HTML(断片)。`dummy` は見出し・リード文を赤字ダミーにする利用側の整形で、
+   * パネルのチェック(既定 ON)がそのまま渡る。整形しない利用側は無視してよい。
+   * `name` を返すと挿入後の案内に使う
+   */
+  fetchInsert?: (id: string, opts: { dummy: boolean }) => Promise<{ html: string; name?: string }>;
+  /**
+   * 新しいページを作る(TPL / PAG の挿入)。戻り値の id で利用側が `contentList` を
+   * 読み直し、エディタはその id が一覧に現れたらそのページを編集中にする。
+   * 無ければページの雛形は挿入できない(グループを出しても「ページを作る」は押せない)
+   */
+  createContent?: (input: {
+    title: string;
+    path: string;
+    templateId?: string;
+    parentId?: string;
+  }) => Promise<{ id: string }>;
 
   /** CSS 変数(デザイントークン)の読み込み。無ければブラウザ内(localStorage)に持つ */
   loadVariables?: () => Promise<CSSVariableDefinition[]>;

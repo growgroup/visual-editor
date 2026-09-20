@@ -50,6 +50,7 @@ import {
   Images,
   Plus,
   MoreHorizontal,
+  Blocks,
 } from 'lucide-react';
 import { PEN_PRESETS, inkStyle, setInkPreset } from './utils/ink-style';
 import {
@@ -72,6 +73,8 @@ export interface EditorToolbarExtendedProps extends EditorToolbarProps {
   onOpenMediaLibrary?: () => void;
   /** <img> 選択中は「差し替え」表記にする */
   isMediaReplaceMode?: boolean;
+  /** 「台帳から挿入」を開く。io.loadInserts が無ければ渡さない(項目ごと出さない) */
+  onOpenCatalogInserts?: () => void;
   /** コメント機能があるホストではコメントツール(C)を出す */
   canComment?: boolean;
 }
@@ -210,6 +213,7 @@ export const EditorToolbar = memo(function EditorToolbar({
   hasComponents,
   onOpenMediaLibrary,
   isMediaReplaceMode,
+  onOpenCatalogInserts,
   canComment = false,
 }: EditorToolbarExtendedProps) {
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform);
@@ -313,7 +317,13 @@ export const EditorToolbar = memo(function EditorToolbar({
                 <span className="flex-1">消しゴム(ストローク削除)</span>
                 <kbd className="font-mono text-[10px] text-muted-foreground">E</kbd>
               </DropdownMenuItem>
-              {(onImageUpload || onOpenMediaLibrary) && <DropdownMenuSeparator />}
+              {(onImageUpload || onOpenMediaLibrary || onOpenCatalogInserts) && <DropdownMenuSeparator />}
+              {onOpenCatalogInserts && (
+                <DropdownMenuItem data-add-catalog-inserts onSelect={onOpenCatalogInserts} className="gap-2 text-xs">
+                  <Blocks className="h-3.5 w-3.5" />
+                  台帳から挿入
+                </DropdownMenuItem>
+              )}
               {onOpenMediaLibrary && (
                 <DropdownMenuItem onSelect={onOpenMediaLibrary} className="gap-2 text-xs">
                   <Images className="h-3.5 w-3.5" />

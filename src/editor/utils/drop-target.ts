@@ -36,7 +36,7 @@ export interface FlowInsertion {
  * 「セクションの器」か。この直下に部品を並べる。
  * 器 = body / #artboard / [data-wf-body] / main
  */
-function isContainer(doc: Document, node: Element | null): node is Element {
+export function isContainer(doc: Document, node: Element | null): node is Element {
   return (
     !!node &&
     (node === doc.body ||
@@ -46,8 +46,12 @@ function isContainer(doc: Document, node: Element | null): node is Element {
   );
 }
 
-/** 器が見つからないときの落とし先 */
-function fallbackContainer(doc: Document): Element {
+/**
+ * 器が見つからないときの落とし先。
+ * 「台帳から挿入」(選択が無いとき・選択の祖先が器の直下に無いとき)も同じ器を使うので export する。
+ * 器の規則をここ 1 箇所に残さないと、ドロップと挿入で入る場所が変わる
+ */
+export function fallbackContainer(doc: Document): Element {
   return (
     doc.querySelector('main') ??
     doc.querySelector('[data-wf-body]') ??

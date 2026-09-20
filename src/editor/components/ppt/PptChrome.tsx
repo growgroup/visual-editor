@@ -28,7 +28,7 @@ import { applyShadowPreset, paintTarget } from '../../utils/element-effects';
 import {
   Undo2, Redo2, Bold, Italic, Underline, AlignLeft, AlignCenter, AlignRight,
   Type, Square, Circle, Minus, MoveUpRight, Image as ImageIcon, LayoutGrid,
-  Boxes, Trash2, Copy, X, Save, PenTool, Loader2, ZoomIn, ZoomOut, Maximize,
+  Boxes, Blocks, Trash2, Copy, X, Save, PenTool, Loader2, ZoomIn, ZoomOut, Maximize,
   Search, Sun, Moon, ChevronDown, Plus, MousePointer2, Pencil, Play, Crosshair,
   Palette, Sparkles, EyeOff, ArrowUp, ArrowDown, Film,
   MoreHorizontal, MessageSquare, ChevronLeft, ChevronRight, Crop, Monitor, MonitorUp,
@@ -88,6 +88,8 @@ export type PptActions = {
   ungroupElements?: () => void;
   openFilePicker: () => void;
   openMediaLibrary: () => void;
+  /** 「台帳から挿入」。io.loadInserts が無ければ渡さない(ボタンを出さない) */
+  openCatalogInserts?: () => void;
   openComponents: () => void;
   openVariables: () => void;
   activeTool: EditorTool;
@@ -1739,6 +1741,9 @@ export function PptRibbon({
               pal={pal}
             />
             <BigButton icon={Boxes} label={'コンポー\nネント'} onClick={actions.openComponents} pal={pal} />
+            {actions.openCatalogInserts && (
+              <BigButton icon={Blocks} label={'台帳から\n挿入'} onClick={actions.openCatalogInserts} title="デザインシステムの台帳から挿入" pal={pal} />
+            )}
           </>
         )}
 

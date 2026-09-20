@@ -27,18 +27,21 @@ const PENDING_ANCHOR_DELAY_MS = 500;
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-export function useLinkNavigation() {
-  const { contentList, currentContentId, onContentChange } = useEditorContext();
+/**
+ * 紙面の中の要素が見える位置へ視点を移す。
+ *
+ * キャンバスでは紙面(iframe)は伸びきっていてスクロールしないので、`scrollIntoView` では
+ * 何も動かない。キャンバスの位置を動かすか、1 ページ表示なら紙面の中の器をスクロールさせる。
+ * リンク移動(アンカー)と「台帳から挿入」のあとの移動で、同じ計算を使う。
+ */
+export function useRevealElement() {
   const canvas = useMultiPageCanvasOptional();
-  const stateRef = useRef({ contentList, currentContentId, onContentChange, canvas });
-  stateRef.current = { contentList, currentContentId, onContentChange, canvas };
+  const canvasRef = useRef(canvas);
+  canvasRef.current = canvas;
 
-  /** 紙面の中の要素(`'top'` なら先頭)が見える位置へ紙面を移す。見つからなければ false */
-  const revealAnchor = useCallback((iframeDoc: Document, hash: string): boolean => {
-    const found = findAnchorTarget(iframeDoc, hash);
-    const el = found === 'top' ? iframeDoc.getElementById('artboard') : found;
+  return useCallback((iframeDoc: Document, el: Element | null): boolean => {
     if (!el) return false;
-    const c = stateRef.current.canvas;
+    const c = canvasRef.current;
 
     if (c?.isEnabled) {
       // キャンバス: 紙面(iframe)は伸びきっていてスクロールしない。キャンバスの位置を動かす
@@ -77,6 +80,23 @@ export function useLinkNavigation() {
     });
     return true;
   }, []);
+}
+
+export function useLinkNavigation() {
+  const { contentList, currentContentId, onContentChange } = useEditorContext();
+  const canvas = useMultiPageCanvasOptional();
+  const stateRef = useRef({ contentList, currentContentId, onContentChange, canvas });
+  stateRef.current = { contentList, currentContentId, onContentChange, canvas };
+  const revealElement = useRevealElement();
+
+  /** 紙面の中の要素(`'top'` なら先頭)が見える位置へ紙面を移す。見つからなければ false */
+  const revealAnchor = useCallback(
+    (iframeDoc: Document, hash: string): boolean => {
+      const found = findAnchorTarget(iframeDoc, hash);
+      return revealElement(iframeDoc, found === 'top' ? iframeDoc.getElementById('artboard') : found);
+    },
+    [revealElement],
+  );
 
   const navigate = useCallback(
     (target: LinkTarget, iframeDoc: Document): string | void => {

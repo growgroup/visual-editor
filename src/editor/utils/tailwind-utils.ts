@@ -627,8 +627,12 @@ export function applyTailwindStyles(
 /**
  * Tailwind Browserに再コンパイルをトリガー
  * iframe内のTailwind Browserインスタンスに変更を通知
+ *
+ * 紙面へ**新しいクラスを持つ要素を足した**ときにも呼ぶ(「台帳から挿入」)。
+ * 足しただけでは Tailwind ブラウザ版がその class を知らず、当たるまで地の姿で出る。
+ * 生成した CSS は紙面の `<head>` に入るので、#artboard の中身(= 保存 HTML・履歴)は変わらない。
  */
-function triggerTailwindRecompile(element: HTMLElement): void {
+export function triggerTailwindRecompile(element: HTMLElement): void {
   try {
     const doc = element.ownerDocument;
     const win = doc?.defaultView as Window & {

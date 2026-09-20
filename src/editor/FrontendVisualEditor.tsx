@@ -32,10 +32,10 @@ import { createAuthApi } from '../lib/api/auth-fetch';
 import { useAuth } from '../components/auth/AuthProvider';
 import { findSlideRoot, findInsertionParent } from './utils/slide-root';
 import { registerAutoSaveFlush, flushAutoSave, beginContentSwitch, endContentSwitch, isContentSwitching } from './autosave';
-import { getCleanHtml } from './utils/html-utils';
+import { getCleanHtml, makeChildrenEditable } from './utils/html-utils';
 import { EditorAppearanceContext, useEditorTheme } from './contexts/EditorAppearanceContext';
 import { CanvasAppearance } from './components/shell/CanvasAppearance';
-import { can, io, type CommentRect } from '../io';
+import { can, io, notProvided, type CommentRect, type EditorInsertItem } from '../io';
 import { insertIntoFlow } from './parts';
 import type { Slide } from '../types/slide';
 import {
@@ -50,6 +50,7 @@ import {
   useComponentEditMode,
   toEditorMediaUrl,
   editorZoomApiRef,
+  useRevealElement,
 } from './hooks';
 import type { MediaItem } from './hooks';
 import {
@@ -108,6 +109,8 @@ import { Input } from '../components/ui/input';
 import { Button } from '../components/ui/button';
 import { cn } from '../lib/utils';
 import { clearPartDropIndicator } from './utils/drop-target';
+import { insertHtmlToElement, resolveInsertionPoint } from './utils/catalog-inserts';
+import { triggerTailwindRecompile } from './utils/tailwind-utils';
 import { debugLog } from './utils/debug';
 import { readStorage, writeStorage } from './utils/storage';
 import { useCollab } from './collab/useCollab';
@@ -126,6 +129,15 @@ const JsEditorDialog = lazy(() => import('./components/JsEditorDialog').then((m)
 const CssEditorDialog = lazy(() => import('./components/CssEditorDialog').then((m) => ({ default: m.CssEditorDialog })));
 const HtmlImportDialog = lazy(() => import('./components/HtmlImportDialog').then((m) => ({ default: m.HtmlImportDialog })));
 const HtmlEditorDialog = lazy(() => import('./components/HtmlEditorDialog').then((m) => ({ default: m.HtmlEditorDialog })));
+const CatalogInsertDialog = lazy(() => import('./components/CatalogInsertDialog').then((m) => ({ default: m.CatalogInsertDialog })));
+
+/**
+ * 「台帳から挿入」でページを作ったあと、そのページが `contentList` に現れるのを待つ上限。
+ * 利用側が一覧を読み直して prop を更新するまでの時間で、作る処理そのものの時間は含まない
+ */
+const NEW_PAGE_WAIT_MS = 15000;
+/** 上の待ちの試し直しの間隔 */
+const NEW_PAGE_RETRY_MS = 200;
 
 /**
  * 保存の状態表示。エディタの殻(Figma風ヘッダー / PowerPoint風タイトルバー)で共通に使う。
@@ -251,6 +263,7 @@ function FrontendVisualEditorInner({
     // [移植時の追加] ヘッダーに「何枚目の何というスライドを編集中か」を出すため
     contentList,
     currentContentId,
+    onContentChange,
     domTree,
     setDomTree,
     notifyIframeChange,
@@ -436,6 +449,11 @@ function FrontendVisualEditorInner({
 
   // メディアライブラリ状態
   const [isMediaLibraryOpen, setIsMediaLibraryOpen] = useState(false);
+
+  // 「台帳から挿入」の状態。io.loadInserts が無ければ入口ごと出さない
+  const [isCatalogInsertOpen, setIsCatalogInsertOpen] = useState(false);
+  /** createContent で作ったページ。contentList に現れたら編集中にする */
+  const [pendingNewPageId, setPendingNewPageId] = useState<string | null>(null);
 
   // ページ設定管理（CSS/JS編集、エクスポート、OGP、HTMLインポート含む）
   const {
@@ -1166,6 +1184,149 @@ function FrontendVisualEditorInner({
     if (!doc || !selectedElement?.id) return null;
     return doc.querySelector<HTMLElement>(`[data-element-id="${selectedElement.id}"]`);
   }, [getIframeDoc, selectedElement?.id]);
+
+  // ── 台帳から挿入 ───────────────────────────────────────
+  // 挿す手順は部品のドロップ(IFRAME_COMPONENT_DROP)と同じ順にする:
+  //   要素にする → 位置を決めて入れる → 編集の印を付ける → notifyIframeChange(true)
+  //   → 選択 → 視点を寄せる
+  // notifyIframeChange より先に印を付け終えないと、Undo で戻した HTML に印が無く、
+  // 押すたびに 1 段ぶん違う紙面へ戻る。履歴は必ずここ 1 回だけで 1 段になる
+  // (紙面の MutationObserver は data-editable の付け直しとレイヤー再構築だけで、履歴には触らない)
+  const revealElement = useRevealElement();
+
+  /**
+   * パネルを開いた時点の選択要素(挿入の基準)。
+   *
+   * 【なぜ挿入のときに選択を読み直さないか / なぜ紙面の `.selected` も見るか】
+   * 保存(自動保存を含む)が終わると `originalHtml` が今の姿に更新され、それを見ている
+   * 既存の effect(「ページ切替で選択が残らないように」)が選択の**状態**を空にする。
+   * 紙面の見た目(`.selected` の枠)は残るので、利用者には選んだままに見える。
+   * パネルを開いて見比べている数秒のあいだに自動保存が挟まると、選んだつもりなのに
+   * 「選択なし」= 末尾へ飛ぶ、という当たらない動きになる。
+   *
+   * そこで基準は「開いた時点」に固定し、状態が空なら紙面の `.selected` を採る
+   * (利用者が見ている選択に合わせる)。パネルは modal なので開いている間は紙面を
+   * 選び直せない = 開いた時点の選択が答えでよい。
+   * 開いている間に要素が消えた(Undo)場合は resolveInsertionPoint が弾く
+   */
+  const catalogAnchorRef = useRef<HTMLElement | null>(null);
+
+  const openCatalogInserts = useCallback(() => {
+    catalogAnchorRef.current =
+      selectedDomElement() ?? getIframeDoc()?.querySelector<HTMLElement>('#artboard .selected') ?? null;
+    setIsCatalogInsertOpen(true);
+  }, [selectedDomElement, getIframeDoc]);
+
+  const handleCatalogInsert = useCallback(
+    async (item: EditorInsertItem, opts: { dummy: boolean }) => {
+      const fetchInsert = io().fetchInsert;
+      if (!fetchInsert) throw notProvided('fetchInsert');
+      const { html: fragment } = await fetchInsert(item.id, opts);
+      const iframeDoc = getIframeDoc();
+      if (!iframeDoc) throw new Error('紙面がまだ開いていません');
+
+      const element = insertHtmlToElement(iframeDoc, fragment);
+      if (!element) throw new Error(`「${item.name}」の中身が空でした`);
+
+      const { parent, before } = resolveInsertionPoint(iframeDoc, catalogAnchorRef.current);
+      parent.insertBefore(element, before);
+
+      // エディタの印。ルート自身と、中の編集できる要素に付ける(部品の実体化と同じ手順)
+      if (!element.getAttribute('data-element-id')) {
+        element.setAttribute('data-editable', 'true');
+        element.setAttribute('data-element-id', `el-${Date.now()}-insert`);
+      }
+      makeChildrenEditable(element);
+      // 台帳の HTML は Tailwind のクラスが付いたまま来る。紙面の Tailwind ブラウザ版は
+      // 足しただけの class を知らないので、その場で生成し直させる
+      // (生成先は紙面の <head>。#artboard の中身は変わらないので履歴には載らない)
+      triggerTailwindRecompile(element);
+
+      notifyIframeChange(true);
+
+      const elementInfo = extractElementInfo(element, iframeDoc);
+      if (elementInfo) {
+        setSelectedElement(elementInfo);
+        setSelectedElementIds([element.getAttribute('data-element-id')!]);
+        // 前の選択の枠は先に外す(付けっぱなしだと 2 つ選ばれているように見え、
+        // 次に挿すときの基準にも前の要素が残る)
+        iframeDoc.querySelectorAll('.selected').forEach((el) => el.classList.remove('selected'));
+        element.classList.add('selected');
+      }
+      // 挿したものが画面の外だと「押したのに何も起きない」に見える。紙面をそこへ寄せる
+      requestAnimationFrame(() => revealElement(iframeDoc, element));
+    },
+    [getIframeDoc, selectedDomElement, notifyIframeChange, setSelectedElement, setSelectedElementIds, revealElement],
+  );
+
+  const handleCatalogCreatePage = useCallback(
+    async (item: EditorInsertItem, input: { title: string; path: string }) => {
+      const createContent = io().createContent;
+      if (!createContent) throw notProvided('createContent');
+      // parentId は利用側が案件を知っている前提で渡さない(templateId だけで足りる)
+      const { id } = await createContent({ ...input, templateId: item.id });
+      if (!id) throw new Error('作ったページの id が返りませんでした');
+      // 利用側が contentList を読み直すのを待ってから、そのページを編集中にする
+      setPendingNewPageId(id);
+    },
+    [],
+  );
+
+  const newPageStateRef = useRef({ contentList, onContentChange });
+  newPageStateRef.current = { contentList, onContentChange };
+
+  /**
+   * 作ったページが一覧に現れたら、そのページを編集中にする。
+   * 経路はリンク移動(useLinkNavigation)と同じ ── キャンバスは focusPage + activatePage、
+   * 1 ページ表示は onContentChange。どちらも未保存の変更を保存してから移る。
+   *
+   * 【なぜ contentList の変化ではなく時間で試し直すか】
+   * キャンバスのフレームは MultiPageCanvasProvider(このコンポーネントの親)の effect で
+   * contentList から組み直される。親の effect は子より後に走るので、contentList が
+   * 届いた瞬間にはまだフレームが無く、activatePage は false を返す。
+   * 「一覧に出たか」と「フレームが組めたか」の 2 つを待つので、短い間隔で試し直す
+   */
+  useEffect(() => {
+    const id = pendingNewPageId;
+    if (!id) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const deadline = Date.now() + NEW_PAGE_WAIT_MS;
+
+    const give = (message?: string) => {
+      if (cancelled) return;
+      setPendingNewPageId(null);
+      if (message) toast.error(message);
+    };
+
+    const tick = async () => {
+      if (cancelled) return;
+      const { contentList: list, onContentChange: change } = newPageStateRef.current;
+      if (list.some((c) => c.id === id)) {
+        const canvas = multiPageCanvasRef.current;
+        if (canvas?.isEnabled) {
+          canvas.focusPage(id);
+          if (await canvas.activatePage(id)) return give();
+        } else if (change) {
+          const ok = await Promise.resolve(change(id));
+          return give(ok === false ? '作ったページを開けませんでした' : undefined);
+        } else {
+          return give('このエディタではページを移れません');
+        }
+      }
+      if (cancelled) return;
+      if (Date.now() >= deadline) {
+        return give('作ったページが一覧に出てきませんでした。一覧を読み直してから開いてください');
+      }
+      timer = setTimeout(() => void tick(), NEW_PAGE_RETRY_MS);
+    };
+    void tick();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [pendingNewPageId]);
 
   /**
    * 変換のあとの後始末。
@@ -2239,6 +2400,7 @@ function FrontendVisualEditorInner({
                 selectedElement?.id && hasUngroupableChildren(selectedElement.id) ? ungroupElements : undefined,
               openFilePicker: () => openFilePicker({ x: 100, y: 100 }),
               openMediaLibrary: () => setIsMediaLibraryOpen(true),
+              openCatalogInserts: can('loadInserts') ? openCatalogInserts : undefined,
               openComponents: () => setIsComponentPanelOpen(true),
               openVariables: () => setIsVariablesPanelOpen(true),
               activeTool,
@@ -2438,6 +2600,7 @@ function FrontendVisualEditorInner({
             onImageUpload={() => openFilePicker({ x: 100, y: 100 })}
             onOpenMediaLibrary={can('apiFetch') ? () => setIsMediaLibraryOpen(true) : undefined}
             isMediaReplaceMode={isImageSelected}
+            onOpenCatalogInserts={can('loadInserts') ? openCatalogInserts : undefined}
             canComment={can('commentAction')}
             onAiRegenerate={can('apiFetch') && selectedElement && selectedElementIds.length <= 1 ? openAiPrompt : undefined}
             onOpenVariables={() => setIsVariablesPanelOpen(true)}
@@ -2712,6 +2875,24 @@ function FrontendVisualEditorInner({
         onSelect={handleMediaSelect}
         mode={isImageSelected ? 'replace' : 'insert'}
         currentSrc={selectedImageSrc}
+      />
+      </Suspense>}
+
+      {/* 台帳から挿入(io.loadInserts を渡した利用側だけ) */}
+      {isCatalogInsertOpen && <Suspense fallback={<div role="status" className="absolute bottom-16 left-4 rounded bg-[#2c2c2c] p-3">読み込み中…</div>}>
+      <CatalogInsertDialog
+        isOpen={isCatalogInsertOpen}
+        onClose={() => {
+          setIsCatalogInsertOpen(false);
+          catalogAnchorRef.current = null;
+          // ショートカットが引き続き機能するようフォーカスを復元
+          requestAnimationFrame(() => {
+            restoreFocus();
+          });
+        }}
+        editorMode={editorMode === 'slide' ? 'slide' : 'webpage'}
+        onInsert={handleCatalogInsert}
+        onCreatePage={can('createContent') ? handleCatalogCreatePage : undefined}
       />
       </Suspense>}
 

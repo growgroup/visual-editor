@@ -166,6 +166,22 @@ setEditorIO({
   ブラウザがページから iframe の中を読ませないため、エディタ自体が動きません
 - 仕組みと確かめたことは [docs/collab-2026-09.md](docs/collab-2026-09.md)
 
+### 台帳から挿入(次の版)
+
+- デザインシステムの台帳にある **セクション / パーツ / ページの雛形** を紙面に挿せます。
+  ツールバーの「＋ 追加」→「台帳から挿入」(PowerPoint 風の殻では「挿入」タブ)。
+  `loadInserts` を渡していない利用側では**項目ごと出しません**
+- 挿す位置は **選択中の要素の直後**(選択が無ければ器の末尾)。器の判定はドラッグ&ドロップと同じです。
+  挿した要素は選択状態になり、紙面がそこへ寄ります。**取り消し(⌘Z)1 回で消えます**
+- 「見出し・リード文を赤字ダミーにする」(既定 ON)はそのまま `fetchInsert` の `opts.dummy` に渡ります。
+  赤字にするかどうかの整形は利用側の仕事です
+- ページの雛形(`level` が `TPL` / `PAG`)は紙面に挿さず、タイトルとパスを決めて `createContent` を呼びます。
+  作ったページが `contentList` に出てきたら、そのページを編集中にします
+- スライドでは ページの雛形 と 赤字ダミーのチェック を出しません
+- 利用側は `<section class="wf-ds" data-ds="…" data-ds-v="…">` で包んだ HTML を返します。
+  エディタは包み直さず、`<script>` と `on*` だけ落とします
+- 仕組みと確かめたこと、穴は [docs/catalog-inserts-2026-09.md](docs/catalog-inserts-2026-09.md)
+
 ### スライドを開くと版面がずれる(0.8.1)
 
 - 部品の中の罫線など**編集対象でない要素が上へ詰まる**件と、**全要素の幅・高さが 1px 膨らむ**(1px の罫線が 2px になる)件を直しました。
@@ -224,6 +240,7 @@ setEditorIO({
 | `renderContent` | 一覧のサムネイルを描かない |
 | `notifySave` | 保存結果を通知しない |
 | `loadParts` / `savePart` / `deletePart` | 部品パネルはブラウザ内(localStorage)の JSON コンポーネントを使う（0.1 系と同じ） |
+| `loadInserts` / `fetchInsert` / `createContent` | 「台帳から挿入」を出さない（`loadInserts` が無ければ入口ごと出ない） |
 | `loadVariables` / `saveVariables` | CSS 変数はブラウザ内(localStorage)に持つ（0.1 系と同じ） |
 
 ```ts

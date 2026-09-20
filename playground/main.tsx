@@ -5,6 +5,7 @@ import { VisualEditor, setEditorIO, type EditorDeck, type EditorIO } from '../sr
 import { applyDeck } from '../src/components/viewer/useDeck';
 import { webpage, slides, webpagePages } from './samples';
 import { partsLibrary, partsPage, createPartsStore } from './parts-samples';
+import { insertsCatalog, fetchInsertHtml, insertsPage, newPageHtml } from './inserts-samples';
 import { getCleanHtml } from '../src/editor/utils/html-utils';
 import { socketFor } from '../src/editor/collab/connection';
 import '../dist/editor.css';
@@ -13,6 +14,9 @@ import './playground.css';
 const params = new URLSearchParams(location.search);
 // ?mode=parts … webpage モード + 部品(loadParts/savePart)と CSS 変数(loadVariables/saveVariables)のメモリ実装
 const parts = params.get('mode') === 'parts';
+// ?mode=inserts … 「台帳から挿入」(loadInserts / fetchInsert / createContent)のメモリ実装。
+// ?mode=slide&inserts / ?mode=inserts&canvas でスライド・キャンバスでも確かめられる
+const inserts = params.get('mode') === 'inserts' || params.has('inserts');
 const mode = params.get('mode') === 'slide' ? 'slide' : 'webpage';
 const minimal = params.has('minimal');
 // ?canvas … Figma 風のマルチフレームキャンバス(全ページを 1 枚のキャンバスに並べる)
@@ -31,12 +35,34 @@ const thumbUrl = (n: number) =>
     `<svg xmlns="http://www.w3.org/2000/svg" width="546" height="360" viewBox="0 0 1820 1200"><rect width="1820" height="1200" fill="#eef2f7"/><rect x="120" y="120" width="900" height="90" fill="#c9d4e3"/><rect x="120" y="260" width="1580" height="40" fill="#dce3ec"/><rect x="120" y="330" width="1400" height="40" fill="#dce3ec"/><text x="120" y="900" font-family="sans-serif" font-size="220" fill="#8fa3bb">page ${n}</text></svg>`,
   );
 const thumbPages = Array.from({ length: THUMB_COUNT }, (_, i) => webpagePages[i % webpagePages.length]);
-const sampleHtml = parts
+const sampleHtml = inserts && mode === 'webpage'
+  ? [insertsPage]
+  : parts
   ? [partsPage]
   : mode === 'webpage'
     ? (thumbsMode ? thumbPages.map((p) => p.html) : canvasMode ? webpagePages.map((p) => p.html) : [webpage])
     : canvasMode ? [...slides, ...slides, ...slides] : slides;
 const partsStore = createPartsStore();
+/** 「台帳から挿入」の呼び出し記録。検証で window.editorPlayground.inserts から読む */
+const insertsLog: { op: 'loadInserts' | 'fetchInsert' | 'createContent'; id?: string; dummy?: boolean; input?: unknown; at: string }[] = [];
+const insertsIo: EditorIO = {
+  // 作ったページを開けるように本文の読み込みを渡す(これが無いとページを移れない)
+  loadContent: async (id: string) => documents.get(entry(Number(id)).id) ?? '',
+  loadInserts: async () => { insertsLog.push({ op: 'loadInserts', at: new Date().toISOString() }); return insertsCatalog(); },
+  fetchInsert: async (id, opts) => { insertsLog.push({ op: 'fetchInsert', id, dummy: opts.dummy, at: new Date().toISOString() }); return fetchInsertHtml(id, opts.dummy); },
+  // 新しいページを作って一覧に足す。利用側(この playground)が contentList を更新する経路を必ず通す
+  createContent: async (input) => {
+    insertsLog.push({ op: 'createContent', input, at: new Date().toISOString() });
+    const item = { id: uid(), title: input.title, template: input.templateId ?? 'page', edited: false, comments: [] };
+    documents.set(item.id, newPageHtml(input.title, input.templateId));
+    deck.slides.push(item);
+    deck.version++;
+    // contentList の id は並び順(String(i+1))。作ったページは末尾なので長さがそのまま id になる
+    const id = String(deck.slides.length);
+    window.dispatchEvent(new CustomEvent('gg:deck-changed'));
+    return { id };
+  },
+};
 const partsIo: EditorIO = {
   loadParts: async () => ({
     categories: partsLibrary.categories,
@@ -98,6 +124,7 @@ const adapter: EditorIO = {
     },
   } : {}),
   ...(parts ? partsIo : {}),
+  ...(inserts ? insertsIo : {}),
 };
 /**
  * ?collab=ws://127.0.0.1:5418&name=A&room=pg … リアルタイム共同編集(io.collab)。
@@ -134,6 +161,8 @@ const editorCleanHtml = () => {
 Object.assign(window, {
   editorPlayground: {
     saveLog, failure, documents, deck: () => clone(), parts: partsStore, cleanHtml: editorCleanHtml,
+    // 「台帳から挿入」の呼び出し記録(loadInserts / fetchInsert / createContent)
+    inserts: insertsLog,
     // 共同編集の WebSocket(検証で切断 → 再接続を起こす)
     collabSocket: () => (collabUrl ? socketFor(collabUrl) : null),
   },
@@ -145,6 +174,8 @@ function Playground() {
   const [revision, setRevision] = useState(0);
   const [saves, setSaves] = useState(0);
   const [closed, setClosed] = useState(false);
+  /** 一覧(deck.slides)が変わったことを描画に伝えるだけのカウンタ */
+  const [, setDeckRev] = useState(0);
   useEffect(() => {
     const showPage = () => {
       const n = Math.max(1, Math.min(deck.slides.length, Number(location.hash.match(/edit\/(\d+)/)?.[1]) || 1));
@@ -153,15 +184,24 @@ function Playground() {
       if (canvasMode) return;
       setOpened({ id: item.id, html: documents.get(item.id)! }); setRevision((v) => v + 1);
     };
+    // 一覧そのものが変わった(createContent でページが増えた)ときは描き直すだけ。
+    // エディタは作り直さない ── contentList の prop が変われば足りる
+    const refresh = () => setDeckRev((v) => v + 1);
     window.addEventListener('hashchange', showPage);
     window.addEventListener('gg:deck-mutated', showPage);
-    return () => { window.removeEventListener('hashchange', showPage); window.removeEventListener('gg:deck-mutated', showPage); };
+    window.addEventListener('gg:deck-changed', refresh);
+    return () => {
+      window.removeEventListener('hashchange', showPage);
+      window.removeEventListener('gg:deck-mutated', showPage);
+      window.removeEventListener('gg:deck-changed', refresh);
+    };
   }, []);
   return <div className="pg-layout">
     <aside className="pg-rail">
       <strong>Visual Editor</strong><span className="pg-caption">リデザインの動作確認</span>
-      <nav><a href="?mode=webpage" aria-current={mode === 'webpage' && !parts && !canvasMode ? 'page' : undefined}>構成ラフ</a><a href="?mode=slide" aria-current={mode === 'slide' && !canvasMode ? 'page' : undefined}>スライド</a><a href="?mode=parts" aria-current={parts ? 'page' : undefined}>部品</a><a href="?mode=webpage&canvas" aria-current={mode === 'webpage' && canvasMode ? 'page' : undefined}>キャンバス(構成ラフ)</a><a href="?mode=slide&canvas" aria-current={mode === 'slide' && canvasMode ? 'page' : undefined}>キャンバス(スライド)</a><a href="?mode=webpage&canvas&thumbs" aria-current={thumbsMode ? 'page' : undefined}>キャンバス(サムネイル26枚)</a></nav>
+      <nav><a href="?mode=webpage" aria-current={mode === 'webpage' && !parts && !canvasMode ? 'page' : undefined}>構成ラフ</a><a href="?mode=slide" aria-current={mode === 'slide' && !canvasMode ? 'page' : undefined}>スライド</a><a href="?mode=parts" aria-current={parts ? 'page' : undefined}>部品</a><a href="?mode=inserts" aria-current={inserts ? 'page' : undefined}>台帳から挿入</a><a href="?mode=webpage&canvas" aria-current={mode === 'webpage' && canvasMode ? 'page' : undefined}>キャンバス(構成ラフ)</a><a href="?mode=slide&canvas" aria-current={mode === 'slide' && canvasMode ? 'page' : undefined}>キャンバス(スライド)</a><a href="?mode=webpage&canvas&thumbs" aria-current={thumbsMode ? 'page' : undefined}>キャンバス(サムネイル26枚)</a></nav>
       {canvasMode && <div className="pg-card"><strong>マルチフレームのキャンバス</strong><p>全ページが並びます。クリックしたページが編集対象。ホイールで移動、⌘+ホイールで拡大縮小、Space+ドラッグで移動。⇧1 全体 / ⇧2 このページ / ⇧R 定規。</p></div>}
+      {inserts && <div className="pg-card"><strong>台帳から挿入</strong><p>下の「＋ 追加」→「台帳から挿入」。選択中の要素の直後に入ります。ページの雛形(TPL/PAG)は createContent で新しいページを作ります。</p><p>呼び出し記録は window.editorPlayground.inserts。</p></div>}
       {parts && <div className="pg-card"><strong>部品モード</strong><p>左パネルの部品をドロップ → 実体化(data-part)。CTA 帯はスロット(見出し・説明)だけ編集できます。右クリックで「部品として保存」「切り離す」。</p><p>保存先はメモリ(window.editorPlayground.parts)。</p></div>}
       <div className="pg-card"><strong>確認すること</strong><p>文字をダブルクリックして編集。要素を選んでコメントを追加できます。</p><p>上部の「…」からライト／ダークを切り替えられます。</p></div>
       <div className="pg-card"><strong>メモリ上に保存</strong><p>保存 {saves} 回</p><p>再読み込みすると編集とコメントは初期状態に戻ります。</p></div>

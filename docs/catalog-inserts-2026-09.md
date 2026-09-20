@@ -1,0 +1,167 @@
+# 台帳から挿入(2026-09)
+
+デザインシステムの台帳にある **セクション / パーツ / ページの雛形** を、エディタの紙面に挿せるようにした。
+
+利用側(構成ラフの殻)が台帳の部品を **静的な HTML** として渡してくる。Tailwind のクラスは付いたままで、
+色はトークン名なので、紙面の CSS が解決できないものは地の色のまま出る(これは意図した姿で、
+構成ラフの段階で色を決めないため)。エディタはそれを紙面に入れ、既存の保存経路でページに書く
+(= 案件のファイルにコピーされる)。
+
+## io は 3 つ(すべて任意)
+
+```ts
+/** 台帳の目録(利用側が束ねる)。無ければ「台帳から挿入」は出さない */
+loadInserts?: () => Promise<EditorInsertCatalog>;
+/** 1 件の HTML(断片)。dummy は見出し・リード文を赤字ダミーにする利用側の整形 */
+fetchInsert?: (id: string, opts: { dummy: boolean }) => Promise<{ html: string; name?: string }>;
+/** 新しいページを作る(TPL / PAG の挿入) */
+createContent?: (input: { title: string; path: string; templateId?: string; parentId?: string }) => Promise<{ id: string }>;
+```
+
+```ts
+type EditorInsertLevel = 'SEC' | 'MOL' | 'TPL' | 'PAG' | (string & {});
+type EditorInsertItem = {
+  id: string;
+  name: string;
+  family?: string;
+  description?: string;
+  level?: EditorInsertLevel;
+  previewUrl?: string;
+  source?: 'ledger' | 'local';
+};
+type EditorInsertGroup = { id: string; label: string; items: EditorInsertItem[] };
+type EditorInsertCatalog = { groups: EditorInsertGroup[] };
+```
+
+`level` は `'SEC'|'MOL'|'TPL'|'PAG'|string` ではなく `(string & {})` で書いてある。
+素の `string` を混ぜると共用体が `string` に潰れて補完が消えるため、受け付ける値は同じまま、
+IDE に 4 つを出させている。
+
+**役割分担**: 何が台帳にあるか・HTML をどう整形するかは利用側。エディタは
+「紙面のどこに入れるか」「編集の印を付ける」「履歴に 1 段で載せる」の 3 つだけを持つ。
+
+## 入口
+
+ツールバーの「＋ 追加」に「台帳から挿入」。`loadInserts` が無い利用側では**項目ごと出さない**
+(io の capability ベース。押すと失敗するボタンを残さないため)。
+webpage / slide の両方に出し、PowerPoint 風の殻では「挿入」タブのリボンに出す。
+
+## パネル
+
+- 左に 分類(利用側のグループ)と 系統(`family`)の絞り込み、上に検索(名前・説明・系統の部分一致)
+- 本体はカード一覧。`previewUrl` があれば iframe を縮小して見本にする
+  (`loading="lazy"`、`pointer-events: none`、sandbox 無し)
+- 1 件選ぶと右に大きめの見本と「挿入」。「見出し・リード文を赤字ダミーにする」は既定 ON で、
+  そのまま `fetchInsert` の `opts.dummy` になる
+- Esc で閉じる。開くと検索欄にフォーカスが入る
+
+slide モードでは `level` が `TPL` / `PAG` の項目を目録から外し(グループが空になれば分類も消える)、
+赤字ダミーのチェックも出さない。判定はグループの id ではなく `level` で行う(グループ id は利用側が決めるため)。
+
+## 挿入位置
+
+```
+選択あり → 選択(またはその祖先で「器」の直下にいるもの)の直後
+選択なし → 器の末尾
+器 = <main> / [data-wf-body] / #artboard / body
+```
+
+器の判定は `src/editor/utils/drop-target.ts` の `isContainer` / `fallbackContainer` を
+ドラッグ&ドロップと**共有**している。別々に書くと「ドロップした場所と挿入した場所が違う」
+という一番たちの悪いズレ方をする。
+
+## 履歴は 1 段
+
+挿す手順は部品のドロップ(`IFRAME_COMPONENT_DROP`)と同じ順にしてある。
+
+1. `fetchInsert` → `<script>` と `on*` を落とす → 要素にする
+2. 位置を決めて `insertBefore`
+3. 編集の印(`data-editable` / `data-element-id`)を付ける(ルート + `makeChildrenEditable`)
+4. `notifyIframeChange(true)` ← ここで履歴に 1 段
+5. 選択状態にして、紙面をそこへ寄せる
+
+印を 4 より先に付け終えないと、Undo で戻した HTML に印が無く、押すたびに 1 段ぶん違う紙面へ戻る。
+紙面の MutationObserver は `data-editable` の付け直しとレイヤー一覧の作り直しだけで履歴に触らないので、
+履歴はここ 1 回で 1 段になる。
+
+## サニタイズは `<script>` と `on*` だけ
+
+貼り付け用の `paste-sanitizer.ts`(DOMPurify)は**通していない**。あちらは許可する属性を
+列挙する作りで、`data-ds` / `data-ds-v` / `data-slot` のような台帳側の目印が黙って消える。
+挿入元は利用側が自分で作った HTML(外から来た文字列ではない)なので、
+「紙面で script を動かさない」という既存の方針だけを守る。
+
+利用側が `<section class="wf-ds" data-ds="…" data-ds-v="…">` で包んで渡す前提で、
+**エディタは包み直さない**。断片のルートが 2 つ以上あるときは先頭だけを使う
+(器を勝手に足すと、保存 HTML に出どころ不明の `<div>` が増えるため)。
+
+## ページを作る(TPL / PAG)
+
+1. 「ページを作る」→ タイトルとパス(`/` 始まりの英小文字・数字・ハイフン・スラッシュ)
+2. `createContent({ title, path, templateId })`
+3. 戻りの id を覚えて、利用側が `contentList` を読み直すのを待つ
+4. 現れたら、リンク移動(`useLinkNavigation`)と同じ経路でそのページを編集中にする
+   - キャンバス … `focusPage` + `activatePage`
+   - 1 ページ表示 … `onContentChange`
+
+   どちらも未保存の変更を保存してから移る(保存はこの経路が既に持っている。自前で呼ばない)
+
+**待ち方**: キャンバスのフレームは `MultiPageCanvasProvider`(エディタ本体の親)の effect で
+`contentList` から組み直される。親の effect は子より後に走るので、`contentList` が届いた瞬間には
+まだフレームが無く `activatePage` は false を返す。「一覧に出たか」と「フレームが組めたか」の
+2 つを待つ必要があるので、200ms ごとに試し直し、15 秒で諦めて知らせる(黙って待ち続けない)。
+
+`useLinkNavigation` の視点移動を `useRevealElement` として切り出し、アンカー移動と
+挿入後の移動で同じ計算を使うようにした。キャンバスでは紙面(iframe)が伸びきっていて
+スクロールしないので、`scrollIntoView` では何も動かない。
+
+## 確かめたこと
+
+playground に `?mode=inserts` を足し(`playground/inserts-samples.ts` が目録・HTML・
+`createContent` のメモリ実装)、headless Chrome で次を見た。
+
+| 見たこと | 結果 |
+|---|---|
+| `loadInserts` があると「＋ 追加」に「台帳から挿入」が出る | 出る |
+| `loadInserts` が無い利用側(`?mode=webpage`)では出ない | 出ない |
+| パネル: カード 9 件・検索欄にフォーカス・分類と系統の絞り込み | OK |
+| 検索「CTA」(`family` が対象) | 1 件に絞れる |
+| Esc で閉じる | 閉じる |
+| 選択なしで挿す | 器の末尾に入る |
+| 2 つめのセクションを選んで挿す | その直後に入る(`HEADER, SECTION, SECTION, FOOTER, …` → 選択の次) |
+| 挿した要素に `data-editable` と id が付く | ルート + 子孫 4/4 |
+| 挿した要素が選択され、紙面がそこへ寄る | 選択済み・`scrollTop` が動く |
+| 赤字ダミー 既定 ON → 見出しが赤 | 赤(`#a42323`) |
+| ダミーを OFF にして挿す | 実文・赤くない |
+| **Undo 1 回で消える / Redo で戻る** | 消える・戻る(1 段) |
+| 保存 HTML(`getCleanHtml`) | `data-ds` 3 件・`<script>` 0 件・`data-editable` 0 件・`selected` 0 件 |
+| ページの雛形を選ぶと「挿入」が消え「ページを作る」になる | なる(ダミー欄も出ない) |
+| パスが `company`(`/` 無し)だと送れない | 送れない |
+| `createContent({title:'会社情報',path:'/company',templateId:'tpl-lower'})` が呼ばれる | 呼ばれる |
+| 作ったページが一覧に出て、編集中になる | 1 ページ表示・キャンバスの両方で切り替わった |
+| slide で TPL / PAG が目録に出ない | 出ない(7 件。webpage は 9 件) |
+| slide で赤字ダミーのチェックを出さない | 出さない |
+| slide で挿すと `#artboard` の直下に入る | 入る |
+| PowerPoint 風の殻の「挿入」タブにボタンが出る | 出る |
+| 見本の iframe が中身を持つ | 7/7 |
+| `npx tsc --noEmit -p .` / `npm run build` | 通る |
+
+## 穴(分かっていて直していないこと)
+
+- **選択が無いときの「器の末尾」は、フッターの後ろになる**。器が `<main>` で、フッターも
+  その直下にいるため。ドラッグ&ドロップ(`findFlowInsertion`)と同じ規則なので揃ってはいる。
+  「本文の最後」にしたい利用側は、本文の器に `data-wf-body` を付ける
+- **slide でも流し込みで入れる**(`#artboard` の末尾に足すだけで `position: absolute` にしない)。
+  部品のドロップは slide で絶対配置にしているので、そこと揃っていない。
+  slide に台帳のセクションを入れる使い方が固まってから決める
+- `createContent` に **`parentId` を渡していない**。どの階層に作るかは利用側が決める前提で、
+  いまは `templateId` だけを渡す。階層を選ばせたくなったらパネルに増やす
+- サニタイズは `<script>` と `on*` だけ。`<iframe>` / `<style>` / `<link>` は**落としていない**。
+  台帳が利用側のものである前提に乗っている
+- 見本の iframe に **`sandbox` を付けていない**。同上
+- 目録は**パネルを開くたびに読む**(キャッシュしない)。台帳が大きくなったら `loadInserts` の側で持つ
+- 挿した HTML に `data-slot` があっても、`data-part` が無いのでスロットのロックは効かない
+  (全部が編集できる)。台帳の部品を「部品」として扱いたくなったら、
+  利用側が `data-part` を付けて返すか、`loadParts` の側に載せる
+- **挿したものが紙面の外にはみ出したときの畳み方**は見ていない。台帳の HTML は紙面の幅に
+  合う前提で、合わなければ横スクロールが出る

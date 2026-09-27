@@ -17,6 +17,7 @@
 import type { EditorPartDef } from '../io';
 import { findFlowInsertion } from './utils/drop-target';
 import { isNonEditableTag } from './utils/dom-utils';
+import { isInsideSvg } from './utils/svg-hit';
 
 export const PART_ATTR = 'data-part';
 export const PART_VERSION_ATTR = 'data-part-v';
@@ -317,7 +318,7 @@ export function unlockPartDescendants(root: HTMLElement): number {
   let i = 0;
   const stamp = Date.now();
   for (const el of Array.from(root.querySelectorAll('*'))) {
-    if (el.closest('script, style, svg path, svg g')) continue;
+    if (el.closest('script, style') || isInsideSvg(el)) continue;
     if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
     if (isNonEditableTag(el)) continue;
     if (!el.getAttribute('data-element-id')) {

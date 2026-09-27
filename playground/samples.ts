@@ -39,3 +39,21 @@ export const webpagePages: { title: string; html: string }[] = [
 </main>`,
   },
 ];
+
+/**
+ * ?mode=svg … SVG の選択を確かめる見本。
+ *   - ボタンの中のアイコン(線だけの矢印)
+ *   - 文字の上に重なる装飾の SVG(斜めの線。箱は見出し・段落・ボタンを覆う)
+ *   - 塗りのある SVG(円)
+ */
+export const svgProbe = `<main style="width:100%;font-family:system-ui,sans-serif;color:#242424;background:white">
+<section id="svgprobe" style="position:relative;padding:64px">
+<h2 id="probe-heading" style="font-size:36px;margin:0">見出し（SVG の下にある文字）</h2>
+<p id="probe-text" style="font-size:18px;margin:16px 0 0">この段落は装飾の SVG の下にあります。クリックで選びたい。</p>
+<a id="probe-btn" href="#" style="display:inline-flex;align-items:center;gap:8px;margin-top:24px;height:44px;padding:0 24px;background:#222;color:#fff;text-decoration:none"><span>ボタン</span><svg id="probe-icon" aria-hidden="true" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6l6 6-6 6"/></svg></a>
+<svg id="probe-overlay" style="position:absolute;left:0;top:0" width="900" height="260" viewBox="0 0 900 260" fill="none"><path d="M0 250 L900 10" stroke="#999" stroke-width="3"/></svg>
+<div id="probe-drawn" style="position:absolute;left:420px;top:40px;width:360px;height:200px;background-color:transparent"><svg width="360" height="200" style="position:absolute;left:0;top:0;overflow:visible"><line x1="0" y1="0" x2="360" y2="200" stroke="#555" stroke-width="2"/></svg></div>
+<svg id="probe-filled" style="position:absolute;right:64px;top:64px" width="120" height="120" viewBox="0 0 120 120"><circle cx="60" cy="60" r="50" fill="#e5e5e5"/></svg>
+</section>
+<section id="svgafter" style="padding:64px;background:#f3f3f3"><p id="after-text" style="font-size:18px;margin:0">SVG の無いセクション</p></section>
+</main>`;

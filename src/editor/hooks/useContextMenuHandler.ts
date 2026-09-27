@@ -9,6 +9,7 @@ import { useCallback, useRef, useEffect, MutableRefObject } from 'react';
 import { useEditorContext } from '../EditorContext';
 import { updateSelectionBox } from '../utils/dom-utils';
 import { extractElementInfo } from '../utils/style-utils';
+import { passThroughSvg } from '../utils/svg-hit';
 
 interface UseContextMenuHandlerOptions {
   /** 編集可能要素を取得する関数 */
@@ -86,7 +87,8 @@ export function useContextMenuHandler(
         const y = iframeRect.top + e.clientY * outerScale;
 
         // 要素がクリックされた場合は選択
-        const element = getEditableElement(e.target, iframeDoc);
+        // SVG の箱の空きは素通りさせる(クリックの判別と同じ。utils/svg-hit.ts)
+        const element = getEditableElement(passThroughSvg(iframeDoc, e.target, e.clientX, e.clientY), iframeDoc);
         if (element) {
           const elementId = element.getAttribute('data-element-id') || '';
           const currentIds = selectedElementIdsRef.current;

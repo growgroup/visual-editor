@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Toaster, toast } from 'sonner';
 import { VisualEditor, setEditorIO, type EditorDeck, type EditorIO } from '../src/index';
 import { applyDeck } from '../src/components/viewer/useDeck';
-import { webpage, slides, webpagePages } from './samples';
+import { webpage, slides, webpagePages, svgProbe } from './samples';
 import { partsLibrary, partsPage, createPartsStore } from './parts-samples';
 import { insertsCatalog, fetchInsertHtml, insertsPage, newPageHtml } from './inserts-samples';
 import { getCleanHtml } from '../src/editor/utils/html-utils';
@@ -35,7 +35,10 @@ const thumbUrl = (n: number) =>
     `<svg xmlns="http://www.w3.org/2000/svg" width="546" height="360" viewBox="0 0 1820 1200"><rect width="1820" height="1200" fill="#eef2f7"/><rect x="120" y="120" width="900" height="90" fill="#c9d4e3"/><rect x="120" y="260" width="1580" height="40" fill="#dce3ec"/><rect x="120" y="330" width="1400" height="40" fill="#dce3ec"/><text x="120" y="900" font-family="sans-serif" font-size="220" fill="#8fa3bb">page ${n}</text></svg>`,
   );
 const thumbPages = Array.from({ length: THUMB_COUNT }, (_, i) => webpagePages[i % webpagePages.length]);
-const sampleHtml = inserts && mode === 'webpage'
+const svgMode = params.get('mode') === 'svg';
+const sampleHtml = svgMode
+  ? [svgProbe]
+  : inserts && mode === 'webpage'
   ? [insertsPage]
   : parts
   ? [partsPage]
@@ -103,7 +106,11 @@ const adapter: EditorIO = {
     if (failure.comment) throw new Error('送信失敗の確認用です。失敗設定を解除して再送信してください。');
     const target = entry(page);
     const comments = target.comments ??= [];
-    if (action.action === 'add') comments.push({ ...action, id: uid(), createdAt: new Date().toISOString() });
+    if (action.action === 'add') {
+      // ?oldhost … 範囲コメント(0.4.0)より前の殻と同じく anchorRect と seq を捨てて保存する(anchorLabel だけ残る)
+      const { anchorRect: _dropped, ...kept } = action;
+      comments.push({ ...(params.has('oldhost') ? kept : action), id: uid(), createdAt: new Date().toISOString() });
+    }
     else {
       const c = comments.find((c) => c.id === action.commentId);
       if (!c) throw new Error('コメントが見つかりません');

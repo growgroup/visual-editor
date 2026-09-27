@@ -223,6 +223,26 @@ export function fitRect(rect: CommentRect, artboard: HTMLElement): CommentRect {
   return { x: rect.x * sx, y: rect.y, width: rect.width * sx, height: rect.height };
 }
 
+/**
+ * コメントの範囲。anchorRect が無くても、表示用の文言(「範囲 (x, y) w×h」「点 (x, y)」)から戻す。
+ *
+ * 【なぜ文言から戻すか】
+ * 範囲コメント(0.4.0)より前の提案書・構成ラフの殻は、コメントの保存で anchorRect と seq を捨て、
+ * anchorLabel だけを残す(殻の vite-plugin の許可リストに無いため)。そのままだと範囲を指定して投稿しても
+ * 紙面に枠が出ず、「範囲が表示されない」になる。文言はエディタが describeRect で書いた形なので、そこから戻せる。
+ * 要素に付けたコメント(anchorSrc)の anchorLabel は要素の文字なので読まない
+ */
+export function anchorRectOf(c: Pick<SlideComment, 'anchorRect' | 'anchorLabel' | 'anchorSrc'>): CommentRect | undefined {
+  if (c.anchorRect) return c.anchorRect;
+  if (c.anchorSrc || !c.anchorLabel) return undefined;
+  const num = '(-?\\d+(?:\\.\\d+)?)';
+  const range = c.anchorLabel.match(new RegExp(`^範囲 \\(${num}, ${num}\\) ${num}×${num}$`));
+  if (range) return { x: +range[1], y: +range[2], width: +range[3], height: +range[4] };
+  const point = c.anchorLabel.match(new RegExp(`^点 \\(${num}, ${num}\\)$`));
+  if (point) return { x: +point[1], y: +point[2], width: 0, height: 0 };
+  return undefined;
+}
+
 /** 矩形を人が読む形に(「範囲 (120, 840) 600×240」「点 (120, 840)」) */
 export function describeRect(r: CommentRect): string {
   const n = (v: number) => String(Math.round(v));
@@ -282,7 +302,7 @@ export function useCommentMarkers({
       const artboard = doc?.getElementById('artboard');
       if (!doc || !artboard) return;
       const layer = ensureCommentLayer(doc, artboard);
-      const shown = comments.filter((c) => (c.anchorRect || c.anchorSrc) && !c.resolved);
+      const shown = comments.filter((c) => (anchorRectOf(c) || c.anchorSrc) && !c.resolved);
       const wanted = new Set(shown.map((c) => c.id));
       layer.querySelectorAll<HTMLElement>('[data-comment-id]').forEach((el) => {
         if (!wanted.has(el.dataset.commentId!)) el.remove();
@@ -318,8 +338,9 @@ export function useCommentMarkers({
         const isActive = c.id === activeThreadId;
         let x = 0;
         let y = 0;
-        if (c.anchorRect) {
-          const r = fitRect(c.anchorRect, artboard);
+        const anchorRect = anchorRectOf(c);
+        if (anchorRect) {
+          const r = fitRect(anchorRect, artboard);
           if (isPointRect(r)) {
             layer.querySelector(`[data-comment-id="${CSS.escape(c.id)}"][data-comment-rect]`)?.remove();
             x = r.x - size / 2;
@@ -404,7 +425,7 @@ export function useCommentMarkers({
   }, [
     active, page, getIframeDoc, outerZoom, activeThreadId,
     JSON.stringify(draftRect),
-    JSON.stringify(comments.map((c) => [c.id, c.anchorSrc, c.anchorRect, c.seq, c.resolved, c.author, c.text])),
+    JSON.stringify(comments.map((c) => [c.id, c.anchorSrc, c.anchorRect, c.anchorLabel, c.seq, c.resolved, c.author, c.text])),
   ]);
 }
 
@@ -770,10 +791,10 @@ export function PptCommentsPanel({
         </button>
       </div>
 
-      {c.anchorRect ? (
+      {anchorRectOf(c) ? (
         <div className="mt-1.5 flex items-center gap-1 text-[10px]" style={{ color: 'var(--ed-accent)' }} data-comment-rect-label>
           <Crosshair className="h-3 w-3" />
-          {describeRect(c.anchorRect)}
+          {describeRect(anchorRectOf(c)!)}
         </div>
       ) : c.anchorSrc && (
         <div className="mt-1.5 flex items-center gap-1 text-[10px]" style={{ color: 'var(--ed-accent)' }}>

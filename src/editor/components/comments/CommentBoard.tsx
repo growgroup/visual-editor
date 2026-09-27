@@ -24,7 +24,7 @@ import { useState } from 'react';
 import { Check, CornerUpLeft, Crosshair, ExternalLink, MapPin, MessageSquare, RotateCcw, Send, Trash2 } from 'lucide-react';
 import type { Deck, SlideComment } from '../../../lib/deck';
 import { PPT_PALETTES, type PptTheme } from '../ppt/PptChrome';
-import { describeRect, fmtTime, unresolvedCount } from '../ppt/PptComments';
+import { anchorRectOf, describeRect, fmtTime, unresolvedCount } from '../ppt/PptComments';
 
 /**
  * アンカー・返信のリンク色。
@@ -371,14 +371,14 @@ function BoardCard({
       {/* 何に対する指摘か。範囲 > 要素 > ページ全体 */}
       <div
         className="mt-1.5 flex items-center gap-1 text-[10px]"
-        style={{ color: comment.anchorRect || comment.anchorSrc ? accent : pal.sub }}
+        style={{ color: anchorRectOf(comment) || comment.anchorSrc ? accent : pal.sub }}
         title={comment.anchorSrc}
       >
-        {comment.anchorRect ? <Crosshair className="h-3 w-3 shrink-0" /> : <MapPin className="h-3 w-3 shrink-0" />}
+        {anchorRectOf(comment) ? <Crosshair className="h-3 w-3 shrink-0" /> : <MapPin className="h-3 w-3 shrink-0" />}
         <span className="truncate">
           {comment.seq != null && <span className="mr-1 tabular-nums">#{comment.seq}</span>}
-          {comment.anchorRect
-            ? describeRect(comment.anchorRect)
+          {anchorRectOf(comment)
+            ? describeRect(anchorRectOf(comment)!)
             : comment.anchorSrc ? (comment.anchorLabel ? `「${comment.anchorLabel}」` : '要素に添付') : 'ページ全体'}
         </span>
       </div>

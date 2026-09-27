@@ -106,7 +106,11 @@ const adapter: EditorIO = {
     if (failure.comment) throw new Error('送信失敗の確認用です。失敗設定を解除して再送信してください。');
     const target = entry(page);
     const comments = target.comments ??= [];
-    if (action.action === 'add') comments.push({ ...action, id: uid(), createdAt: new Date().toISOString() });
+    if (action.action === 'add') {
+      // ?oldhost … 範囲コメント(0.4.0)より前の殻と同じく anchorRect と seq を捨てて保存する(anchorLabel だけ残る)
+      const { anchorRect: _dropped, ...kept } = action;
+      comments.push({ ...(params.has('oldhost') ? kept : action), id: uid(), createdAt: new Date().toISOString() });
+    }
     else {
       const c = comments.find((c) => c.id === action.commentId);
       if (!c) throw new Error('コメントが見つかりません');

@@ -26,6 +26,7 @@ import { extractElementInfo } from "../utils/style-utils";
 import { MARQUEE_DRAG_THRESHOLD } from "../constants";
 import type { DragState, ResizeState, MarqueeState } from "../types";
 import { debugLog } from '../utils/debug';
+import { passThroughSvg } from '../utils/svg-hit';
 
 /**
  * mousedown で保留し、mouseup で意味を確定するクリック情報
@@ -1181,6 +1182,9 @@ export function useElementSelection(
                   ),
               ) ?? null;
         }
+        // SVG の箱の中で何も描かれていない所を押したら、SVG を素通りして下の要素を押したことにする。
+        // 装飾の SVG が文字やボタンに重なっていると、素のクリックも Cmd+クリックも SVG しか選べなかった(utils/svg-hit.ts)
+        hitSource = passThroughSvg(iframeDoc, hitSource, e.clientX, e.clientY);
         const hit = getEditableElement(hitSource, iframeDoc);
         // 空白＝押した点の祖先に編集可能要素がまったく無い状態。
         // #artboard / 紙面と同じ大きさの器 / #artboard-wrapper / #canvas-container は
@@ -1432,7 +1436,7 @@ export function useElementSelection(
 
 
         const isCtrlCmd = e.ctrlKey || e.metaKey;
-        const deepElement = getEditableElement(e.target, iframeDoc);
+        const deepElement = getEditableElement(passThroughSvg(iframeDoc, e.target, e.clientX, e.clientY), iframeDoc);
 
         if (!deepElement) return;
 

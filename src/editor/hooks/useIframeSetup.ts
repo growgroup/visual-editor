@@ -12,6 +12,7 @@ import { buildDomTree, isInlineElement, isNonEditableTag } from '../utils/dom-ut
 import { EDITOR_IFRAME_STYLES } from '../constants';
 import { isLockedInsidePart } from '../parts';
 import { debugLog } from '../utils/debug';
+import { isInsideSvg, passThroughSvg } from '../utils/svg-hit';
 
 interface UseIframeSetupReturn {
   /**
@@ -107,7 +108,14 @@ export function useIframeSetup(): UseIframeSetupReturn {
         element.removeAttribute('data-inline');
         return;
       }
-      if (element.closest('script, style, svg path, svg g')) return;
+      if (element.closest('script, style')) return;
+      // SVG の中(path / circle / g など)は SVG ごと 1 つの図として扱う(utils/svg-hit.ts)。
+      // 以前は path と g だけを外していたので、circle や rect が単独で選ばれていた
+      if (isInsideSvg(element)) {
+        element.removeAttribute('data-editable');
+        element.removeAttribute('data-element-id');
+        return;
+      }
       if (element.classList.contains('material-icons')) return;
       if (element.classList.contains('material-icons-outlined')) return;
       // selection-box およびその子要素はスキップ
@@ -274,7 +282,8 @@ export function useIframeSetup(): UseIframeSetupReturn {
           clearPreview();
           return;
         }
-        const next = resolveHoverTarget(e.target, iframeDoc, {
+        // SVG の箱の空きは素通りさせる(クリックの判別と同じ。utils/svg-hit.ts)
+        const next = resolveHoverTarget(passThroughSvg(iframeDoc, e.target, e.clientX, e.clientY), iframeDoc, {
           meta: e.metaKey || e.ctrlKey,
         });
         if (next === currentPreviewElement) return;

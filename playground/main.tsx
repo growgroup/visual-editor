@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Toaster, toast } from 'sonner';
 import { VisualEditor, setEditorIO, type EditorDeck, type EditorIO } from '../src/index';
 import { applyDeck } from '../src/components/viewer/useDeck';
-import { webpage, slides, webpagePages } from './samples';
+import { webpage, slides, webpagePages, svgProbe } from './samples';
 import { partsLibrary, partsPage, createPartsStore } from './parts-samples';
 import { insertsCatalog, fetchInsertHtml, insertsPage, newPageHtml } from './inserts-samples';
 import { getCleanHtml } from '../src/editor/utils/html-utils';
@@ -35,7 +35,10 @@ const thumbUrl = (n: number) =>
     `<svg xmlns="http://www.w3.org/2000/svg" width="546" height="360" viewBox="0 0 1820 1200"><rect width="1820" height="1200" fill="#eef2f7"/><rect x="120" y="120" width="900" height="90" fill="#c9d4e3"/><rect x="120" y="260" width="1580" height="40" fill="#dce3ec"/><rect x="120" y="330" width="1400" height="40" fill="#dce3ec"/><text x="120" y="900" font-family="sans-serif" font-size="220" fill="#8fa3bb">page ${n}</text></svg>`,
   );
 const thumbPages = Array.from({ length: THUMB_COUNT }, (_, i) => webpagePages[i % webpagePages.length]);
-const sampleHtml = inserts && mode === 'webpage'
+const svgMode = params.get('mode') === 'svg';
+const sampleHtml = svgMode
+  ? [svgProbe]
+  : inserts && mode === 'webpage'
   ? [insertsPage]
   : parts
   ? [partsPage]

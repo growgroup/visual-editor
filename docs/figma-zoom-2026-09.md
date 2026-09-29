@@ -36,14 +36,17 @@ Figma にそろえる利用側は `canvasZoomOptions={{ min: 0.02, max: 256, ste
 
 ## 確かめたこと
 
-`npm run typecheck`。playground(`npm run playground` → `?mode=webpage&canvas`)を headless Chromium で開き、ヘッダーの % で見た。
+`npm run typecheck`。playground(`npm run playground` → `?mode=webpage&canvas`、Figma にそろえた設定は `&figma`)を headless Chromium で開き、ヘッダーの % で見た。
 
 | 操作 | main(0.9.1) | このブランチ(既定) |
 |---|---|---|
 | Chromium の本物のピンチ(CDP `Input.synthesizePinchGesture`、`gestureSourceType: 'mouse'` = トラックパッド)を余白の上 / 紙面の上 | 54 → 107% / → 215% | 同じ |
 | Control + ホイール(紙面の上・余白の上) | 拡大 / 縮小 | 同じ |
 | 合成した GestureEvent(Safari 相当)を余白の上 / 紙面の iframe の中 | **変わらない** | 変わる(215 → 107% / 107 → 215%) |
-| Control + = / Control + −(`steps: 'powers-of-two'` を渡したとき) | 1.25 倍 | 2 の累乗の段(215 → 400 → 200%) |
+| Control + = / Control + −(既定) | 1.25 倍(215 → 268 → 215%) | 同じ |
+| Control + = / Control + −(`steps: 'powers-of-two'`、playground の `&figma`) | — | 2 の累乗の段(215 → 400 → 200%) |
+| ⇧2(168×42 の要素を選んだ状態。既定) | 編集中のページ(34%) | 同じ |
+| ⇧2(同じ。`fitShortcut: 'selection'`) | — | 選んだ要素に合わせる(593%) |
 
 実機でしか確かめられないもの: Safari・WKWebView の本物のピンチ(GestureEvent に座標が入るか)、
 高い倍率(`max` を上げたとき。1600% 以上)での描画の重さ・定規。

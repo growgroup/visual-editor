@@ -610,7 +610,7 @@ export function useCanvasControls() {
     window.addEventListener('wheel', handleWheel, { passive: false, capture: true });
     document.addEventListener('wheel', handleWheel, { passive: false, capture: true });
 
-    // ブラウザの拡大だけを止める。伝播は止めない(0.9.2。キャンバスがピンチを拡大縮小に使う)
+    // ブラウザの拡大だけを止める。伝播は止めない(0.10.0。キャンバスがピンチを拡大縮小に使う)
     const handleGesture = (e: Event) => {
       if (isEditorOpen()) e.preventDefault();
     };

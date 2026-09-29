@@ -124,9 +124,11 @@ export function EditorHeader({
   const canvas = useMultiPageCanvasOptional();
   const canvasView = useCanvasViewStateOptional();
   const zoom = canvas && canvasView ? canvasView.canvasZoom * 100 : singleZoom;
-  // キャンバスの範囲は利用側が変えられる(canvasZoomRange)。表示と +/− の可否も同じ範囲で
-  const minZoom = canvas ? (canvas.zoomRange?.min ?? CANVAS_MIN_ZOOM) * 100 : MIN_ZOOM;
-  const maxZoom = canvas ? (canvas.zoomRange?.max ?? CANVAS_MAX_ZOOM) * 100 : MAX_ZOOM;
+  // キャンバスの範囲は利用側が変えられる(canvasZoomOptions)。表示と +/− の可否も同じ範囲で
+  const minZoom = canvas ? (canvas.zoomOptions?.min ?? CANVAS_MIN_ZOOM) * 100 : MIN_ZOOM;
+  const maxZoom = canvas ? (canvas.zoomOptions?.max ?? CANVAS_MAX_ZOOM) * 100 : MAX_ZOOM;
+  // ⇧2 の合わせ先(canvasZoomOptions.fitShortcut)。'selection' のときだけ「選択範囲に合わせる」を出す
+  const fitsSelection = canvas?.zoomOptions?.fitShortcut === 'selection';
   const setZoom = (value: number) => {
     if (canvas) canvas.zoomTo(value / 100, { animate: true });
     else setSingleZoom(value);
@@ -421,9 +423,10 @@ export function EditorHeader({
                   className="cursor-pointer justify-between text-gray-300 hover:bg-[#444444] hover:text-white"
                 >
                   編集中のページに合わせる
+                  {!fitsSelection && <span className="text-[10px] text-gray-500">⇧2</span>}
                 </DropdownMenuItem>
               )}
-              {canvas && (
+              {canvas && fitsSelection && (
                 <DropdownMenuItem
                   data-zoom-preset="selection"
                   onClick={() => editorZoomApiRef.current?.selection()}

@@ -80,6 +80,7 @@ import {
   useMultiPageCanvasOptional,
 } from './contexts/MultiPageCanvasContext';
 import type { CSSVariableDefinition } from '../types/css-variables';
+import type { CanvasZoomOptions } from './utils/canvas-gestures';
 import { debugLog } from './utils/debug';
 
 // 型の再エクスポート
@@ -284,8 +285,8 @@ interface EditorProviderProps {
   enableMultiPageCanvas?: boolean;
   /** キャンバスの表示位置(倍率・スクロール)を記憶するキー */
   canvasStorageKey?: string | null;
-  /** マルチフレームのキャンバスの倍率の範囲(省略時 2%〜400%) — 0.9.2 */
-  canvasZoomRange?: { min?: number; max?: number };
+  /** マルチフレームのキャンバスの拡大縮小の設定(範囲・刻み・⌘2 の合わせ先。省略時は従来の挙動) — 0.10.0 */
+  canvasZoomOptions?: CanvasZoomOptions;
   /** @deprecated Use contentList instead */
   slides?: ContentListItem[];
   /** @deprecated Use currentContentId instead */
@@ -543,7 +544,7 @@ export function EditorProvider({
   // Multi-page canvas
   enableMultiPageCanvas = false,
   canvasStorageKey,
-  canvasZoomRange,
+  canvasZoomOptions,
   // deprecated props
   slides,
   currentSlideId,
@@ -571,7 +572,7 @@ export function EditorProvider({
                       currentSlideId={currentSlideId}
                       onSlideChange={onSlideChange}
                     >
-                      <ConditionalMultiPageProvider enabled={enableMultiPageCanvas} storageKey={canvasStorageKey} zoomRange={canvasZoomRange}>
+                      <ConditionalMultiPageProvider enabled={enableMultiPageCanvas} storageKey={canvasStorageKey} zoomOptions={canvasZoomOptions}>
                         <EditorUIStateProviderWrapper>
                           <EditorVariablesProviderWrapper
                             initialVariables={initialVariables}

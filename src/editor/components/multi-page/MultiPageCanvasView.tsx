@@ -341,15 +341,17 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
   }, [setZoom, setFitZoom]);
 
   // Cmd+0 / Cmd+1 / Cmd+2 とヘッダーの「全体表示」「100%」をキャンバスに向ける。
-  // 選択範囲(⌘2 / ⇧2)は Figma と同じく、選んでいる要素があればそこへ、無ければ編集中のページへ(0.9.2)
-  const { zoomToRect } = canvas;
+  // ⌘2 / ⇧2 は既定で編集中のページ。`canvasZoomOptions.fitShortcut: 'selection'` なら Figma と同じく
+  // 選んでいる要素があればそこへ、無ければ編集中のページへ(0.10.0)
+  const { zoomToRect, zoomOptions } = canvas;
+  const fitsSelection = zoomOptions.fitShortcut === 'selection';
   useEffect(() => {
     editorZoomApiRef.current = {
       fit: () => zoomToFit({ animate: true }),
       actual: () => zoomToActual(),
       selection: () => {
         const frame = pages.find((page) => page.id === activePageId);
-        const rect = selectionCanvasRect(iframeRef.current, frame?.position);
+        const rect = fitsSelection ? selectionCanvasRect(iframeRef.current, frame?.position) : null;
         if (rect) zoomToRect(rect, { animate: true });
         else if (activePageId) zoomToPage(activePageId, { animate: true });
         else zoomToFit({ animate: true });
@@ -358,7 +360,7 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
     return () => {
       editorZoomApiRef.current = null;
     };
-  }, [zoomToFit, zoomToActual, zoomToPage, zoomToRect, activePageId, pages, iframeRef]);
+  }, [zoomToFit, zoomToActual, zoomToPage, zoomToRect, fitsSelection, activePageId, pages, iframeRef]);
 
   // 初回の表示: 容器の大きさとフレームの並びが揃ったところで 1 回(決め方は applyInitialView)
   useEffect(() => {

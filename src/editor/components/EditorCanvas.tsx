@@ -346,7 +346,7 @@ export function EditorCanvas() {
     });
 
     // 利用側が紙面(#artboard)の外、上下に並べた表示だけの領域(サイトの共通のヘッダー・フッター等)も
-    // フレームの高さに入れる。目印は FRAME_REGION_ATTRIBUTE(0.9.2。docs/frame-regions-2026-09.md)
+    // フレームの高さに入れる。目印は FRAME_REGION_ATTRIBUTE(0.10.0。docs/frame-regions-2026-09.md)
     iframeDoc.querySelectorAll(`[${FRAME_REGION_ATTRIBUTE}]`).forEach((el) => {
       const bottom = (el as HTMLElement).getBoundingClientRect().bottom;
       if (bottom > maxBottom) maxBottom = bottom;

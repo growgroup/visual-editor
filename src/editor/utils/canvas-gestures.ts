@@ -1,5 +1,5 @@
 /**
- * マルチフレームのキャンバスの拡大縮小を Figma にそろえる部品(0.9.2)。
+ * マルチフレームのキャンバスの拡大縮小を Figma にそろえる部品(0.10.0)。
  *
  * - Safari・WKWebView のトラックパッドのピンチは gesturestart / gesturechange / gestureend で届く
  *   (Chrome・Edge・Electron は ctrl 付きの wheel で届く)。以前は止めるだけで拡大縮小に使っていなかった。
@@ -15,6 +15,22 @@ export interface ZoomRange {
   min: number;
   max: number;
 }
+
+/**
+ * マルチフレームのキャンバスの拡大縮小の設定(`canvasZoomOptions`)。どれも省略時は従来の挙動。
+ * Figma にそろえるなら `{ min: 0.02, max: 256, steps: 'powers-of-two', fitShortcut: 'selection' }`
+ */
+export interface CanvasZoomOptions {
+  /** 倍率の下限(省略時 0.02 = 2%) */
+  min?: number;
+  /** 倍率の上限(省略時 4 = 400%。Figma は 256 = 25600%) */
+  max?: number;
+  /** ⌘+ / ⌘− とヘッダーの +/− の刻み。'ratio' = 1.25 倍ずつ(省略時)、'powers-of-two' = 2 の累乗の段(Figma) */
+  steps?: 'ratio' | 'powers-of-two';
+  /** ⌘2 / ⇧2 の合わせ先。'page' = 編集中のページ(省略時)、'selection' = 選んでいる要素(無ければページ。Figma) */
+  fitShortcut?: 'page' | 'selection';
+}
+export type ResolvedCanvasZoomOptions = ZoomRange & Required<Pick<CanvasZoomOptions, 'steps' | 'fitShortcut'>>;
 
 const clamp = (zoom: number, range: ZoomRange) => Math.max(range.min, Math.min(range.max, zoom));
 

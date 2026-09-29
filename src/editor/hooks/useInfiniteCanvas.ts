@@ -7,9 +7,9 @@
  * - ホイール: パン(2 本指スクロール)。Shift で横
  * - Ctrl/Cmd + ホイール、トラックパッドのピンチ: カーソル位置を固定してズーム
  * - Space + ドラッグ / 中ボタンドラッグ: パン
- * - Safari・WKWebView のトラックパッドのピンチ(gesturestart / gesturechange): カーソル位置を固定してズーム(0.9.2)
- * - Cmd/Ctrl + / - : 段階ズーム(2 の累乗の段)。Shift+0 = 100%、Shift+1 = 全体、
- *   Shift+2 = 選んでいる要素(無ければ編集中のページ)、Shift+R = 定規
+ * - Safari・WKWebView のトラックパッドのピンチ(gesturestart / gesturechange): カーソル位置を固定してズーム(0.10.0)
+ * - Cmd/Ctrl + / - : 段階ズーム(既定 1.25 倍。canvasZoomOptions.steps で 2 の累乗の段)。Shift+0 = 100%、Shift+1 = 全体、
+ *   Shift+2 = 編集中のページ(canvasZoomOptions.fitShortcut: 'selection' なら選んでいる要素)、Shift+R = 定規
  *   (Cmd+0 / 1 / 2 は既存のディスパッチャ(editorZoomApiRef)が受ける)
  * - 2 本指タッチ: ピンチズーム / 1 本指: パン
  * - 拡大縮小はどの経路も zoomAt(カーソル位置が中心)に集める。キーとボタンは画面の中心
@@ -147,7 +147,7 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
     };
 
     // ---- キー
-    // 2 の累乗の段(Figma と同じ。ヘッダーの +/− と同じ zoomIn / zoomOut)
+    // ヘッダーの +/− と同じ zoomIn / zoomOut(刻みは canvasZoomOptions.steps)
     const stepZoom = (dir: 1 | -1) => (dir > 0 ? c().zoomIn() : c().zoomOut());
     const handleKey = (kind: 'down' | 'up', key: string, code: string, mods: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }, preventDefault: () => void, typing: boolean) => {
       if (code === 'Space') {
@@ -174,7 +174,7 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
         if (key === '0' || code === 'Digit0') { preventDefault(); c().zoomToActual(); return; }
         if (key === '1' || code === 'Digit1') { preventDefault(); c().zoomToFit({ animate: true }); return; }
         if (key === '2' || code === 'Digit2') {
-          // 選んでいる要素に合わせる(Figma の Shift+2。無ければ編集中のページ。⌘2 と同じ)
+          // ⌘2 と同じ合わせ先(既定は編集中のページ。fitShortcut: 'selection' なら選んでいる要素)
           preventDefault();
           if (editorZoomApiRef.current) { editorZoomApiRef.current.selection(); return; }
           const id = c().viewStore.get().activePageId;

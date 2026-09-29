@@ -22,6 +22,7 @@ import {
 import type { MoveElementResult } from './hooks/useElementActions';
 import { EditorProvider, useEditorContext, type ContentListItem, type EditorMode } from './EditorContext';
 import type { DocumentAttributes } from './contexts/EditorArtboardContext';
+import type { CanvasZoomOptions } from './utils/canvas-gestures';
 import { PptTitleBar, PptRibbon, PptThumbnails, PptStatusBar, initialPptTheme, PPT_PALETTES, type PptTheme } from './components/ppt/PptChrome';
 import { LeftPanel } from './components/shell/LeftPanel';
 import { useAltMeasure } from './hooks/useAltMeasure';
@@ -188,10 +189,10 @@ export interface FrontendVisualEditorProps {
   /** キャンバスの表示位置(倍率・スクロール)を記憶するキー。省略時は parentId */
   canvasStorageKey?: string;
   /**
-   * マルチフレームのキャンバスの倍率の範囲(0.9.2)。省略時は 2%〜400%。
-   * Figma と同じにするなら `{ min: 0.02, max: 256 }`(25600%)
+   * マルチフレームのキャンバスの拡大縮小の設定(0.10.0)。省略時は従来の挙動(2%〜400%・1.25 倍ずつ・⌘2 は編集中のページ)。
+   * Figma にそろえるなら `{ min: 0.02, max: 256, steps: 'powers-of-two', fitShortcut: 'selection' }`
    */
-  canvasZoomRange?: { min?: number; max?: number };
+  canvasZoomOptions?: CanvasZoomOptions;
   /**
    * 外部から渡すコンテンツリスト（指定時はAPI取得をスキップ）。
    * parentId を渡すとキャンバスが階層のツリーで並び、href を渡すと「別タブで開く」が付き、
@@ -3076,7 +3077,7 @@ export function FrontendVisualEditor({
   headerExtra,
   onContentChange: onContentChangeProp,
   canvasStorageKey,
-  canvasZoomRange,
+  canvasZoomOptions,
   documentAttributes,
 }: FrontendVisualEditorProps) {
   const { getIdToken } = useAuth();
@@ -3369,7 +3370,7 @@ export function FrontendVisualEditor({
       websiteId={effectiveParentId}
       enableMultiPageCanvas={enableMultiPageCanvas}
       canvasStorageKey={canvasStorageKey ?? effectiveParentId ?? null}
-      canvasZoomRange={canvasZoomRange}
+      canvasZoomOptions={canvasZoomOptions}
     >
       <FrontendVisualEditorInner
         onSave={onSave}

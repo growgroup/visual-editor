@@ -81,6 +81,54 @@ export type CommentAction =
   | { action: "resolve"; commentId: string; resolved: boolean }
   | { action: "delete"; commentId: string };
 
+/**
+ * コメントに利用側が足す操作(0.10.0)。コメントパネルの各スレッドと、パネル上部(いま開いているページ)に
+ * ボタンを出す。何をするか(返信を足す・外部に依頼する・別画面を開く など)はエディタの関心事ではない。
+ *
+ * エディタが受け持つのは、ボタンを出す・押している間の表示(二重押しの防止)・失敗の表示・
+ * 戻り値の deck の反映だけ。`run` が投げたエラーは押した場所の下にそのまま出す。
+ */
+export type EditorCommentActionResult = {
+  /** 一覧とコメントの最新。渡せばパネルに反映する(返信を足した操作など) */
+  deck?: EditorDeck;
+  /** 押した場所の下に出す短い知らせ(「依頼しました」など)。無ければ何も出さない */
+  message?: string;
+};
+
+export type EditorCommentThreadAction = {
+  /** 識別子。コメントパネルの中で一意にする(`data-comment-action` 属性にも出る) */
+  id: string;
+  label: string;
+  /** ツールチップ */
+  title?: string;
+  /** ラベルの前に出すアイコン */
+  icon?: ReactNode;
+  /** 出す条件。無ければ未解決のスレッドにだけ出す */
+  when?: (comment: EditorComment) => boolean;
+  run: (ctx: { page: number; comment: EditorComment }) => Promise<EditorCommentActionResult | void>;
+};
+
+export type EditorCommentPanelAction = {
+  /** 識別子。コメントパネルの中で一意にする(`data-comment-panel-action` 属性にも出る) */
+  id: string;
+  label: string;
+  /** ツールチップ */
+  title?: string;
+  /** ラベルの前に出すアイコン */
+  icon?: ReactNode;
+  /** 出す条件。無ければ、いまのページに未解決のコメントが 1 件以上あるときだけ出す */
+  when?: (ctx: { page: number; comments: EditorComment[] }) => boolean;
+  /** `comments` はいまのページのコメント全部(解決済みも含む。絞るのは利用側) */
+  run: (ctx: { page: number; comments: EditorComment[] }) => Promise<EditorCommentActionResult | void>;
+};
+
+export type EditorCommentActions = {
+  /** 各スレッドに出す操作 */
+  thread?: EditorCommentThreadAction[];
+  /** パネル上部に出す、いまのページ全体への操作 */
+  panel?: EditorCommentPanelAction[];
+};
+
 export type ExportFormat = "pdf" | "pdf-lite" | "pptx" | "pptx-edit";
 
 export type UploadResult = { url: string; width?: number; height?: number };
@@ -175,6 +223,12 @@ export type EditorIO = {
 
   /** コメントの追加・返信・解決・削除。無ければコメントUIを出さない */
   commentAction?: (page: number, action: CommentAction) => Promise<EditorDeck>;
+
+  /**
+   * コメントに足す操作(スレッドごと・パネル上部)。無ければ何も足さない(0.10.0)。
+   * コメントパネルは commentAction がある場合だけ出るので、これだけ渡しても出ない
+   */
+  commentActions?: EditorCommentActions;
 
   /** 並び替え・複製・削除など、一覧を編集する操作。無ければその操作を出さない */
   deckOps?: {

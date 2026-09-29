@@ -8,6 +8,8 @@
  * 座標は iframe の座標のまま送る(受け手が送り元 iframe の実測矩形で親の座標へ直す)
  */
 
+import { forwardEmbeddedGestures, isImeKeyEvent } from './canvas-gestures';
+
 const ZOOM_KEYS = new Set(['=', '+', '-', '_', ';']);
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -50,11 +52,8 @@ export function setupEmbeddedCanvasBridge(iframeDoc: Document, iframe: HTMLIFram
     );
   };
 
-  // ---- Safari の gesture(ピンチ)はブラウザ拡大を止めるだけ
-  const handleGesture = (e: Event) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
+  // ---- Safari・WKWebView の gesture(ピンチ)も外へ(親が拡大縮小する。ブラウザの拡大は止める)
+  const disposeGestures = forwardEmbeddedGestures({ doc: iframeDoc, toParent, post: (message) => parent.postMessage(message, '*') });
 
   // ---- 2 本指タッチ = ピンチ
   let lastDistance: number | null = null;
@@ -90,6 +89,7 @@ export function setupEmbeddedCanvasBridge(iframeDoc: Document, iframe: HTMLIFram
 
   // ---- キー: Space(パン)、Cmd+/- (ズーム)、Shift+0/1/2(100%・全体・このページ)、Shift+R(定規)
   const forwardKey = (kind: 'down' | 'up') => (e: KeyboardEvent) => {
+    if (isImeKeyEvent(e)) return; // IME の変換中のキーは奪わない
     const cmd = e.metaKey || e.ctrlKey;
     const typing = isTypingTarget(e.target);
     const isSpace = e.code === 'Space';
@@ -128,9 +128,6 @@ export function setupEmbeddedCanvasBridge(iframeDoc: Document, iframe: HTMLIFram
 
   const options: AddEventListenerOptions = { passive: false, capture: true };
   iframeDoc.addEventListener('wheel', handleWheel, options);
-  iframeDoc.addEventListener('gesturestart', handleGesture, options);
-  iframeDoc.addEventListener('gesturechange', handleGesture, options);
-  iframeDoc.addEventListener('gestureend', handleGesture, options);
   iframeDoc.addEventListener('touchstart', handleTouchStart, options);
   iframeDoc.addEventListener('touchmove', handleTouchMove, options);
   iframeDoc.addEventListener('touchend', handleTouchEnd, options);
@@ -140,10 +137,8 @@ export function setupEmbeddedCanvasBridge(iframeDoc: Document, iframe: HTMLIFram
   iframeDoc.addEventListener('mousedown', handleMouseDown, options);
 
   return () => {
+    disposeGestures();
     iframeDoc.removeEventListener('wheel', handleWheel, options);
-    iframeDoc.removeEventListener('gesturestart', handleGesture, options);
-    iframeDoc.removeEventListener('gesturechange', handleGesture, options);
-    iframeDoc.removeEventListener('gestureend', handleGesture, options);
     iframeDoc.removeEventListener('touchstart', handleTouchStart, options);
     iframeDoc.removeEventListener('touchmove', handleTouchMove, options);
     iframeDoc.removeEventListener('touchend', handleTouchEnd, options);

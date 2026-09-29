@@ -17,6 +17,7 @@ import {
   SLIDE_WIDTH,
   SLIDE_HEIGHT,
   WEBPAGE_MIN_HEIGHT,
+  FRAME_REGION_ATTRIBUTE,
 } from "../constants";
 import {
   applyCanvasZoomDom,
@@ -342,6 +343,13 @@ export function EditorCanvas() {
       if (bottom > maxBottom) {
         maxBottom = bottom;
       }
+    });
+
+    // 利用側が紙面(#artboard)の外、上下に並べた表示だけの領域(サイトの共通のヘッダー・フッター等)も
+    // フレームの高さに入れる。目印は FRAME_REGION_ATTRIBUTE(0.10.0。docs/frame-regions-2026-09.md)
+    iframeDoc.querySelectorAll(`[${FRAME_REGION_ATTRIBUTE}]`).forEach((el) => {
+      const bottom = (el as HTMLElement).getBoundingClientRect().bottom;
+      if (bottom > maxBottom) maxBottom = bottom;
     });
 
     const scrollHeight = targetElement.scrollHeight;
@@ -949,6 +957,9 @@ export function EditorCanvas() {
           updateContentHeightRef.current();
         });
         resizeObserver.observe(artboardEl);
+        // 紙面の外の領域の大きさが変わったときも測り直す(#artboard-wrapper はそれらを含む)
+        const artboardWrapperEl = iframeDoc.getElementById("artboard-wrapper");
+        if (artboardWrapperEl) resizeObserver.observe(artboardWrapperEl);
         cleanupFunctions.push(() => resizeObserver.disconnect());
 
         debugLog(

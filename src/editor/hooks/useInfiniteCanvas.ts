@@ -7,9 +7,13 @@
  * - ホイール: パン(2 本指スクロール)。Shift で横
  * - Ctrl/Cmd + ホイール、トラックパッドのピンチ: カーソル位置を固定してズーム
  * - Space + ドラッグ / 中ボタンドラッグ: パン
- * - Cmd/Ctrl + / - : 段階ズーム。Shift+0 = 100%、Shift+1 = 全体、Shift+2 = 編集中のページ、Shift+R = 定規
+ * - Safari・WKWebView のトラックパッドのピンチ(gesturestart / gesturechange): カーソル位置を固定してズーム(0.10.0)
+ * - Cmd/Ctrl + / - : 段階ズーム(既定 1.25 倍。canvasZoomOptions.steps で 2 の累乗の段)。Shift+0 = 100%、Shift+1 = 全体、
+ *   Shift+2 = 編集中のページ(canvasZoomOptions.fitShortcut: 'selection' なら選んでいる要素)、Shift+R = 定規
  *   (Cmd+0 / 1 / 2 は既存のディスパッチャ(editorZoomApiRef)が受ける)
  * - 2 本指タッチ: ピンチズーム / 1 本指: パン
+ * - 拡大縮小はどの経路も zoomAt(カーソル位置が中心)に集める。キーとボタンは画面の中心
+ * - IME の変換中のキーは奪わない
  *
  * [iframe から来る操作]
  * 生きているエディタ(EditorCanvas)と見るだけの紙面は iframe なので、その上で起きた
@@ -21,7 +25,8 @@
 
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useMultiPageCanvasOptional, MIN_ZOOM, MAX_ZOOM } from '../contexts/MultiPageCanvasContext';
-import { isSpaceActivatedControl } from './useCanvasControls';
+import { isSpaceActivatedControl, editorZoomApiRef } from './useCanvasControls';
+import { listenCanvasGestures, isImeKeyEvent } from '../utils/canvas-gestures';
 
 /** iframe 側が転送してくるメッセージ */
 export type EmbeddedCanvasMessage =
@@ -29,12 +34,12 @@ export type EmbeddedCanvasMessage =
   | { type: 'EMBEDDED_PINCH'; coords?: 'parent'; previousDistance: number; currentDistance: number; centerX: number; centerY: number }
   | { type: 'EMBEDDED_PAN_START'; coords?: 'parent'; clientX: number; clientY: number }
   | { type: 'EMBEDDED_KEY'; kind: 'down' | 'up'; key: string; code: string; metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean };
+// ピンチ(GestureEvent)の転送 EMBEDDED_GESTURE は listenCanvasGestures が受ける(utils/canvas-gestures.ts)
 
 /** ホイール 1 目盛りのズーム係数。トラックパッド(小さい delta が連続)と、マウスホイール(大きい delta)で分ける */
 const PINCH_K = 0.01;
 const WHEEL_K = 0.0025;
 const MAX_STEP = 1.25;
-const KEY_STEP = 1.25;
 
 function wheelFactor(deltaY: number): number {
   const k = Math.abs(deltaY) < 50 ? PINCH_K : WHEEL_K;
@@ -87,10 +92,23 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
       return { clientX: rect.left + x * scale, clientY: rect.top + y * scale };
     };
 
+    // ---- Safari・WKWebView のピンチ(容器の上で起きたものと、紙面の iframe から転送されたもの)
+    const gestures = listenCanvasGestures({
+      win: window,
+      container,
+      target: () => ({
+        getZoom: () => c().viewStore.get().canvasZoom,
+        zoomAt: (zoom, clientX, clientY) => c().zoomAt(zoom, toContainerPoint(clientX, clientY)),
+        markInteracting: () => c().markInteracting(),
+      }),
+    });
+
     // ---- ズーム/パンの実処理(ホイールと転送メッセージで共通)
     const applyWheel = (deltaX: number, deltaY: number, clientX: number, clientY: number, zoomGesture: boolean, shiftKey: boolean) => {
       c().markInteracting();
       if (zoomGesture) {
+        // ピンチ(GestureEvent)の最中に ctrl 付き wheel も届く環境で二重に拡大しない
+        if (gestures.active) return;
         const { canvasZoom } = c().viewStore.get();
         c().zoomAt(canvasZoom * wheelFactor(deltaY), toContainerPoint(clientX, clientY));
         return;
@@ -129,7 +147,8 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
     };
 
     // ---- キー
-    const stepZoom = (dir: 1 | -1) => c().zoomTo(c().viewStore.get().canvasZoom * (dir > 0 ? KEY_STEP : 1 / KEY_STEP), { animate: true });
+    // ヘッダーの +/− と同じ zoomIn / zoomOut(刻みは canvasZoomOptions.steps)
+    const stepZoom = (dir: 1 | -1) => (dir > 0 ? c().zoomIn() : c().zoomOut());
     const handleKey = (kind: 'down' | 'up', key: string, code: string, mods: { metaKey: boolean; ctrlKey: boolean; shiftKey: boolean; altKey: boolean }, preventDefault: () => void, typing: boolean) => {
       if (code === 'Space') {
         if (typing) return;
@@ -155,8 +174,11 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
         if (key === '0' || code === 'Digit0') { preventDefault(); c().zoomToActual(); return; }
         if (key === '1' || code === 'Digit1') { preventDefault(); c().zoomToFit({ animate: true }); return; }
         if (key === '2' || code === 'Digit2') {
+          // ⌘2 と同じ合わせ先(既定は編集中のページ。fitShortcut: 'selection' なら選んでいる要素)
+          preventDefault();
+          if (editorZoomApiRef.current) { editorZoomApiRef.current.selection(); return; }
           const id = c().viewStore.get().activePageId;
-          if (id) { preventDefault(); c().zoomToPage(id, { animate: true }); }
+          if (id) c().zoomToPage(id, { animate: true });
           return;
         }
         if (key.toLowerCase() === 'r' || code === 'KeyR') { preventDefault(); c().toggleRulers(); return; }
@@ -167,6 +189,7 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
     const spaceBelongsToControl = (e: KeyboardEvent) =>
       e.code === 'Space' && (isSpaceActivatedControl(e.target) || isSpaceActivatedControl(document.activeElement));
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isImeKeyEvent(e)) return; // IME の変換中のキーは奪わない
       if (spaceBelongsToControl(e)) return;
       if (e.repeat && e.code === 'Space') { if (!isTypingTarget(e.target)) e.preventDefault(); return; }
       handleKey('down', e.key, e.code, e, () => e.preventDefault(), isTypingTarget(e.target));
@@ -284,6 +307,7 @@ export function useInfiniteCanvas(containerRef: RefObject<HTMLDivElement | null>
     container.addEventListener('touchcancel', handleTouchEnd);
 
     return () => {
+      gestures.dispose();
       window.removeEventListener('wheel', preventNativeZoom, { capture: true });
       document.removeEventListener('wheel', preventNativeZoom, { capture: true });
       container.removeEventListener('wheel', handleWheel);

@@ -10,6 +10,15 @@ export const SLIDE_HEIGHT = 1080;
 export const WEBPAGE_WIDTH = 1440;
 export const WEBPAGE_MIN_HEIGHT = 900; // 最小高さ
 
+/**
+ * 紙面(#artboard)の外、上下に利用側が並べる「表示だけの領域」の目印(0.10.0)。
+ * 生きているエディタの文書で #artboard の兄弟(#artboard-wrapper の中)に置いた要素にこの属性を付けると、
+ * マルチフレームのキャンバスのフレームの高さに入る(付けないと紙面の高さで切れる)。
+ * 保存・共同編集が送るのは #artboard の中身だけなので、ここに置いたものは本文に混ざらない。
+ * 使い方は docs/frame-regions-2026-09.md
+ */
+export const FRAME_REGION_ATTRIBUTE = 'data-editor-frame-region';
+
 // レスポンシブブレイクポイントプリセット（webpageモード用）
 export const BREAKPOINT_PRESETS = [
   { id: 'default', name: 'デフォルト', width: 1400, icon: 'monitor', minRange: 1190, maxRange: 1920 },

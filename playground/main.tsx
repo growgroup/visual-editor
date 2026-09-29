@@ -27,6 +27,8 @@ const canvasMode = params.has('canvas');
  * 1 枚(8 ページ目)だけ画像の URL を壊してあり、読めないページが iframe のまま残ることを見る
  */
 const thumbsMode = canvasMode && params.has('thumbs');
+// Figma にそろえた拡大縮小(canvasZoomOptions)の確認用: ?mode=webpage&canvas&figma
+const figmaZoom = canvasMode && params.has('figma');
 const THUMB_COUNT = 26;
 /** ページと同じ縦横比(幅 1820 × 高さ 1200)で、番号だけ入った画像。幅は 480px 以上 */
 const thumbUrl = (n: number) =>
@@ -206,7 +208,7 @@ function Playground() {
   return <div className="pg-layout">
     <aside className="pg-rail">
       <strong>Visual Editor</strong><span className="pg-caption">リデザインの動作確認</span>
-      <nav><a href="?mode=webpage" aria-current={mode === 'webpage' && !parts && !canvasMode ? 'page' : undefined}>構成ラフ</a><a href="?mode=slide" aria-current={mode === 'slide' && !canvasMode ? 'page' : undefined}>スライド</a><a href="?mode=parts" aria-current={parts ? 'page' : undefined}>部品</a><a href="?mode=inserts" aria-current={inserts ? 'page' : undefined}>台帳から挿入</a><a href="?mode=webpage&canvas" aria-current={mode === 'webpage' && canvasMode ? 'page' : undefined}>キャンバス(構成ラフ)</a><a href="?mode=slide&canvas" aria-current={mode === 'slide' && canvasMode ? 'page' : undefined}>キャンバス(スライド)</a><a href="?mode=webpage&canvas&thumbs" aria-current={thumbsMode ? 'page' : undefined}>キャンバス(サムネイル26枚)</a></nav>
+      <nav><a href="?mode=webpage" aria-current={mode === 'webpage' && !parts && !canvasMode ? 'page' : undefined}>構成ラフ</a><a href="?mode=slide" aria-current={mode === 'slide' && !canvasMode ? 'page' : undefined}>スライド</a><a href="?mode=parts" aria-current={parts ? 'page' : undefined}>部品</a><a href="?mode=inserts" aria-current={inserts ? 'page' : undefined}>台帳から挿入</a><a href="?mode=webpage&canvas" aria-current={mode === 'webpage' && canvasMode ? 'page' : undefined}>キャンバス(構成ラフ)</a><a href="?mode=slide&canvas" aria-current={mode === 'slide' && canvasMode ? 'page' : undefined}>キャンバス(スライド)</a><a href="?mode=webpage&canvas&thumbs" aria-current={thumbsMode ? 'page' : undefined}>キャンバス(サムネイル26枚)</a><a href="?mode=webpage&canvas&figma" aria-current={figmaZoom ? 'page' : undefined}>キャンバス(Figma の拡大縮小)</a></nav>
       {canvasMode && <div className="pg-card"><strong>マルチフレームのキャンバス</strong><p>全ページが並びます。クリックしたページが編集対象。ホイールで移動、⌘+ホイールで拡大縮小、Space+ドラッグで移動。⇧1 全体 / ⇧2 このページ / ⇧R 定規。</p></div>}
       {inserts && <div className="pg-card"><strong>台帳から挿入</strong><p>下の「＋ 追加」→「台帳から挿入」。選択中の要素の直後に入ります。ページの雛形(TPL/PAG)は createContent で新しいページを作ります。</p><p>呼び出し記録は window.editorPlayground.inserts。</p></div>}
       {parts && <div className="pg-card"><strong>部品モード</strong><p>左パネルの部品をドロップ → 実体化(data-part)。CTA 帯はスロット(見出し・説明)だけ編集できます。右クリックで「部品として保存」「切り離す」。</p><p>保存先はメモリ(window.editorPlayground.parts)。</p></div>}
@@ -230,6 +232,7 @@ function Playground() {
         }))}
         enableMultiPageCanvas={canvasMode}
         canvasStorageKey={canvasMode ? `playground-${mode}` : undefined}
+        canvasZoomOptions={figmaZoom ? { min: 0.02, max: 256, steps: 'powers-of-two', fitShortcut: 'selection' } : undefined}
         onContentChange={(id) => { window.location.hash = `#/edit/${id}`; }}
         onSave={async (html, options) => {
           if (failure.save) throw new Error('保存失敗の確認用です。');

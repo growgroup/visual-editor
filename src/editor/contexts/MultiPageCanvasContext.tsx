@@ -42,6 +42,7 @@ import { SLIDE_HEIGHT, SLIDE_WIDTH, WEBPAGE_WIDTH } from '../constants';
 import type { EditorMode } from './EditorToolContext';
 import { io, type PreviewStyle } from '../../io';
 import { readStorage, writeStorage } from '../utils/storage';
+import { nextZoomLevel, type CanvasZoomOptions, type ResolvedCanvasZoomOptions } from '../utils/canvas-gestures';
 
 // ============================================================
 // 定数
@@ -51,10 +52,13 @@ import { readStorage, writeStorage } from '../utils/storage';
 export { WEBPAGE_WIDTH };
 /** 高さが未測定の webpage フレームに仮に与える高さ */
 export const WEBPAGE_MIN_HEIGHT = 1200;
-/** ズーム範囲(Figma は 2%〜25600%。紙面の編集で要るのはこの範囲) */
+/**
+ * ズーム範囲の既定(Figma は 2%〜25600%。紙面の編集で要るのはこの範囲)。
+ * 利用側は `canvasZoomOptions` で範囲・刻み・⌘2 の合わせ先を変えられる(0.10.0)
+ */
 export const MIN_ZOOM = 0.02;
 export const MAX_ZOOM = 4;
-/** ホイール 1 段のズーム倍率(ボタン・キー操作) */
+/** ボタン・キー操作の 1 段の倍率(`steps: 'ratio'`、既定) */
 const ZOOM_STEP = 1.25;
 /** 全体表示・ページ表示のときの余白(px、画面上) */
 const FIT_PADDING = 72;
@@ -225,6 +229,10 @@ export interface MultiPageCanvasContextValue {
   zoomToFit: (options?: { animate?: boolean }) => void;
   zoomToPage: (id: string, options?: { animate?: boolean }) => void;
   zoomToActual: () => void;
+  /** キャンバスの座標の矩形を、余白を取って画面に収める(100% を超えてもよい。選択範囲に合わせる等) — 0.10.0 */
+  zoomToRect: (rect: CanvasBounds, options?: { animate?: boolean }) => void;
+  /** 拡大縮小の設定(`canvasZoomOptions` を省略時の値で埋めたもの) — 0.10.0 */
+  zoomOptions: ResolvedCanvasZoomOptions;
   /** 指定のフレームが画面に入っていなければ、見える位置まで寄せる(倍率は変えない) */
   revealPage: (id: string) => void;
   /**
@@ -484,7 +492,17 @@ function fitView(
   };
 }
 
-const clampZoom = (z: number) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z));
+/** 利用側が渡した設定を省略時の値で埋める(範囲は片方だけ・逆転・0 以下を既定へ) */
+export function resolveCanvasZoomOptions(options?: CanvasZoomOptions | null): ResolvedCanvasZoomOptions {
+  const min = Number.isFinite(options?.min) && (options?.min as number) > 0 ? (options?.min as number) : MIN_ZOOM;
+  const max = Number.isFinite(options?.max) && (options?.max as number) > 0 ? (options?.max as number) : MAX_ZOOM;
+  const range = min <= max ? { min, max } : { min: MIN_ZOOM, max: MAX_ZOOM };
+  return {
+    ...range,
+    steps: options?.steps === 'powers-of-two' ? 'powers-of-two' : 'ratio',
+    fitShortcut: options?.fitShortcut === 'selection' ? 'selection' : 'page',
+  };
+}
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 const prefersReducedMotion = () =>
   typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -518,6 +536,8 @@ interface MultiPageCanvasProviderProps {
   enabled: boolean;
   /** 見えている範囲を保存するキー(利用側の parentId 等)。無ければ保存しない */
   storageKey?: string | null;
+  /** 拡大縮小の設定(範囲・刻み・⌘2 の合わせ先)。省略時は従来の挙動(0.10.0) */
+  zoomOptions?: CanvasZoomOptions;
 }
 
 type PersistedView = {
@@ -546,7 +566,15 @@ function readPersistedView(key: string | null | undefined): PersistedView | null
   }
 }
 
-export function MultiPageCanvasProvider({ children, enabled, storageKey }: MultiPageCanvasProviderProps) {
+export function MultiPageCanvasProvider({ children, enabled, storageKey, zoomOptions: zoomOptionsProp }: MultiPageCanvasProviderProps) {
+  // 拡大縮小の設定。倍率はどの経路(ホイール・ピンチ・キー・ボタン・全体表示)も clampZoom で範囲に収める
+  const zoomOptions = useMemo<ResolvedCanvasZoomOptions>(
+    () => resolveCanvasZoomOptions(zoomOptionsProp),
+    [zoomOptionsProp?.min, zoomOptionsProp?.max, zoomOptionsProp?.steps, zoomOptionsProp?.fitShortcut],
+  );
+  const zoomOptionsRef = useRef(zoomOptions);
+  zoomOptionsRef.current = zoomOptions;
+  const clampZoom = useCallback((z: number) => Math.max(zoomOptionsRef.current.min, Math.min(zoomOptionsRef.current.max, z)), []);
   const artboard = useEditorArtboard();
   const { editorMode } = useEditorTool();
   const { viewportWidth } = useEditorView();
@@ -864,14 +892,31 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     [setView, viewStore],
   );
 
-  const zoomIn = useCallback(() => zoomTo(viewStore.get().canvasZoom * ZOOM_STEP, { animate: true }), [zoomTo, viewStore]);
-  const zoomOut = useCallback(() => zoomTo(viewStore.get().canvasZoom / ZOOM_STEP, { animate: true }), [zoomTo, viewStore]);
+  // 刻みは既定で 1.25 倍ずつ。`steps: 'powers-of-two'` なら 2 の累乗の段(Figma。…50% → 100% → 200%…。段の間からは向きの側の段へ)
+  const stepZoom = useCallback((direction: 1 | -1) => {
+    const current = viewStore.get().canvasZoom;
+    const options = zoomOptionsRef.current;
+    const next = options.steps === 'powers-of-two'
+      ? nextZoomLevel(current, direction, options)
+      : current * (direction > 0 ? ZOOM_STEP : 1 / ZOOM_STEP);
+    zoomTo(next, { animate: true });
+  }, [zoomTo, viewStore]);
+  const zoomIn = useCallback(() => stepZoom(1), [stepZoom]);
+  const zoomOut = useCallback(() => stepZoom(-1), [stepZoom]);
   const zoomToActual = useCallback(() => zoomTo(1, { animate: true }), [zoomTo]);
 
   const zoomToFit = useCallback<MultiPageCanvasContextValue['zoomToFit']>(
     (options) => {
       if (!pagesRef.current.length) return;
       setView(fitView(boundsRef.current, containerSize(), { padding: FIT_PADDING, maxZoom: 1, rulers: rulersRef.current }), options);
+    },
+    [setView],
+  );
+
+  // 選択範囲に合わせる等。全体表示と違って 100% で止めない(小さい要素は大きく見せる。Figma と同じ)
+  const zoomToRect = useCallback<MultiPageCanvasContextValue['zoomToRect']>(
+    (rect, options) => {
+      setView(fitView(rect, containerSize(), { padding: FIT_PADDING, maxZoom: zoomOptionsRef.current.max, rulers: rulersRef.current }), options);
     },
     [setView],
   );
@@ -1223,6 +1268,8 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
       zoomToFit,
       zoomToPage,
       zoomToActual,
+      zoomToRect,
+      zoomOptions,
       revealPage,
       focusPage,
       activatePage,
@@ -1244,7 +1291,7 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     [
       enabled, editorMode, pages, bounds, layout, getPage, updatePageFrame, setPageHtml, invalidatePages, artboard.documentAttributes,
       setPageHeight, ensurePageHtml, previewStyles, viewStore, setCanvasOffset, shiftView, setCanvasZoom, setView, zoomAt, zoomTo, zoomIn, zoomOut, zoomToFit, zoomToPage,
-      zoomToActual, revealPage, focusPage, activatePage, activatingPageId, registerContainer, isInteracting, markInteracting,
+      zoomToActual, zoomToRect, zoomOptions, revealPage, focusPage, activatePage, activatingPageId, registerContainer, isInteracting, markInteracting,
       persisted, applyInitialView, rulersVisible, toggleRulers, requestPreviewSlot, releasePreviewSlot,
       getPreviewImageZoomCap, reportThumbnailWidth, previewImageCapVersion,
     ],
@@ -1259,17 +1306,19 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
 export function ConditionalMultiPageProvider({
   enabled,
   storageKey,
+  zoomOptions,
   children,
 }: {
   enabled: boolean;
   storageKey?: string | null;
+  zoomOptions?: CanvasZoomOptions;
   children: React.ReactNode;
 }) {
   if (!enabled) {
     return <>{children}</>;
   }
   return (
-    <MultiPageCanvasProvider enabled={enabled} storageKey={storageKey}>
+    <MultiPageCanvasProvider enabled={enabled} storageKey={storageKey} zoomOptions={zoomOptions}>
       {children}
     </MultiPageCanvasProvider>
   );

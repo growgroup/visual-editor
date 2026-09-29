@@ -188,6 +188,11 @@ export interface FrontendVisualEditorProps {
   /** キャンバスの表示位置(倍率・スクロール)を記憶するキー。省略時は parentId */
   canvasStorageKey?: string;
   /**
+   * マルチフレームのキャンバスの倍率の範囲(0.9.2)。省略時は 2%〜400%。
+   * Figma と同じにするなら `{ min: 0.02, max: 256 }`(25600%)
+   */
+  canvasZoomRange?: { min?: number; max?: number };
+  /**
    * 外部から渡すコンテンツリスト（指定時はAPI取得をスキップ）。
    * parentId を渡すとキャンバスが階層のツリーで並び、href を渡すと「別タブで開く」が付き、
    * revision を進めるとそのページの紙面が読み直される(ContentListItem を参照)
@@ -3071,6 +3076,7 @@ export function FrontendVisualEditor({
   headerExtra,
   onContentChange: onContentChangeProp,
   canvasStorageKey,
+  canvasZoomRange,
   documentAttributes,
 }: FrontendVisualEditorProps) {
   const { getIdToken } = useAuth();
@@ -3363,6 +3369,7 @@ export function FrontendVisualEditor({
       websiteId={effectiveParentId}
       enableMultiPageCanvas={enableMultiPageCanvas}
       canvasStorageKey={canvasStorageKey ?? effectiveParentId ?? null}
+      canvasZoomRange={canvasZoomRange}
     >
       <FrontendVisualEditorInner
         onSave={onSave}

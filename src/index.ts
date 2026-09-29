@@ -25,7 +25,7 @@ export type { ContentListItem, EditorMode } from "./editor/EditorContext";
 export type { DocumentAttributes } from "./editor/contexts/EditorArtboardContext";
 export { computeContentDepths } from "./editor/contexts/EditorArtboardContext";
 
-export { WEBPAGE_WIDTH, WEBPAGE_MIN_HEIGHT, SLIDE_WIDTH, SLIDE_HEIGHT, BREAKPOINT_PRESETS } from "./editor/constants";
+export { WEBPAGE_WIDTH, WEBPAGE_MIN_HEIGHT, SLIDE_WIDTH, SLIDE_HEIGHT, BREAKPOINT_PRESETS, FRAME_REGION_ATTRIBUTE } from "./editor/constants";
 
 export { registerAutoSaveFlush, flushAutoSave } from "./editor/autosave";
 

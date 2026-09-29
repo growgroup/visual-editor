@@ -124,8 +124,9 @@ export function EditorHeader({
   const canvas = useMultiPageCanvasOptional();
   const canvasView = useCanvasViewStateOptional();
   const zoom = canvas && canvasView ? canvasView.canvasZoom * 100 : singleZoom;
-  const minZoom = canvas ? CANVAS_MIN_ZOOM * 100 : MIN_ZOOM;
-  const maxZoom = canvas ? CANVAS_MAX_ZOOM * 100 : MAX_ZOOM;
+  // キャンバスの範囲は利用側が変えられる(canvasZoomRange)。表示と +/− の可否も同じ範囲で
+  const minZoom = canvas ? (canvas.zoomRange?.min ?? CANVAS_MIN_ZOOM) * 100 : MIN_ZOOM;
+  const maxZoom = canvas ? (canvas.zoomRange?.max ?? CANVAS_MAX_ZOOM) * 100 : MAX_ZOOM;
   const setZoom = (value: number) => {
     if (canvas) canvas.zoomTo(value / 100, { animate: true });
     else setSingleZoom(value);
@@ -420,6 +421,15 @@ export function EditorHeader({
                   className="cursor-pointer justify-between text-gray-300 hover:bg-[#444444] hover:text-white"
                 >
                   編集中のページに合わせる
+                </DropdownMenuItem>
+              )}
+              {canvas && (
+                <DropdownMenuItem
+                  data-zoom-preset="selection"
+                  onClick={() => editorZoomApiRef.current?.selection()}
+                  className="cursor-pointer justify-between text-gray-300 hover:bg-[#444444] hover:text-white"
+                >
+                  選択範囲に合わせる
                   <span className="text-[10px] text-gray-500">⇧2</span>
                 </DropdownMenuItem>
               )}

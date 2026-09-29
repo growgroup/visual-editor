@@ -45,6 +45,7 @@ import { useEditorContext } from '../../EditorContext';
 import { useInfiniteCanvas } from '../../hooks/useInfiniteCanvas';
 import { useCanvasMarquee } from '../../hooks/useCanvasMarquee';
 import { editorZoomApiRef } from '../../hooks/useCanvasControls';
+import { selectionCanvasRect } from '../../utils/canvas-gestures';
 import { EditorAppearanceContext } from '../../contexts/EditorAppearanceContext';
 import { EditorCanvas } from '../EditorCanvas';
 import { PageFramePreview } from './PageFramePreview';
@@ -226,7 +227,7 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
   // 倍率・位置は購読しない(ホイール 1 段ごとにキャンバス全体が React を通ってしまう)。
   // 描画に要る「粗い倍率」だけを下の useLayoutEffect が間引いて渡す
   const activePageId = useCanvasActivePageId();
-  const { setZoom, setFitZoom, activeTool, iframeReady } = useEditorContext();
+  const { setZoom, setFitZoom, activeTool, iframeReady, iframeRef } = useEditorContext();
   const theme = useContext(EditorAppearanceContext) ?? 'light';
   const containerRef = useRef<HTMLDivElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
@@ -339,20 +340,25 @@ export const MultiPageCanvasView = memo(function MultiPageCanvasView() {
     setFitZoom(100);
   }, [setZoom, setFitZoom]);
 
-  // Cmd+0 / Cmd+1 / Cmd+2 とヘッダーの「全体表示」「100%」をキャンバスに向ける
+  // Cmd+0 / Cmd+1 / Cmd+2 とヘッダーの「全体表示」「100%」をキャンバスに向ける。
+  // 選択範囲(⌘2 / ⇧2)は Figma と同じく、選んでいる要素があればそこへ、無ければ編集中のページへ(0.9.2)
+  const { zoomToRect } = canvas;
   useEffect(() => {
     editorZoomApiRef.current = {
       fit: () => zoomToFit({ animate: true }),
       actual: () => zoomToActual(),
       selection: () => {
-        if (activePageId) zoomToPage(activePageId, { animate: true });
+        const frame = pages.find((page) => page.id === activePageId);
+        const rect = selectionCanvasRect(iframeRef.current, frame?.position);
+        if (rect) zoomToRect(rect, { animate: true });
+        else if (activePageId) zoomToPage(activePageId, { animate: true });
         else zoomToFit({ animate: true });
       },
     };
     return () => {
       editorZoomApiRef.current = null;
     };
-  }, [zoomToFit, zoomToActual, zoomToPage, activePageId]);
+  }, [zoomToFit, zoomToActual, zoomToPage, zoomToRect, activePageId, pages, iframeRef]);
 
   // 初回の表示: 容器の大きさとフレームの並びが揃ったところで 1 回(決め方は applyInitialView)
   useEffect(() => {

@@ -31,11 +31,11 @@ export function useBrowserZoomPrevention(): void {
       }
     };
 
-    // Safari/WebKitのジェスチャーイベントを防止
+    // Safari/WebKitのジェスチャーイベント(ピンチ)でのブラウザ拡大を防止
+    // 注: 伝播は止めない(0.9.2)。キャンバス(useInfiniteCanvas)がピンチを拡大縮小に使う。
+    //     以前は stopImmediatePropagation で握りつぶしていて、Safari・WKWebView ではピンチしても何も起きなかった
     const preventGesture = (e: Event) => {
       e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
       return false;
     };
 

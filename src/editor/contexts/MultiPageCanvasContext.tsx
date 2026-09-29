@@ -42,6 +42,7 @@ import { SLIDE_HEIGHT, SLIDE_WIDTH, WEBPAGE_WIDTH } from '../constants';
 import type { EditorMode } from './EditorToolContext';
 import { io, type PreviewStyle } from '../../io';
 import { readStorage, writeStorage } from '../utils/storage';
+import { nextZoomLevel, type ZoomRange } from '../utils/canvas-gestures';
 
 // ============================================================
 // 定数
@@ -51,11 +52,12 @@ import { readStorage, writeStorage } from '../utils/storage';
 export { WEBPAGE_WIDTH };
 /** 高さが未測定の webpage フレームに仮に与える高さ */
 export const WEBPAGE_MIN_HEIGHT = 1200;
-/** ズーム範囲(Figma は 2%〜25600%。紙面の編集で要るのはこの範囲) */
+/**
+ * ズーム範囲の既定(Figma は 2%〜25600%。紙面の編集で要るのはこの範囲)。
+ * 利用側は `canvasZoomRange` で変えられる(0.9.2)。ボタン・キーの段は 2 の累乗(nextZoomLevel)
+ */
 export const MIN_ZOOM = 0.02;
 export const MAX_ZOOM = 4;
-/** ホイール 1 段のズーム倍率(ボタン・キー操作) */
-const ZOOM_STEP = 1.25;
 /** 全体表示・ページ表示のときの余白(px、画面上) */
 const FIT_PADDING = 72;
 /** 画面の縁からこれだけ内側にあれば「見えている」とする(px、画面上) */
@@ -225,6 +227,10 @@ export interface MultiPageCanvasContextValue {
   zoomToFit: (options?: { animate?: boolean }) => void;
   zoomToPage: (id: string, options?: { animate?: boolean }) => void;
   zoomToActual: () => void;
+  /** キャンバスの座標の矩形を、余白を取って画面に収める(100% を超えてもよい。選択範囲に合わせる等) — 0.9.2 */
+  zoomToRect: (rect: CanvasBounds, options?: { animate?: boolean }) => void;
+  /** 倍率の範囲(`canvasZoomRange`。既定は MIN_ZOOM〜MAX_ZOOM) — 0.9.2 */
+  zoomRange: ZoomRange;
   /** 指定のフレームが画面に入っていなければ、見える位置まで寄せる(倍率は変えない) */
   revealPage: (id: string) => void;
   /**
@@ -484,7 +490,12 @@ function fitView(
   };
 }
 
-const clampZoom = (z: number) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z));
+/** 利用側が渡した範囲を正す(片方だけ・逆転・0 以下は既定へ) */
+export function resolveZoomRange(range?: Partial<ZoomRange> | null): ZoomRange {
+  const min = Number.isFinite(range?.min) && (range?.min as number) > 0 ? (range?.min as number) : MIN_ZOOM;
+  const max = Number.isFinite(range?.max) && (range?.max as number) > 0 ? (range?.max as number) : MAX_ZOOM;
+  return min <= max ? { min, max } : { min: MIN_ZOOM, max: MAX_ZOOM };
+}
 const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
 const prefersReducedMotion = () =>
   typeof matchMedia !== 'undefined' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -518,6 +529,8 @@ interface MultiPageCanvasProviderProps {
   enabled: boolean;
   /** 見えている範囲を保存するキー(利用側の parentId 等)。無ければ保存しない */
   storageKey?: string | null;
+  /** 倍率の範囲。省略時は MIN_ZOOM〜MAX_ZOOM(0.9.2) */
+  zoomRange?: Partial<ZoomRange>;
 }
 
 type PersistedView = {
@@ -546,7 +559,12 @@ function readPersistedView(key: string | null | undefined): PersistedView | null
   }
 }
 
-export function MultiPageCanvasProvider({ children, enabled, storageKey }: MultiPageCanvasProviderProps) {
+export function MultiPageCanvasProvider({ children, enabled, storageKey, zoomRange: zoomRangeProp }: MultiPageCanvasProviderProps) {
+  // 倍率の範囲。どの経路(ホイール・ピンチ・キー・ボタン・全体表示)も clampZoom で収める
+  const zoomRange = useMemo<ZoomRange>(() => resolveZoomRange(zoomRangeProp), [zoomRangeProp?.min, zoomRangeProp?.max]);
+  const zoomRangeRef = useRef(zoomRange);
+  zoomRangeRef.current = zoomRange;
+  const clampZoom = useCallback((z: number) => Math.max(zoomRangeRef.current.min, Math.min(zoomRangeRef.current.max, z)), []);
   const artboard = useEditorArtboard();
   const { editorMode } = useEditorTool();
   const { viewportWidth } = useEditorView();
@@ -864,14 +882,23 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     [setView, viewStore],
   );
 
-  const zoomIn = useCallback(() => zoomTo(viewStore.get().canvasZoom * ZOOM_STEP, { animate: true }), [zoomTo, viewStore]);
-  const zoomOut = useCallback(() => zoomTo(viewStore.get().canvasZoom / ZOOM_STEP, { animate: true }), [zoomTo, viewStore]);
+  // 段は 2 の累乗(Figma と同じ。…50% → 100% → 200%…。段の間からは向きの側の段へ)
+  const zoomIn = useCallback(() => zoomTo(nextZoomLevel(viewStore.get().canvasZoom, 1, zoomRangeRef.current), { animate: true }), [zoomTo, viewStore]);
+  const zoomOut = useCallback(() => zoomTo(nextZoomLevel(viewStore.get().canvasZoom, -1, zoomRangeRef.current), { animate: true }), [zoomTo, viewStore]);
   const zoomToActual = useCallback(() => zoomTo(1, { animate: true }), [zoomTo]);
 
   const zoomToFit = useCallback<MultiPageCanvasContextValue['zoomToFit']>(
     (options) => {
       if (!pagesRef.current.length) return;
       setView(fitView(boundsRef.current, containerSize(), { padding: FIT_PADDING, maxZoom: 1, rulers: rulersRef.current }), options);
+    },
+    [setView],
+  );
+
+  // 選択範囲に合わせる等。全体表示と違って 100% で止めない(小さい要素は大きく見せる。Figma と同じ)
+  const zoomToRect = useCallback<MultiPageCanvasContextValue['zoomToRect']>(
+    (rect, options) => {
+      setView(fitView(rect, containerSize(), { padding: FIT_PADDING, maxZoom: zoomRangeRef.current.max, rulers: rulersRef.current }), options);
     },
     [setView],
   );
@@ -1223,6 +1250,8 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
       zoomToFit,
       zoomToPage,
       zoomToActual,
+      zoomToRect,
+      zoomRange,
       revealPage,
       focusPage,
       activatePage,
@@ -1244,7 +1273,7 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
     [
       enabled, editorMode, pages, bounds, layout, getPage, updatePageFrame, setPageHtml, invalidatePages, artboard.documentAttributes,
       setPageHeight, ensurePageHtml, previewStyles, viewStore, setCanvasOffset, shiftView, setCanvasZoom, setView, zoomAt, zoomTo, zoomIn, zoomOut, zoomToFit, zoomToPage,
-      zoomToActual, revealPage, focusPage, activatePage, activatingPageId, registerContainer, isInteracting, markInteracting,
+      zoomToActual, zoomToRect, zoomRange, revealPage, focusPage, activatePage, activatingPageId, registerContainer, isInteracting, markInteracting,
       persisted, applyInitialView, rulersVisible, toggleRulers, requestPreviewSlot, releasePreviewSlot,
       getPreviewImageZoomCap, reportThumbnailWidth, previewImageCapVersion,
     ],
@@ -1259,17 +1288,19 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey }: Multi
 export function ConditionalMultiPageProvider({
   enabled,
   storageKey,
+  zoomRange,
   children,
 }: {
   enabled: boolean;
   storageKey?: string | null;
+  zoomRange?: Partial<ZoomRange>;
   children: React.ReactNode;
 }) {
   if (!enabled) {
     return <>{children}</>;
   }
   return (
-    <MultiPageCanvasProvider enabled={enabled} storageKey={storageKey}>
+    <MultiPageCanvasProvider enabled={enabled} storageKey={storageKey} zoomRange={zoomRange}>
       {children}
     </MultiPageCanvasProvider>
   );

@@ -284,6 +284,8 @@ interface EditorProviderProps {
   enableMultiPageCanvas?: boolean;
   /** キャンバスの表示位置(倍率・スクロール)を記憶するキー */
   canvasStorageKey?: string | null;
+  /** マルチフレームのキャンバスの倍率の範囲(省略時 2%〜400%) — 0.9.2 */
+  canvasZoomRange?: { min?: number; max?: number };
   /** @deprecated Use contentList instead */
   slides?: ContentListItem[];
   /** @deprecated Use currentContentId instead */
@@ -541,6 +543,7 @@ export function EditorProvider({
   // Multi-page canvas
   enableMultiPageCanvas = false,
   canvasStorageKey,
+  canvasZoomRange,
   // deprecated props
   slides,
   currentSlideId,
@@ -568,7 +571,7 @@ export function EditorProvider({
                       currentSlideId={currentSlideId}
                       onSlideChange={onSlideChange}
                     >
-                      <ConditionalMultiPageProvider enabled={enableMultiPageCanvas} storageKey={canvasStorageKey}>
+                      <ConditionalMultiPageProvider enabled={enableMultiPageCanvas} storageKey={canvasStorageKey} zoomRange={canvasZoomRange}>
                         <EditorUIStateProviderWrapper>
                           <EditorVariablesProviderWrapper
                             initialVariables={initialVariables}

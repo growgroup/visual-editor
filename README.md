@@ -116,8 +116,30 @@ setEditorIO({
 
 `onSave` には `contentId` が付くので、どのページの本文かはそれで見分けてください。
 `contentId` プロップを変えると、エディタがそのページへ移ります。
-操作(⌘+ホイールで拡大縮小、Space+ドラッグで移動、⇧1 全体、⇧2 編集中のページ、⇧R 定規)と仕組みは
+操作(⌘+ホイール・ピンチで拡大縮小、Space+ドラッグで移動、⇧1 全体、⇧2 選択範囲(無ければ編集中のページ)、⇧R 定規)と仕組みは
 [docs/multi-frame-canvas-2026-09.md](docs/multi-frame-canvas-2026-09.md)。
+
+### キャンバスの拡大縮小を Figma にそろえる・紙面の外の領域(0.9.2)
+
+- **Safari・WKWebView のトラックパッドのピンチでも拡大縮小します**。WebKit はピンチを `gesturestart` / `gesturechange` で送る
+  (Chrome・Edge・Electron は ctrl 付きの wheel)。以前は止めるだけで何も起きませんでした。紙面(iframe)の上のピンチも効きます。
+  どの経路(ホイール・ピンチ・タッチ)もカーソル位置を中心にします
+- ⌘+ / ⌘− とヘッダーの +/− は **2 の累乗の段**(…50% → 100% → 200%…。段の間からは向きの側の段へ)。以前は 1.25 倍
+- ⌘2 / ⇧2 は **選んでいる要素に合わせる**(選んでいなければ従来どおり編集中のページ)。ヘッダーの倍率メニューにも「選択範囲に合わせる」
+- IME の変換中のキー(⌘+ や Space 等)は奪いません
+- 倍率の範囲を `canvasZoomRange` で変えられます(省略時は従来どおり 2%〜400%)。Figma と同じにするなら `{ min: 0.02, max: 256 }`
+- 紙面(`#artboard`)の外、上下に利用側が表示だけの領域(サイトの共通のヘッダー・フッター等)を並べるときは、
+  その要素に `FRAME_REGION_ATTRIBUTE`(`data-editor-frame-region`)を付けるとフレームの高さに入ります(付けないと紙面の高さで切れます)。
+  保存・共同編集が送るのは `#artboard` の中身だけなので、本文には混ざりません
+- 仕組みと確かめたことは [docs/figma-zoom-2026-09.md](docs/figma-zoom-2026-09.md) と [docs/frame-regions-2026-09.md](docs/frame-regions-2026-09.md)
+
+```tsx
+<VisualEditor
+  enableMultiPageCanvas
+  canvasZoomRange={{ min: 0.02, max: 256 }} // Figma と同じ 2%〜25600%(省略時 2%〜400%)
+  /* … */
+/>
+```
 
 ### リアルタイム共同編集(Figma 風、0.6.0)
 

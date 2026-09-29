@@ -21,7 +21,7 @@ import { useEditorContext } from '../../EditorContext';
 import { useCanvasViewStateOptional } from '../../contexts/MultiPageCanvasContext';
 import { useDeck, applyDeck } from '../../../components/viewer/useDeck';
 import { commentAction, type SlideComment } from '../../../lib/deck';
-import { can, io, type CommentRect, type EditorDeck } from '../../../io';
+import { can, io, type CommentRect, type EditorCommentActionResult, type EditorDeck } from '../../../io';
 import { useResizablePanel } from '../../hooks/useResizablePanel';
 import { readStorage, writeStorage } from '../../utils/storage';
 import { ConfirmDialog } from '../shell/ConfirmDialog';
@@ -696,6 +696,76 @@ export function PptCommentsPanel({
     }
   }, []);
 
+  /**
+   * 利用側が足した操作(io.commentActions)の進行状況。キーは `スレッド操作id:コメントid` /
+   * `パネル操作id:@page`。
+   *
+   * 共通の run() には載せない(「AIで修正」と同じ理由): 利用側の操作は外部に依頼して長くかかりうるので、
+   * 走らせている間ほかのコメント操作まで止めない。結果と失敗は押した場所の下に出す。
+   */
+  const [hostActions, setHostActions] = useState<Record<string, { running: boolean; message?: string; error?: string }>>({});
+  const hostRunning = useRef(new Set<string>());
+  const runHostAction = useCallback(async (key: string, fn: () => Promise<EditorCommentActionResult | void>) => {
+    if (hostRunning.current.has(key)) return;
+    hostRunning.current.add(key);
+    setHostActions((prev) => ({ ...prev, [key]: { running: true } }));
+    try {
+      const result = await fn();
+      if (result?.deck) applyDeck(result.deck);
+      setHostActions((prev) => ({ ...prev, [key]: { running: false, message: result?.message } }));
+    } catch (e) {
+      setHostActions((prev) => ({ ...prev, [key]: { running: false, error: String(e instanceof Error ? e.message : e).slice(0, 200) } }));
+    } finally {
+      hostRunning.current.delete(key);
+    }
+  }, []);
+
+  /** 押した場所の下に出す知らせ・失敗(利用側の操作) */
+  const renderHostActionStatus = (key: string) => {
+    const state = hostActions[key];
+    if (!state || state.running || (!state.message && !state.error)) return null;
+    return (
+      <p key={`${key}:status`} role={state.error ? 'alert' : 'status'} className="w-full text-[11px] leading-snug" style={{ color: state.error ? '#d13438' : pal.sub }}>
+        {state.error ?? state.message}
+      </p>
+    );
+  };
+
+  /** 利用側がスレッドに足した操作。渡されていなければ何も出さない */
+  const renderThreadActions = (c: SlideComment) => {
+    const shown = (io().commentActions?.thread ?? []).filter((action) => (action.when ? action.when(c, { page }) : !c.resolved));
+    if (shown.length === 0) return null;
+    return (
+      <div className="mt-2 flex flex-wrap items-center gap-1.5" data-comment-actions>
+        {shown.map((action) => {
+          const key = `${action.id}:${c.id}`;
+          const running = hostActions[key]?.running === true;
+          return (
+            <button
+              key={action.id}
+              type="button"
+              data-comment-action={action.id}
+              disabled={running}
+              aria-busy={running}
+              onClick={(e) => { e.stopPropagation(); void runHostAction(key, () => action.run({ page, comment: c })); }}
+              title={action.title}
+              className="flex items-center gap-1 rounded border px-1.5 py-1 text-[11px] transition-colors"
+              style={{ borderColor: pal.border, color: 'var(--ed-accent)' }}
+            >
+              {running ? <Loader2 className="h-3 w-3 animate-spin" /> : action.icon}
+              {action.label}
+            </button>
+          );
+        })}
+        {shown.map((action) => renderHostActionStatus(`${action.id}:${c.id}`))}
+      </div>
+    );
+  };
+
+  /** 利用側がパネル上部に足した、いまのページ全体への操作 */
+  const panelActions = (io().commentActions?.panel ?? []).filter((action) =>
+    action.when ? action.when({ page, comments }) : unresolvedCount(comments) > 0);
+
   /** 選択中の要素からアンカーを拾う(選択なしならページ全体へのコメント) */
   const currentAnchor = useMemo(() => {
     const doc = getIframeDoc();
@@ -851,6 +921,8 @@ export function PptCommentsPanel({
         </div>
       )}
 
+      {renderThreadActions(c)}
+
       {replyFor === c.id ? (
         <div className="mt-2 flex items-end gap-1.5">
           <textarea
@@ -931,6 +1003,31 @@ export function PptCommentsPanel({
             <Sparkles className="h-3 w-3" />
             すべてAIで修正({unresolvedTotal})
           </button>
+        )}
+        {panelActions.length > 0 && (
+          <div className="my-2 flex flex-wrap items-center gap-1.5" data-comment-panel-actions>
+            {panelActions.map((action) => {
+              const key = `${action.id}:@${page}`;
+              const running = hostActions[key]?.running === true;
+              return (
+                <button
+                  key={action.id}
+                  type="button"
+                  data-comment-panel-action={action.id}
+                  disabled={running}
+                  aria-busy={running}
+                  onClick={() => void runHostAction(key, () => action.run({ page, comments }))}
+                  title={action.title}
+                  className="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px]"
+                  style={{ borderColor: pal.border, color: pal.text }}
+                >
+                  {running ? <Loader2 className="h-3 w-3 animate-spin" /> : action.icon}
+                  {action.label}
+                </button>
+              );
+            })}
+            {panelActions.map((action) => renderHostActionStatus(`${action.id}:@${page}`))}
+          </div>
         )}
       </div>
       {(fixAll?.running || fixAll?.error) && (

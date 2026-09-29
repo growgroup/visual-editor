@@ -143,6 +143,93 @@ setEditorIO({
 />
 ```
 
+### コメントに操作を足す(0.10.0)
+
+- `io.commentActions` で、コメントパネルの**各スレッド**と**パネル上部(いま開いているページ)**に利用側のボタンを足せます。
+  何をするか(返信を足す・外部に依頼する・別画面を開く など)は利用側が決め、エディタは
+  ボタンを出す・押している間の表示(二重押しの防止)・失敗の表示・戻り値の deck の反映だけを受け持ちます
+- **渡さなければ見た目も挙動も 0.9 系と同じ**です。コメントパネルは `commentAction` がある場合だけ出るので、
+  `commentActions` だけ渡しても出ません
+- スレッドの操作は既定で**未解決のスレッドにだけ**、パネルの操作は既定で**そのページに未解決が 1 件以上あるときだけ**出ます(`when` で変えられます)
+- `run` が `{ deck }` を返せば一覧に反映し、`{ message }` を返せば押した場所の下に出します。投げたエラーも同じ場所に出します
+- 走っている間も他のコメント操作(投稿・返信・解決)は止めません
+- `apiFetch` を渡している利用側に出る「AIで修正」「すべてAIで修正」(`/__comment-fix`)は今までどおりで、これとは別物です
+- 出すのは編集画面の右のコメントパネルだけです(`CommentBoard` / `CommentBoardPanel` には出しません)
+
+```ts
+setEditorIO({
+  loadDeck,
+  commentAction,
+  commentActions: {
+    thread: [{
+      id: "ask-fix",
+      label: "直してもらう",
+      run: async ({ page, comment }) => {
+        await requestFix(page, comment.id);          // 利用側の処理
+        return { message: "依頼しました" };           // 押した場所の下に出る
+      },
+    }],
+    panel: [{
+      id: "ask-fix-all",
+      label: "未解決をまとめて直してもらう",
+      run: async ({ page, comments }) => {
+        await requestFix(page, comments.filter((c) => !c.resolved).map((c) => c.id));
+        return { message: "依頼しました" };
+      },
+    }],
+  },
+});
+```
+
+- 仕組みと確かめたことは [docs/comment-actions-2026-09.md](docs/comment-actions-2026-09.md)
+
+### リアルタイム共同編集(Figma 風、0.6.0)
+
+`io.collab` を渡すと、同じページを複数人が同時に編集できます。渡さなければ今までどおり
+(接続もせず、共同編集の UI も出ません)。中継は [Hocuspocus](https://tiptap.dev/hocuspocus)で、
+本文は Y.Text に載せた HTML の文字列 ── 衝突は文字単位で混ざります。
+
+```tsx
+setEditorIO({
+  collab: {
+    url: "wss://…",                                   // Hocuspocus
+    projectRoom: "wf/<案件の乱数>__@project",          // 居場所とページの版(rev)
+    roomFor: (id) => `wf/<案件の乱数>__${encodeURIComponent(routeOf(id))}`, // ページの部屋(null で共同編集しない)
+    routeFor: (id) => routeOf(id),                    // 案件の部屋でのページのキー
+    user: { id: "tanaka", name: "田中" },              // color は省略すると id から決まる
+    // 保存する形と共有する形が違うときだけ(構成ラフは CSS の塊を外して共有する)
+    encode: (clean) => withoutStyle(clean),
+    decode: (shared) => withStyle(shared, css),
+    requireBridge: true,                              // 書き戻し役が居ないとき警告を出し続ける
+  },
+});
+```
+
+- **部屋は名前が鍵**です。中継は認証しないので、案件ごとに推測できない乱数を部屋名に入れてください
+- **部屋名には中継が保存する形があります**。外れた部屋も中継はされますが保存されないので、
+  エディタは繋がずに「共同編集できません(部屋名)」を出します(保存は今までどおりファイルへ行われます)。
+  形は `wf/<room>__<encodeURIComponent(route)>` か `wf/<room>__@project`、
+  room は `[A-Za-z0-9_-]` の 8〜100 文字、route は `/` 始まりを `encodeURIComponent` した正規形(16 進は大文字)で 1024 文字以内。
+  殻や書き戻し役でも同じ検査ができるように `checkCollabRoom(name)` を公開しています
+
+  ```ts
+  import { checkCollabRoom } from "@growgroup/visual-editor";
+  const r = checkCollabRoom(`wf/${room}__@project`);
+  if (!r.ok) console.warn(r.reason); // 例: room は [A-Za-z0-9_-] の 8〜100 文字にする
+  ```
+
+- 接続している間、エディタは **`onSave` の自動保存を呼びません**(ファイルへ書くのは書き戻し役 = dev サーバーの役目)。
+  手動保存(保存ボタン)も「同期済み」を出すだけです。未同期のまま閉じようとすると離脱の警告が出ます
+- 取り消し(⌘Z)は `Y.UndoManager` に切り替わり、**自分の変更だけ**が戻ります
+- 表示: ヘッダーに参加者のアバター(クリックでその人のページへ)・書き戻し先の数・接続状態(同期済み / 同期中 / オフライン / 部屋名のエラー)、
+  キャンバスのフレーム名とページ一覧に参加者の色の点、紙面に他人の選択枠(名前札)とカーソル
+- 相手が文字を打っている要素に掛かる変更は、その人が入力を終える(blur)まで反映を待ちます
+- 誰がどのページに居るかは `useCollabPresence()` で利用側からも読めます
+- **記憶(localStorage)が使えない文脈**(「サイトデータをブロック」設定など)でも動きます。
+  ただし `Content-Security-Policy: sandbox` に `allow-same-origin` が無い配信では、
+  ブラウザがページから iframe の中を読ませないため、エディタ自体が動きません
+- 仕組みと確かめたことは [docs/collab-2026-09.md](docs/collab-2026-09.md)
+
 ### 台帳から挿入(0.9.0)
 
 - デザインシステムの台帳にある **セクション / パーツ / ページの雛形** を紙面に挿せます。
@@ -210,6 +297,7 @@ setEditorIO({
 |---|---|
 | `loadDeck` | 一覧は空として振る舞う |
 | `commentAction` | コメント UI を出さない |
+| `commentActions` | コメントパネルに利用側の操作を足さない（0.9 系と同じ見た目） |
 | `deckOps` | 並び替え・複製・削除を出さない |
 | `apiFetch` | ページ設定・AI 機能は「未提供」として既定値へ落ちる |
 | `uploadImage` | 画像は data URL のまま本文に埋め込む |

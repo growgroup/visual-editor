@@ -733,7 +733,7 @@ export function PptCommentsPanel({
 
   /** 利用側がスレッドに足した操作。渡されていなければ何も出さない */
   const renderThreadActions = (c: SlideComment) => {
-    const shown = (io().commentActions?.thread ?? []).filter((action) => (action.when ? action.when(c) : !c.resolved));
+    const shown = (io().commentActions?.thread ?? []).filter((action) => (action.when ? action.when(c, { page }) : !c.resolved));
     if (shown.length === 0) return null;
     return (
       <div className="mt-2 flex flex-wrap items-center gap-1.5" data-comment-actions>

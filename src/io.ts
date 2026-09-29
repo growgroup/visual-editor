@@ -103,8 +103,8 @@ export type EditorCommentThreadAction = {
   title?: string;
   /** ラベルの前に出すアイコン */
   icon?: ReactNode;
-  /** 出す条件。無ければ未解決のスレッドにだけ出す */
-  when?: (comment: EditorComment) => boolean;
+  /** 出す条件。無ければ未解決のスレッドにだけ出す。`page` はいま開いているページの番号 */
+  when?: (comment: EditorComment, ctx: { page: number }) => boolean;
   run: (ctx: { page: number; comment: EditorComment }) => Promise<EditorCommentActionResult | void>;
 };
 

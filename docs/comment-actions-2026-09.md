@@ -20,7 +20,7 @@ setEditorIO({
 
 | 項目 | 型 | 既定 |
 |---|---|---|
-| `thread[].when` | `(comment) => boolean` | 未解決のスレッドにだけ出す |
+| `thread[].when` | `(comment, { page }) => boolean` | 未解決のスレッドにだけ出す |
 | `panel[].when` | `({ page, comments }) => boolean` | いまのページに未解決が 1 件以上あるときだけ出す |
 | `run` の戻り値 | `{ deck?, message? } \| void` | `deck` は一覧に反映、`message` は押した場所の下に出す |
 | `icon` | `ReactNode` | 無し(ラベルだけ) |

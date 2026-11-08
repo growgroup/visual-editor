@@ -378,3 +378,71 @@ export function drawSmartGuides(
 
   artboard.appendChild(layer);
 }
+
+/** リサイズの吸着の結果。dx/dy は「マウスの移動量(アートボード px)に足す補正量」 */
+export interface ResizeSnapResult {
+  dx: number;
+  dy: number;
+  guideX: number | null;
+  guideY: number | null;
+}
+
+/**
+ * リサイズ中の吸着(Figma と同じく、動いている辺だけが相手の端・中央・定規のガイドに吸い付く)
+ *
+ * rect は生の移動量で計算したリサイズ後の矩形(アートボード座標)。
+ * 掴んだ辺は、左右・上下どちらのハンドルでも移動量と同じだけ同じ向きに動く
+ * (Alt の中心固定でも同じ。そのとき対辺は逆向きに同じだけ動く)。
+ * なので「辺の位置の差」がそのまま移動量の補正になり、対辺で揃えるときだけ符号を反転する。
+ *
+ * axes で吸着させる軸を選ぶ。Shift(縦横比固定)のときは呼び出し側が主に動いている軸だけを渡し、
+ * もう片方は比から出す。
+ */
+export function snapResizeEdges(
+  candidates: GuideCandidates,
+  rect: MovingRect,
+  dir: { x: -1 | 0 | 1; y: -1 | 0 | 1 },
+  opts: { alt: boolean; axes: { x: boolean; y: boolean } },
+  threshold: number,
+): ResizeSnapResult {
+  const result: ResizeSnapResult = { dx: 0, dy: 0, guideX: null, guideY: null };
+
+  const pick = (
+    list: number[],
+    start: number,
+    end: number,
+    d: -1 | 1,
+  ): { delta: number; guide: number } | null => {
+    // 掴んだ辺(+1)。Alt なら対辺も動くので候補に入れる(-1)
+    const edges: Array<[number, 1 | -1]> = [[d > 0 ? end : start, 1]];
+    if (opts.alt) edges.push([d > 0 ? start : end, -1]);
+    let best: { delta: number; guide: number } | null = null;
+    let bestDist = threshold;
+    for (const [edge, sign] of edges) {
+      const target = nearest(list, edge);
+      if (target === null) continue;
+      const diff = target - edge;
+      if (Math.abs(diff) <= bestDist) {
+        bestDist = Math.abs(diff);
+        best = { delta: diff * sign, guide: target };
+      }
+    }
+    return best;
+  };
+
+  if (opts.axes.x && dir.x !== 0) {
+    const s = pick(candidates.xs, rect.left, rect.left + rect.width, dir.x);
+    if (s) {
+      result.dx = s.delta;
+      result.guideX = s.guide;
+    }
+  }
+  if (opts.axes.y && dir.y !== 0) {
+    const s = pick(candidates.ys, rect.top, rect.top + rect.height, dir.y);
+    if (s) {
+      result.dy = s.delta;
+      result.guideY = s.guide;
+    }
+  }
+  return result;
+}

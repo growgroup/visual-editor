@@ -11,6 +11,7 @@ import { debugLog } from './debug';
 // 目印クラスの定義は free-layout.ts 側が正本。ここでは選択枠の札を出すためだけに読む
 // (循環importになるが、使うのは関数の中だけなので評価順の問題は起きない)
 import { FREELAYOUT_CLASS } from './free-layout';
+import { isLockedEl } from './lock';
 
 // ========================================
 // buildDomTree キャッシュ（Phase 2 最適化）
@@ -1225,6 +1226,8 @@ const HANDLE_HIT_SCREEN = 12;
  * 角丸ハンドル(±6px)の中心が 14px 内側にあれば両者は重ならない。
  */
 const RADIUS_MIN_INSET_SCREEN = 14;
+/** 角丸ハンドルを出す要素の短い辺の下限(画面px)。これ未満では本体の掴み代を優先する */
+const RADIUS_MIN_SIDE_SCREEN = 56;
 
 /**
  * オーバーレイの寸法をズーム非依存にするための倍率を <html> に書き込む
@@ -1345,8 +1348,13 @@ function updateRadiusHandle(
   const minInset = RADIUS_MIN_INSET_SCREEN * overlayScale;
   const maxInset = Math.min(rect.width, rect.height) / 2;
 
-  // 下限すら確保できない小さな要素では角丸ハンドルを出さない
-  if (!Number.isFinite(maxInset) || maxInset < minInset) {
+  // 下限すら確保できない小さな要素では角丸ハンドルを出さない。
+  // さらに、短い辺が画面上 RADIUS_MIN_SIDE_SCREEN 未満の要素でも出さない。
+  // 40×28px ほどの矢印やアイコンでは角丸ハンドル(当たり12px)が要素の中央帯を覆い、
+  // 選択済みの小さな要素を掴んで動かそうとすると角丸の操作に化けていた(実測)。
+  // Figma も小さな図形では角丸ハンドルを出さない
+  const minSide = Math.min(rect.width, rect.height) / (overlayScale || 1);
+  if (!Number.isFinite(maxInset) || maxInset < minInset || minSide < RADIUS_MIN_SIDE_SCREEN) {
     handle?.remove();
     return;
   }
@@ -1432,6 +1440,8 @@ function drawSelectionBox(
   selectionBox.className =
     mode === 'member' ? 'selection-box selection-member' : 'selection-box';
   selectionBox.setAttribute('data-for-element', elementId);
+  // ロック中(⌘⇧L)の要素は枠だけ出してハンドルを隠す(Figma と同じく紙面では動かせない)
+  if (isLockedEl(element)) selectionBox.classList.add('selection-locked');
   // 部品(data-part)のインスタンスは枠を紫にして、名前と版を枠の上に出す(部品だと一目で分かる)。
   // 部品の中のスロットを選んでいるときも、どの部品の中かを出す
   const partRoot = element.hasAttribute('data-part') ? element : (element.parentElement?.closest('[data-part]') as HTMLElement | null) ?? null;

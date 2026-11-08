@@ -45,6 +45,8 @@ import { SLIDE_WIDTH, SLIDE_HEIGHT, WEBPAGE_WIDTH, WEBPAGE_MIN_HEIGHT } from '..
 
 // ズーム設定
 export const MIN_ZOOM = 10;    // 10%
+/** この大きさ(px)に満たない容器はまだ組み上がっていないとみなし、フィットの計算に使わない */
+const FIT_MIN_CONTAINER_PX = 120;
 export const MAX_ZOOM = 400;   // 400%
 
 /**
@@ -168,6 +170,13 @@ export function useCanvasControls() {
 
   // 初期ズーム設定済みフラグ
   const initialZoomSetRef = useRef(false);
+
+  // 人が倍率を動かしたか。true の間は、容器の大きさが変わってもフィットに合わせ直さない(下の updateFitZoomValue)。
+  // ホイール・ピンチ・100%・選択範囲へのズーム・倍率の直接入力で true、全体表示(⌘0 など zoomToFit)で false。
+  // 「いまの倍率がフィット値に近いか」だけで決めると、手でズームしてたまたまフィット値の近くで止めたとき、次のリサイズで追従に戻ってしまう
+  const userZoomedRef = useRef(false);
+  // このフックが自分で入れた倍率(フィット・全体表示)。これと違う倍率が入ってきたら、人(ヘッダーの倍率など外の setZoom)が動かした
+  const selfAppliedZoomRef = useRef<number | null>(null);
 
   // パンモードが有効かどうか（スペースキーまたはハンドツール）
   const isPanModeActive = isSpacePressed || activeTool === 'move';
@@ -307,6 +316,7 @@ export function useCanvasControls() {
   const zoomRef = useRef(zoom);
   useEffect(() => {
     zoomRef.current = zoom;
+    if (selfAppliedZoomRef.current !== null && Math.abs(zoom - selfAppliedZoomRef.current) >= 0.5) userZoomedRef.current = true;
   }, [zoom]);
 
   /**
@@ -359,6 +369,7 @@ export function useCanvasControls() {
         heldAnchorRef.current = { anchor, time: now };
       }
 
+      userZoomedRef.current = true;
       zoomRef.current = clamped;
 
       if (options?.continuous) {
@@ -422,6 +433,7 @@ export function useCanvasControls() {
         ly: rect.y + rect.h / 2,
       };
       heldAnchorRef.current = null;
+      userZoomedRef.current = true;
 
       // すでに同じ倍率なら setZoom しても再レンダーが起きない＝補正の useEffect も走らない。
       // 「押しても何も起きない」を作らないため、その場合はここで直接寄せる。
@@ -444,6 +456,8 @@ export function useCanvasControls() {
   const zoomToFit = useCallback(() => {
     heldAnchorRef.current = null;
     zoomAnchorRef.current = null;
+    userZoomedRef.current = false;
+    selfAppliedZoomRef.current = fitZoom;
     zoomRef.current = fitZoom;
     setZoom(fitZoom);
   }, [fitZoom, setZoom]);
@@ -452,6 +466,7 @@ export function useCanvasControls() {
   const zoomToActual = useCallback(() => {
     heldAnchorRef.current = null;
     zoomAnchorRef.current = null;
+    userZoomedRef.current = true;
     zoomRef.current = 100;
     setZoom(100);
   }, [setZoom]);
@@ -545,26 +560,48 @@ export function useCanvasControls() {
     return Math.floor(Math.min(scaleX, scaleY) * 100);
   }, [containerRef, canvasWidth, canvasHeight]);
 
-  // 初期化時とウィンドウリサイズ時にフィットズームを計算
+  // 初期化時と容器の大きさが変わったときにフィットズームを計算する。
+  // 「全体表示のまま」(人がまだ倍率を動かしていない = userZoomedRef が false)なら
+  // 倍率もフィットに合わせ直す(PowerPoint の「スライドを画面に合わせる」と同じ)。
+  // 合わせ直すのはスライド(高さが決まっている)だけ。webpage は本文の高さ(canvasHeight)が変わるたびに
+  // フィット値が変わるので、追従させると編集中に倍率が勝手に動く。webpage は最初の 1 回だけ合わせる(以前と同じ)。
+  // 以前は 100ms 後に 1 回だけ合わせていたので、その時点で容器が組み上がっていない
+  // (キャンバス →「1 枚」の切替直後・パネルが後から開く)と 3〜19% の豆粒のまま残った。
+  // 容器の大きさの変化は window の resize では拾えない(パネルの開閉)ので ResizeObserver で見る
+  const fitZoomRef = useRef(fitZoom);
+  fitZoomRef.current = fitZoom;
   useEffect(() => {
     if (isInMultiPageMode) return;
 
     const updateFitZoomValue = () => {
+      const container = containerRef.current;
+      // 組み上がる前(幅・高さがほぼ 0)の値で倍率を決めない
+      if (!container || container.clientWidth < FIT_MIN_CONTAINER_PX || container.clientHeight < FIT_MIN_CONTAINER_PX) return;
       const newFitZoom = calculateFitZoom();
+      const followsFit = !initialZoomSetRef.current || (editorMode !== 'webpage' && !userZoomedRef.current);
+      fitZoomRef.current = newFitZoom;
       setFitZoom(newFitZoom);
-      if (!initialZoomSetRef.current) {
+      if (followsFit && Math.abs(zoomRef.current - newFitZoom) >= 0.5) {
+        selfAppliedZoomRef.current = newFitZoom;
+        zoomRef.current = newFitZoom;
         setZoom(newFitZoom);
-        initialZoomSetRef.current = true;
+      } else if (followsFit) {
+        selfAppliedZoomRef.current = zoomRef.current;
       }
+      initialZoomSetRef.current = true;
     };
 
     const timer = setTimeout(updateFitZoomValue, 100);
     window.addEventListener('resize', updateFitZoomValue);
+    const container = containerRef.current;
+    const observer = container && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => updateFitZoomValue()) : null;
+    if (container) observer?.observe(container);
     return () => {
       clearTimeout(timer);
       window.removeEventListener('resize', updateFitZoomValue);
+      observer?.disconnect();
     };
-  }, [calculateFitZoom, setFitZoom, setZoom, isInMultiPageMode]);
+  }, [calculateFitZoom, setFitZoom, setZoom, isInMultiPageMode, containerRef, editorMode]);
 
   // 初回マウント時に中央配置
   useEffect(() => {

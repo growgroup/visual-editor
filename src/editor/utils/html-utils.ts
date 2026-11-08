@@ -371,6 +371,10 @@ export function getCleanHtml(doc: Document): string {
   // ドラッグ中の整列ガイド(表示専用)も保存しない
   tempContainer.querySelectorAll('#gg-smart-guides').forEach(el => el.remove());
 
+  // レイヤーパネルの行に乗せたときの紙面側の強調(表示専用)。
+  // 行の目・鍵のボタンを押すと、マウスが行に乗ったまま保存が走るので、ここで外さないと HTML に残る(実測)
+  tempContainer.querySelectorAll('[data-layer-hover]').forEach(el => el.removeAttribute('data-layer-hover'));
+
   // トリミングモードのUI(枠・ハンドル)。確定/中断で消えるが、保険で除去
   tempContainer.querySelectorAll('.gg-crop-ui').forEach(el => el.remove());
 

@@ -19,6 +19,7 @@ import { extractElementInfo } from '../utils/style-utils';
 import { MARQUEE_DRAG_THRESHOLD } from '../constants';
 import type { MarqueeState } from '../types';
 import { debugLog } from '../utils/debug';
+import { isLockedEl } from '../utils/lock';
 
 interface UseMarqueeSelectionOptions {
   /** マーキー選択の開始保留フラグ */
@@ -54,7 +55,10 @@ export function findElementsIntersectingMarquee(
       el.classList.contains('selection-box') ||
       el.classList.contains('marquee-selection-box') ||
       el.classList.contains('drawing-preview') ||
-      el.closest('.selection-box')
+      el.closest('.selection-box') ||
+      // ロック中(⌘⇧L)・非表示(⌘⇧H / 目のアイコン)は範囲選択でも拾わない(Figma と同じ)
+      isLockedEl(el) ||
+      el.style.visibility === 'hidden'
     ) {
       return;
     }

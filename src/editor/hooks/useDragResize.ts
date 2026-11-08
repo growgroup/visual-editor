@@ -18,7 +18,9 @@ import {
   syncSelectionOverlayRects,
   getOverlayRect,
   setOverlayLabel,
+  generateElementId,
 } from '../utils/dom-utils';
+import { rememberDuplicate, forgetDuplicate } from '../utils/smart-duplicate';
 import {
   DRAG_START_THRESHOLD,
   MIN_ELEMENT_SIZE,
@@ -45,6 +47,7 @@ import {
 import {
   collectGuideCandidates,
   snapToGuides,
+  snapResizeEdges,
   drawSmartGuides,
   clearSmartGuides,
   SNAP_THRESHOLD_SCREEN_PX,
@@ -55,6 +58,7 @@ import { computeFreeBounds, keepsInlineGeometry } from '../utils/free-layout';
 import { extractElementInfo } from '../utils/style-utils';
 import { convertInlineStylesToTailwind } from '../utils/tailwind-utils';
 import { isAspectRatioLocked } from '../utils/aspect-lock';
+import { isLockedEl } from '../utils/lock';
 import {
   getFlexContainerInfo,
   calculateDropIndex,
@@ -224,6 +228,13 @@ interface ResizeSnapshot {
   wroteHeight: boolean;
   /** 要素の min / max-width・height。ハンドルでもここで止める(開始時に読む) */
   limits: SizeLimits;
+  /**
+   * リサイズの吸着に使う。style の left/top/width/height(=snapshot の値)と
+   * アートボード座標の枠との差。回転・拡大縮小された要素は枠と style が対応しないので null(吸着しない)
+   */
+  snapFrame: { dx: number; dy: number; dw: number; dh: number } | null;
+  /** 吸着の相手(兄弟の端・中央、紙面の端・中央、定規のガイド)。リサイズ開始時に 1 回だけ集める */
+  snapCandidates: GuideCandidates | null;
 }
 
 /**
@@ -236,6 +247,17 @@ interface ResizeSnapshot {
  */
 const RESIZE_INERT_CLASS = 'resize-inert';
 const RESIZE_INERT_ATTR = 'data-resize-inert';
+
+/**
+ * iframe が外側(キャンバス表示の拡縮)で何倍に表示されているか。1 枚表示では 1。
+ * 中のアートボードの倍率(getDragScale)とは別で、画面の px に直すには両方を掛ける
+ */
+function iframeOuterScale(iframeDoc: Document): number {
+  const frame = iframeDoc.defaultView?.frameElement as HTMLElement | null | undefined;
+  if (!frame || !frame.offsetWidth) return 1;
+  const shown = frame.getBoundingClientRect().width / frame.offsetWidth;
+  return shown > 0 && Number.isFinite(shown) ? shown : 1;
+}
 
 /**
  * transform の中の指定した関数だけを差し替える(他の関数は順序を保って残す)
@@ -292,6 +314,39 @@ function normalizeAngle(deg: number): number {
 const ROTATION_SNAP_DEG = 15;
 
 /**
+ * Alt(⌥)ドラッグの複製(Figma と同じ)。
+ *
+ * 掴んでいる要素はそのまま動かし続け、**元の位置に複製を置いていく**。
+ * Figma は「複製が動いて元が残る」が、見た目と結果(元の位置と新しい位置に1つずつ)は同じで、
+ * こちらのほうが選択・ドラッグの状態(掴んでいる要素・選択枠・スナップの基準)を一切
+ * 差し替えずに済む。複製は掴んでいる要素の直前(1つ背面)に入れるので、動いている側が手前に見える。
+ *
+ * 部品のインスタンス(data-component-instance)を含む要素は複製しない。
+ * インスタンスの登録を伴う複製は ⌘D(duplicateElement)の経路にしか無く、
+ * DOM だけ写すと同じインスタンスIDを持つ要素が2つできてしまうため。
+ */
+function createAltDuplicates(
+  targets: { element: HTMLElement; origin: { left: number; top: number } }[],
+): HTMLElement[] {
+  const clones: HTMLElement[] = [];
+  for (const { element, origin } of targets) {
+    if (!element.parentElement) continue;
+    if (element.matches('[data-component-instance]') || element.querySelector('[data-component-instance]')) continue;
+    const clone = element.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.selection-box').forEach((box) => box.remove());
+    [clone, ...Array.from(clone.querySelectorAll<HTMLElement>('[data-element-id]'))].forEach((node) => {
+      if (node.hasAttribute('data-element-id')) node.setAttribute('data-element-id', generateElementId('dup'));
+    });
+    clone.classList.remove('selected', 'dragging', 'hover-preview', 'text-editable-hover', 'marquee-hover');
+    clone.style.left = `${roundPx(origin.left)}px`;
+    clone.style.top = `${roundPx(origin.top)}px`;
+    element.parentElement.insertBefore(clone, element);
+    clones.push(clone);
+  }
+  return clones;
+}
+
+/**
  * ドラッグ・リサイズ処理フック
  */
 export function useDragResize(
@@ -337,6 +392,8 @@ export function useDragResize(
   // ここを立てずに素通りさせると convertDragTargetsToAbsolute が走って版面が崩れ、
   // さらに mouseup が「動いた」と見なして履歴を1段積んでしまう
   const dragBlockedRef = useRef(false);
+  // Alt(⌥)ドラッグで元の位置に置いた複製。Alt を離すと消し、Esc の取り消しでも消す
+  const altClonesRef = useRef<HTMLElement[] | null>(null);
   // 案内はセッション中1回だけ。ドラッグのたびに帯が出ると操作の邪魔になる
   const reorderHintShownRef = useRef(false);
 
@@ -391,6 +448,8 @@ export function useDragResize(
     reorderIndexRef.current = -1;
     dragBlockedRef.current = false;
     freeBoundsRef.current = null;
+    // 複製は確定済み(DOM に残す)。参照だけ手放す
+    altClonesRef.current = null;
   }, [dragStateRef]);
 
   /**
@@ -575,6 +634,8 @@ export function useDragResize(
       resizeState.elements.forEach((el, index) => {
         const orig = resizeState.origElementStates[index];
         if (!orig) return;
+        // ロック中(本人か祖先)は一緒に選ばれていても大きさを変えない
+        if (isLockedEl(el)) return;
 
         // 相対位置を維持して座標変換
         const relativeLeft = orig.left - bounds.left;
@@ -639,8 +700,31 @@ export function useDragResize(
 
       const size = measureStyleSize(element, iframeDoc);
 
+      // 吸着用: style の値とアートボード上の枠の差(padding・border の分と、親の位置)。
+      // 反転(scaleX(-1))は枠が変わらないので許し、回転・拡大縮小は対応が崩れるので吸着しない
+      let snapFrame: ResizeSnapshot['snapFrame'] = null;
+      const transform = win?.getComputedStyle(element).transform || 'none';
+      const m = transform.match(/^matrix\(([^)]+)\)$/);
+      const parts = m ? m[1].split(',').map(Number) : null;
+      const plainTransform =
+        transform === 'none' ||
+        (!!parts &&
+          Math.abs(Math.abs(parts[0]) - 1) < 1e-3 && Math.abs(parts[1]) < 1e-3 &&
+          Math.abs(parts[2]) < 1e-3 && Math.abs(Math.abs(parts[3]) - 1) < 1e-3);
+      if (plainTransform) {
+        const frame = getOverlayRect(iframeDoc, element);
+        snapFrame = {
+          dx: frame.left - origin.left,
+          dy: frame.top - origin.top,
+          dw: frame.width - size.width,
+          dh: frame.height - size.height,
+        };
+      }
+
       return {
         element,
+        snapFrame,
+        snapCandidates: collectGuideCandidates(iframeDoc, [element]),
         left: origin.left,
         top: origin.top,
         width: size.width,
@@ -757,6 +841,64 @@ export function useDragResize(
   );
 
   /**
+   * リサイズの吸着。補正した移動量と、揃った線を返す(吸着しないときは null)
+   *
+   * Shift(縦横比固定)では主に動いている軸だけを吸着させ、もう片方は比から出す。
+   * 角のハンドルでは、従う軸の移動量を 0 にして computeResizeGeometry に渡し直すことで、
+   * 補正のあとも同じ軸が主になるようにする(補正で主の軸が入れ替わると線から外れるため)。
+   */
+  const snapResize = useCallback(
+    (
+      iframeDoc: Document,
+      snapshot: ResizeSnapshot,
+      handle: string,
+      deltaX: number,
+      deltaY: number,
+      next: { left: number; top: number; width: number; height: number },
+      mods: { shiftKey: boolean; altKey: boolean; ctrlKey?: boolean; metaKey?: boolean }
+    ): { deltaX: number; deltaY: number; guideX: number | null; guideY: number | null } | null => {
+      if (mods.ctrlKey || mods.metaKey) return null;
+      const frame = snapshot.snapFrame;
+      const candidates = snapshot.snapCandidates;
+      if (!frame || !candidates) return null;
+      const dir = handleDirection(handle);
+      if (dir.x === 0 && dir.y === 0) return null;
+      // 流れの中にいる要素は left/top を書けない。左・上の辺と中心からの拡大は動かないので吸着しない
+      const canMove = snapshot.canWritePosition;
+      let axes = {
+        x: dir.x !== 0 && (canMove || (dir.x > 0 && !mods.altKey)),
+        y: dir.y !== 0 && (canMove || (dir.y > 0 && !mods.altKey)),
+      };
+      let dX = deltaX;
+      let dY = deltaY;
+      if (mods.shiftKey && snapshot.width > 0 && snapshot.height > 0) {
+        if (dir.x !== 0 && dir.y !== 0) {
+          // computeResizeGeometry と同じ規則で主の軸を決める
+          const xMain = Math.abs(dir.x * deltaX) * snapshot.height >= Math.abs(dir.y * deltaY) * snapshot.width;
+          axes = { x: xMain && axes.x, y: !xMain && axes.y };
+          if (xMain) dY = 0;
+          else dX = 0;
+        } else {
+          axes = { x: dir.x !== 0 && axes.x, y: dir.y !== 0 && axes.y };
+        }
+      }
+      if (!axes.x && !axes.y) return null;
+      const scale = getDragScale(iframeDoc);
+      const threshold = SNAP_THRESHOLD_SCREEN_PX / ((scale || 1) * iframeOuterScale(iframeDoc));
+      const rect = {
+        left: next.left + frame.dx,
+        top: next.top + frame.dy,
+        width: next.width + frame.dw,
+        height: next.height + frame.dh,
+      };
+      const s = snapResizeEdges(candidates, rect, dir, { alt: mods.altKey, axes }, threshold);
+      if (s.guideX === null && s.guideY === null) return null;
+      return { deltaX: dX + s.dx, deltaY: dY + s.dy, guideX: s.guideX, guideY: s.guideY };
+    },
+    [getDragScale]
+  );
+
+  /**
    * 単一要素のリサイズ処理
    *
    * [対辺固定をモードで分岐させない]
@@ -770,7 +912,7 @@ export function useDragResize(
       iframeDoc: Document,
       deltaX: number,
       deltaY: number,
-      mods: { shiftKey: boolean; altKey: boolean }
+      mods: { shiftKey: boolean; altKey: boolean; ctrlKey?: boolean; metaKey?: boolean }
     ): boolean => {
       const resizeState = resizeStateRef.current;
       if (!resizeState.element) return false;
@@ -798,18 +940,32 @@ export function useDragResize(
         resizeSnapshotRef.current = snapshot;
       }
 
-      const next = computeResizeGeometry(
-        {
-          left: snapshot.left,
-          top: snapshot.top,
-          width: snapshot.width,
-          height: snapshot.height,
-        },
-        handle,
-        deltaX,
-        deltaY,
-        { shiftKey: mods.shiftKey, altKey: mods.altKey, limits: snapshot.limits }
-      );
+      const origRect = {
+        left: snapshot.left,
+        top: snapshot.top,
+        width: snapshot.width,
+        height: snapshot.height,
+      };
+      const geometryMods = { shiftKey: mods.shiftKey, altKey: mods.altKey, limits: snapshot.limits };
+      let next = computeResizeGeometry(origRect, handle, deltaX, deltaY, geometryMods);
+
+      // ── 吸着(移動と同じく画面上 4px。⌘/Ctrl を押している間は吸着しない) ──
+      const snapped = snapResize(iframeDoc, snapshot, handle, deltaX, deltaY, next, mods);
+      if (snapped) {
+        next = computeResizeGeometry(origRect, handle, snapped.deltaX, snapped.deltaY, geometryMods);
+        // 最小・最大サイズで止まったなどで辺が線に届かなかったら、線は出さない
+        const f = snapshot.snapFrame!;
+        const xs = [next.left + f.dx, next.left + f.dx + next.width + f.dw];
+        const ys = [next.top + f.dy, next.top + f.dy + next.height + f.dh];
+        const on = (list: number[], g: number | null) =>
+          g !== null && list.some((v) => Math.abs(v - g) <= 0.5) ? g : null;
+        const gx = on(xs, snapped.guideX);
+        const gy = on(ys, snapped.guideY);
+        if (gx !== null || gy !== null) drawSmartGuides(iframeDoc, gx, gy);
+        else clearSmartGuides(iframeDoc);
+      } else {
+        clearSmartGuides(iframeDoc);
+      }
 
       // 掴んだハンドルが実際に動かす軸だけを書く。
       // （例: e ハンドルで height まで書くと、触っていない高さが inline → Tailwind クラスへ
@@ -847,7 +1003,7 @@ export function useDragResize(
 
       return true;
     },
-    [resizeStateRef, createResizeSnapshot, verifyResizeEffect]
+    [resizeStateRef, createResizeSnapshot, verifyResizeEffect, snapResize]
   );
 
   /**
@@ -876,7 +1032,8 @@ export function useDragResize(
         })
         .filter(
           (v): v is { element: HTMLElement; origin: { left: number; top: number } } =>
-            v !== null
+            // ロック中(本人か祖先)は一緒に選ばれていても動かさない
+            v !== null && !isLockedEl(v.element)
         );
     },
     []
@@ -1032,6 +1189,23 @@ export function useDragResize(
         return true;
       }
 
+      // Alt(⌥)を押している間だけ、元の位置に複製を置く(Figma と同じく途中で押しても離してもよい)。
+      // コンポーネント編集中は部品の構造を変えないので複製しない
+      const wantsCopy = e.altKey && !iframeDoc.body.classList.contains('component-edit-mode');
+      if (wantsCopy && !altClonesRef.current) {
+        const targets = getDragTargets(dragState);
+        altClonesRef.current = createAltDuplicates(targets);
+        // このあとの ⌘D は「元の位置 → 離した位置」のずれで複製を続ける(Figma と同じ)
+        rememberDuplicate(
+          targets.map((t) => t.element.getAttribute('data-element-id') ?? '').filter(Boolean),
+          targets[0]?.origin ?? null,
+        );
+      } else if (!wantsCopy && altClonesRef.current) {
+        altClonesRef.current.forEach((clone) => clone.remove());
+        altClonesRef.current = null;
+        forgetDuplicate();
+      }
+
       // スナップ補正。Cmd/Ctrl を押している間は吸着しない(Figmaと同じ逃げ道)
       let snappedDx = dx;
       let snappedDy = dy;
@@ -1039,7 +1213,8 @@ export function useDragResize(
       const baseRect = dragBaseRectRef.current;
       if (!e.metaKey && !e.ctrlKey && candidates && baseRect) {
         // 吸着距離は「画面上で4px」。ズームで見た目の効きが変わらないよう割り戻す
-        const threshold = SNAP_THRESHOLD_SCREEN_PX / (scale || 1);
+        // キャンバス表示では iframe ごと外から拡縮されるので、その倍率も掛けて「画面の 4px」にする
+        const threshold = SNAP_THRESHOLD_SCREEN_PX / ((scale || 1) * iframeOuterScale(iframeDoc));
         const snap = snapToGuides(
           candidates,
           {
@@ -1060,17 +1235,20 @@ export function useDragResize(
         // 斜めへずれる(拘束が破れる)
         let guideX = snap.guideX;
         let guideY = snap.guideY;
+        let spacing = snap.spacing ?? [];
         if (e.shiftKey) {
           if (dx === 0) {
             snappedDx = 0;
             guideX = null;
+            spacing = spacing.filter((m) => m.axis !== 'x');
           }
           if (dy === 0) {
             snappedDy = 0;
             guideY = null;
+            spacing = spacing.filter((m) => m.axis !== 'y');
           }
         }
-        drawSmartGuides(iframeDoc, guideX, guideY);
+        drawSmartGuides(iframeDoc, guideX, guideY, spacing);
       } else {
         clearSmartGuides(iframeDoc);
       }
@@ -1123,6 +1301,11 @@ export function useDragResize(
 
       const doc = iframeDoc ?? dragState.element.ownerDocument;
       if (!doc) return false;
+
+      // Alt ドラッグの複製は取り消しでは残さない
+      if (altClonesRef.current) forgetDuplicate();
+      altClonesRef.current?.forEach((clone) => clone.remove());
+      altClonesRef.current = null;
 
       // 並べ替え中の取り消し: DOMの順番はまだ変えていないので、
       // 持ち上げの見た目と線を戻すだけで元の状態に戻る
@@ -1194,6 +1377,9 @@ export function useDragResize(
         const mods = {
           shiftKey: e.shiftKey || isAspectRatioLocked(),
           altKey: e.altKey,
+          // 押している間は吸着しない(移動と同じ)
+          ctrlKey: e.ctrlKey,
+          metaKey: e.metaKey,
         };
 
         // Scale Toolによるリサイズ
@@ -1260,6 +1446,8 @@ export function useDragResize(
 
       // リサイズ終了
       if (resizeState.isResizing && resizeState.element) {
+        // 吸着の赤い線は #artboard の中にある。保存する HTML に入れないよう先に消す
+        clearSmartGuides(iframeDoc);
         // インラインスタイルをTailwindクラスに変換
         // リサイズ中はパフォーマンスのためインラインスタイルを使用し、
         // 終了時にTailwindクラスに変換する

@@ -22,6 +22,9 @@ import {
   Ungroup,
   Lock,
   Unlock,
+  EyeOff,
+  FlipHorizontal2,
+  FlipVertical2,
   Sparkles,
   Code,
   Paintbrush,
@@ -88,6 +91,12 @@ export interface ContextMenuProps {
   onSendToBack?: () => void;
   onGroup?: () => void;
   onUngroup?: () => void;
+  /** 表示/非表示(⌘⇧H)とロック/解除(⌘⇧L)。Figma の右クリックの Show/Hide・Lock/Unlock */
+  onToggleHidden?: () => void;
+  onToggleLocked?: () => void;
+  /** 左右反転(⇧H)・上下反転(⇧V)。Figma の右クリックの Flip horizontal / vertical */
+  onFlipH?: () => void;
+  onFlipV?: () => void;
   /** 表の編集(右クリックしたセルが表の中のときだけ渡される) */
   onInsertRowAbove?: () => void;
   onInsertRowBelow?: () => void;
@@ -198,6 +207,10 @@ export function EditorContextMenu({
   onSendToBack,
   onGroup,
   onUngroup,
+  onToggleHidden,
+  onToggleLocked,
+  onFlipH,
+  onFlipV,
   onInsertRowAbove,
   onInsertRowBelow,
   onInsertColumnLeft,
@@ -480,17 +493,54 @@ export function EditorContextMenu({
       <MenuItem
         icon={<ChevronsUp className="w-3.5 h-3.5" />}
         label="最前面へ"
-        shortcut="⌘⇧]"
+        shortcut="⌥⌘]"
         onClick={() => handleAction(onBringToFront)}
         disabled={!hasSelection}
       />
       <MenuItem
         icon={<ChevronsDown className="w-3.5 h-3.5" />}
         label="最背面へ"
-        shortcut="⌘⇧["
+        shortcut="⌥⌘["
         onClick={() => handleAction(onSendToBack)}
         disabled={!hasSelection}
       />
+      {(onToggleHidden || onToggleLocked) && (
+        <>
+          <MenuDivider />
+          <MenuItem
+            icon={<EyeOff className="w-3.5 h-3.5" />}
+            label="表示 / 非表示"
+            shortcut="⌘⇧H"
+            onClick={() => handleAction(onToggleHidden)}
+            disabled={!hasSelection || !onToggleHidden}
+          />
+          <MenuItem
+            icon={<Lock className="w-3.5 h-3.5" />}
+            label="ロック / 解除"
+            shortcut="⌘⇧L"
+            onClick={() => handleAction(onToggleLocked)}
+            disabled={!hasSelection || !onToggleLocked}
+          />
+          {(onFlipH || onFlipV) && (
+            <>
+              <MenuItem
+                icon={<FlipHorizontal2 className="w-3.5 h-3.5" />}
+                label="左右反転"
+                shortcut="⇧H"
+                onClick={() => handleAction(onFlipH)}
+                disabled={!hasSelection || !onFlipH}
+              />
+              <MenuItem
+                icon={<FlipVertical2 className="w-3.5 h-3.5" />}
+                label="上下反転"
+                shortcut="⇧V"
+                onClick={() => handleAction(onFlipV)}
+                disabled={!hasSelection || !onFlipV}
+              />
+            </>
+          )}
+        </>
+      )}
 
       {/* グループ操作（複数選択時のみ表示） */}
       {(selectionCount > 1 || isGroup) && (

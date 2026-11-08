@@ -8,6 +8,7 @@
 
 import { memo, useEffect, useRef } from 'react';
 import { RULER_SIZE, useMultiPageCanvas, useCanvasViewState } from '../../contexts/MultiPageCanvasContext';
+import { CanvasGuides } from '../canvas-guides/CanvasGuides';
 
 /** 目盛りの候補(紙面の px)。画面上で 60px 以上離れる最小のものを選ぶ */
 const STEPS = [1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000];
@@ -142,6 +143,8 @@ export const CanvasRulers = memo(function CanvasRulers({ theme }: { theme: 'ligh
         className="absolute left-0 top-0"
         style={{ width: RULER_SIZE, height: RULER_SIZE, background: 'var(--ed-panel)', borderRight: '1px solid var(--ed-line)', borderBottom: '1px solid var(--ed-line)' }}
       />
+      {/* 定規から引くガイド(定規の当たりとガイドの線だけが押せる。ほかは下のキャンバスへ素通し) */}
+      <CanvasGuides />
     </div>
   );
 });

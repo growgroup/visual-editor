@@ -71,6 +71,8 @@ function artboardOffset(el: HTMLElement): { x: number; y: number } {
  */
 function measure(els: HTMLElement[]): Box[] {
   return els.map((el) => {
+    // <svg> などは offset* を持たない(undefined → NaN で選択群の枠ごと壊れる)。画面の矩形から測る
+    if (typeof el.offsetWidth !== 'number') return measureByRect(el);
     const { x, y } = artboardOffset(el);
     return {
       el,
@@ -83,6 +85,33 @@ function measure(els: HTMLElement[]): Box[] {
       movable: isMovable(el),
     };
   });
+}
+
+/**
+ * offset* を持たない要素(<svg> など)の実測。アートボードの画面上の矩形と拡縮率から
+ * アートボード座標へ直す。原点は computed の left/top から逆算する
+ */
+function measureByRect(el: HTMLElement): Box {
+  const doc = el.ownerDocument;
+  const artboard = doc.getElementById('artboard');
+  const r = el.getBoundingClientRect();
+  const a = artboard?.getBoundingClientRect();
+  const scale = artboard && a && artboard.offsetWidth ? a.width / artboard.offsetWidth : 1;
+  const x = (r.left - (a?.left ?? 0)) / scale;
+  const y = (r.top - (a?.top ?? 0)) / scale;
+  const cs = doc.defaultView?.getComputedStyle(el);
+  const left = parseFloat(cs?.left ?? '') || 0;
+  const top = parseFloat(cs?.top ?? '') || 0;
+  return {
+    el,
+    x,
+    y,
+    width: r.width / scale,
+    height: r.height / scale,
+    originX: x - left,
+    originY: y - top,
+    movable: isMovable(el),
+  };
 }
 
 /** アートボード座標で指定した位置へ置く(その要素の原点に直してから書く) */
@@ -165,5 +194,25 @@ export function distributeElements(els: HTMLElement[], axis: DistributeAxis): HT
     cursor += size(b);
     moved.push(b.el);
   }
+  return moved;
+}
+
+/**
+ * 複数選択の反転(⇧H / ⇧V)の位置の側。選択群の外接枠の中心を軸に、各要素の位置を鏡写しにする
+ * (Figma は選択全体を 1 つの塊として反転する)。要素そのものの反転(transform)は呼ぶ側が付ける。
+ * 中心で計算するので、回転している要素(回転は中心まわり)でも位置がずれない。
+ * 戻り値は位置を動かした要素。動かせない要素(絶対配置でない)は位置を変えない
+ */
+export function mirrorPositions(els: HTMLElement[], axis: 'x' | 'y'): HTMLElement[] {
+  const boxes = measure(els);
+  if (boxes.length < 2) return [];
+  const ref = referenceRect(boxes);
+  const moved: HTMLElement[] = [];
+  boxes.forEach((b) => {
+    if (!b.movable) return;
+    if (axis === 'x') setX(b, ref.left + ref.right - (b.x + b.width));
+    else setY(b, ref.top + ref.bottom - (b.y + b.height));
+    moved.push(b.el);
+  });
   return moved;
 }

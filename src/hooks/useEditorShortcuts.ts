@@ -51,6 +51,11 @@ function keyFromCode(code: string | undefined): string | undefined {
   if (digit) return digit[1];
   const bracket = code === 'BracketLeft' ? '[' : code === 'BracketRight' ? ']' : undefined;
   if (bracket) return bracket;
+  // ⌘⇧> / ⌘⇧<(文字の大きさ)。JIS 配列などで e.key が '>' '<' にならないときの引き直し
+  if (code === 'Period') return '.';
+  // ⌘\(UI を隠す)。JIS 配列の ¥ キー(IntlYen)も同じ位置づけ
+  if (code === 'Backslash' || code === 'IntlYen' || code === 'IntlRo') return '\\';
+  if (code === 'Comma') return ',';
   return undefined;
 }
 
@@ -122,7 +127,24 @@ function isAllowedInEditableContext(action: ShortcutAction | undefined): boolean
  * ヘッダーやパネルのボタンをキーボードだけで辿れなくなるため、
  * 紙面を触っている間だけ「兄弟要素の巡回」に使う。
  */
-const CANVAS_ONLY: ShortcutAction[] = ['selectNextSibling', 'selectPrevSibling'];
+const CANVAS_ONLY: ShortcutAction[] = [
+  'selectNextSibling',
+  'selectPrevSibling',
+  // Enter はボタンの押下・ダイアログの確定でもある。UI にフォーカスがあるときは奪わない
+  'selectChildren',
+  'selectParent',
+  // 数字キーは右パネルの数値入力以外(スライダー・セレクト等)でも既定の意味を持つことがある
+  'opacity1',
+  'opacity2',
+  'opacity3',
+  'opacity4',
+  'opacity5',
+  'opacity6',
+  'opacity7',
+  'opacity8',
+  'opacity9',
+  'opacity0',
+];
 
 /**
  * このイベントがキャンバス(iframe)側の操作か。
@@ -130,6 +152,13 @@ const CANVAS_ONLY: ShortcutAction[] = ['selectNextSibling', 'selectPrevSibling']
  * - 親側から来た場合は、body か iframe 自身にフォーカスがあるときだけキャンバス扱い
  *   （ボタンや入力にフォーカスがあるなら、それはUIの操作中）
  */
+/**
+ * 押す相手が無い(選択が無い)ときでも、キャンバスにフォーカスがあればブラウザ既定に通さないキー。
+ * ⌘R(レイヤー名の変更)をそのまま通すとページが読み込み直され、⌘Z の履歴が消える。
+ * UI 側にフォーカスがあるときは既定どおり(読み込み直し)
+ */
+const SWALLOW_ON_CANVAS: ShortcutAction[] = ['renameLayer'];
+
 function isCanvasEvent(event: KeyboardEvent): boolean {
   const doc = (event.target as HTMLElement | null)?.ownerDocument ?? null;
   if (doc && typeof document !== 'undefined' && doc !== document) return true;
@@ -173,8 +202,20 @@ export function useEditorShortcuts(
       if (!enabledRef.current) return;
       const keyboardEvent = event as KeyboardEvent;
 
+      // 日本語入力の変換中(Enter での確定・数字での候補選択など)は一切奪わない。
+      // keyCode 229 は Safari/Chrome が変換中のキーに付ける値で、isComposing が
+      // まだ false の最初の1打もこれで拾える
+      if (keyboardEvent.isComposing || keyboardEvent.keyCode === 229) return;
+
       const action = resolveAction(keyboardEvent);
       if (!action) return;
+
+      // 数字キー(不透明度)は押しっぱなしのキーリピートを捨てる。2 桁入力(5→5 で 55%)と
+      // 混ざって 50% と 55% を行き来してしまうため。既定の動作(数字の入力)も止める
+      if (keyboardEvent.repeat && action.startsWith('opacity')) {
+        if (callbacksRef.current[action]) keyboardEvent.preventDefault();
+        return;
+      }
 
       // イベント発生元 or そのドキュメントのフォーカスがテキスト編集中か
       const doc = (keyboardEvent.target as HTMLElement | null)?.ownerDocument ?? null;
@@ -191,7 +232,10 @@ export function useEditorShortcuts(
       }
 
       const callback = callbacksRef.current[action];
-      if (!callback) return;
+      if (!callback) {
+        if (SWALLOW_ON_CANVAS.includes(action) && isCanvasEvent(keyboardEvent)) keyboardEvent.preventDefault();
+        return;
+      }
 
       keyboardEvent.preventDefault();
       keyboardEvent.stopPropagation();

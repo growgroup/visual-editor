@@ -387,3 +387,8 @@
 .gg-editor-ui .ed-frame-skeleton-note { font-size: 40px; color: #9aa3b2; }
 /* 定規の下に来る部分は透けないように */
 .gg-editor-ui [data-canvas-rulers] canvas { display: block; }
+
+/* ⌘\ で UI を隠す(Figma の Hide/Show UI)。紙面の行だけ残し、上の帯・左右のパネル・発表者ノート・下の帯・道具箱を隠す */
+.gg-editor-ui.gg-ui-hidden > :not(.flex-1),
+.gg-editor-ui.gg-ui-hidden > .flex-1 > :not(.flex-1),
+.gg-editor-ui.gg-ui-hidden .ed-toolbar { display: none !important; }

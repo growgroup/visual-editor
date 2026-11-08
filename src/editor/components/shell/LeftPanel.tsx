@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { RENAME_LAYER_EVENT } from '../../hooks/useKeyboardShortcuts';
 import { Layers, Files } from 'lucide-react';
 import { useEditorContext } from '../../EditorContext';
 import { useResizablePanel } from '../../hooks/useResizablePanel';
@@ -16,6 +17,12 @@ export function LeftPanel({ page, pagesSlot }: { page: number; pagesSlot?: React
     initialWidth: 264, minWidth: 224, maxWidth: 440, direction: 'right', storageKey: 'gg-editor:left-panel-width',
   });
   const [tab, setTab] = useState(showPages ? 'pages' : 'layers');
+  // ⌘R(レイヤー名の変更)はレイヤーのタブで名前を入力させるので、ページのタブを開いていたら切り替える
+  useEffect(() => {
+    const toLayers = () => setTab('layers');
+    window.addEventListener(RENAME_LAYER_EVENT, toLayers);
+    return () => window.removeEventListener(RENAME_LAYER_EVENT, toLayers);
+  }, []);
   return (
     <aside data-left-panel aria-label="ページとレイヤー" className="relative flex shrink-0 flex-col overflow-hidden border-r border-[#444444] bg-[#2c2c2c]" style={{ width }}>
       {showPages ? (

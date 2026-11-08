@@ -8,7 +8,7 @@
  * - カスタム比較関数で必要な変更のみ検知
  */
 
-import React, { memo } from 'react';
+import React, { memo, useRef } from 'react';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -27,6 +27,8 @@ import {
   ChevronsDown,
   Eye,
   EyeOff,
+  Lock,
+  Unlock,
   GripVertical,
   Paintbrush,
   ClipboardPaste,
@@ -90,6 +92,12 @@ export interface LayerTreeItemProps {
   isDragOver: boolean;
   dragOverPosition: 'before' | 'after' | 'inside' | null;
   isHidden: boolean;
+  /** ロック中(data-gg-locked="true")。紙面では選べないので、ここが解除の入口になる */
+  isLocked: boolean;
+  /** 祖先がロック中(自分はロックしていない)。薄い鍵を出すだけで、押せない */
+  isLockedByParent: boolean;
+  /** 名前を入力中(ダブルクリック・⌘R) */
+  isRenaming: boolean;
   hasStyleInClipboard: boolean;
   /** 行に出す人が読める名前（実 DOM から生成） */
   label: string;
@@ -113,6 +121,11 @@ export interface LayerTreeItemProps {
   // Event handlers
   onToggleExpand: (nodeId: string) => void;
   onToggleVisibility: (nodeId: string) => void;
+  onToggleLock: (nodeId: string) => void;
+  /** 名前の入力を始める(名前のダブルクリック) */
+  onRenameStart: (nodeId: string) => void;
+  /** 名前を確定する。null は取り消し、空文字は自動の名前に戻す */
+  onRenameCommit: (nodeId: string, name: string | null) => void;
   onNodeClick: (e: React.MouseEvent | React.KeyboardEvent, nodeId: string) => void;
   /** 行ホバー開始（キャンバス側をハイライトする） */
   onRowMouseEnter: (nodeId: string) => void;
@@ -156,6 +169,9 @@ export const LayerTreeItem = memo(function LayerTreeItem({
   isDragOver,
   dragOverPosition,
   isHidden,
+  isLocked,
+  isLockedByParent,
+  isRenaming,
   hasStyleInClipboard,
   label,
   kind,
@@ -166,6 +182,9 @@ export const LayerTreeItem = memo(function LayerTreeItem({
   labelKey: _labelKey, // 比較用のみ、レンダリングには使用しない
   onToggleExpand,
   onToggleVisibility,
+  onToggleLock,
+  onRenameStart,
+  onRenameCommit,
   onNodeClick,
   onRowMouseEnter,
   onRowMouseLeave,
@@ -188,6 +207,11 @@ export const LayerTreeItem = memo(function LayerTreeItem({
 }: LayerTreeItemProps) {
   const hasChildren = node.children.length > 0;
   const KindIcon = KIND_ICONS[kind] ?? Frame;
+
+  // 表示中の名前のまま確定したら何もしない(自動の名前を固定の名前として書き込まない)
+  const commitRename = (value: string) => onRenameCommit(node.id, value === label ? null : value);
+  // Esc で取り消したあと、入力欄が消えるときの blur で確定しないための印
+  const renameCancelledRef = useRef(false);
 
   return (
     <div className={isDragging ? 'opacity-50' : ''}>
@@ -294,7 +318,10 @@ export const LayerTreeItem = memo(function LayerTreeItem({
                   : isSelected
                   ? 'text-white'
                   : 'text-gray-400'
-              } opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 ${
+              } ${
+                // 隠しているあいだは常に出す(Figma と同じく、どれを隠したか一覧で分かる)
+                isHidden ? 'opacity-100' : 'opacity-0'
+              } group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 ${
                 isSelected ? 'hover:bg-[#0d99ff]' : 'hover:bg-gray-600'
               }`}
             >
@@ -304,6 +331,42 @@ export const LayerTreeItem = memo(function LayerTreeItem({
                 <Eye className="w-3 h-3" />
               )}
             </button>
+
+            {/* ロック/解除。ロック中は常に出す。紙面ではロック中の要素を選べないので、ここから外す。
+                祖先がロック中なら薄い鍵だけ(外すのは親の行で) */}
+            {isLockedByParent && !isLocked ? (
+              <span
+                className={`p-0.5 ${isSelected ? 'text-white/50' : 'text-gray-500/60'}`}
+                title="親の要素がロックされています"
+                aria-label="親の要素がロックされています"
+              >
+                <Lock className="w-3 h-3" />
+              </span>
+            ) : (
+            <button
+              aria-label={isLocked ? 'ロックを解除' : 'ロック'}
+              title={isLocked ? 'ロックを解除(⌘⇧L)' : 'ロック(⌘⇧L)'}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleLock(node.id);
+              }}
+              className={`p-0.5 rounded ${
+                isLocked
+                  ? isSelected
+                    ? 'text-white'
+                    : 'text-gray-300'
+                  : isSelected
+                  ? 'text-white'
+                  : 'text-gray-400'
+              } ${
+                isLocked ? 'opacity-100' : 'opacity-0'
+              } group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 ${
+                isSelected ? 'hover:bg-[#0d99ff]' : 'hover:bg-gray-600'
+              }`}
+            >
+              {isLocked ? <Lock className="w-3 h-3" /> : <Unlock className="w-3 h-3" />}
+            </button>
+            )}
 
             {/* コンポーネントインスタンスアイコン */}
             {node.componentInstanceId && (
@@ -340,8 +403,46 @@ export const LayerTreeItem = memo(function LayerTreeItem({
                   : 'text-gray-200'
               }`}
               title={`${label} (${node.tagName})`}
+              onDoubleClick={(e) => {
+                e.stopPropagation();
+                onRenameStart(node.id);
+              }}
             >
-              {label}
+              {isRenaming ? (
+                <input
+                  // autoFocus だとパネルが横へスクロールして行の頭が切れるので、スクロールさせずに当てる
+                  ref={(input) => input?.focus({ preventScroll: true })}
+                  defaultValue={label}
+                  aria-label="レイヤー名"
+                  draggable={false}
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  onDragStart={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                  }}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.nativeEvent.isComposing) return; // 日本語の変換の確定 Enter では閉じない
+                    if (e.key === 'Enter') commitRename(e.currentTarget.value);
+                    if (e.key === 'Escape') {
+                      renameCancelledRef.current = true;
+                      onRenameCommit(node.id, null);
+                    }
+                  }}
+                  onFocus={(e) => {
+                    renameCancelledRef.current = false;
+                    e.currentTarget.select();
+                  }}
+                  onBlur={(e) => {
+                    if (renameCancelledRef.current) return;
+                    commitRename(e.currentTarget.value);
+                  }}
+                  className="w-full min-w-0 rounded-sm border border-[#0d99ff] bg-[#1e1e1e] px-1 text-[11px] text-white outline-none"
+                />
+              ) : (
+                label
+              )}
             </span>
             <span
               className={`text-[10px] flex-shrink-0 tabular-nums ${
@@ -503,6 +604,9 @@ export const LayerTreeItem = memo(function LayerTreeItem({
     prevProps.isDragOver === nextProps.isDragOver &&
     prevProps.dragOverPosition === nextProps.dragOverPosition &&
     prevProps.isHidden === nextProps.isHidden &&
+    prevProps.isLocked === nextProps.isLocked &&
+    prevProps.isLockedByParent === nextProps.isLockedByParent &&
+    prevProps.isRenaming === nextProps.isRenaming &&
     prevProps.hasStyleInClipboard === nextProps.hasStyleInClipboard &&
     // selectionKeyが変わると子要素も再レンダリングが必要
     prevProps.selectionKey === nextProps.selectionKey &&

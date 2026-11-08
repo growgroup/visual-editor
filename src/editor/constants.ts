@@ -216,6 +216,16 @@ export const EDITOR_IFRAME_STYLES = `
     pointer-events: auto !important;
     cursor: pointer;
   }
+  /*
+   * ロックした要素(⌘⇧L で data-gg-locked="true")は紙面のクリック・ドラッグ・ホバーを素通しする。
+   * Figma と同じく「下の要素を掴める」状態にし、選択はレイヤーパネルから行う。
+   * 親をロックすると中の要素もまとめてロックされる(Figma と同じ)。
+   * 上の pointer-events:auto !important より詳細度を高くするため、同じ :not() を重ねている
+   */
+  body:not(.draw-mode):not(.text-mode):not(.move-mode):not(.comment-mode) [data-editable="true"][data-gg-locked="true"],
+  body:not(.draw-mode):not(.text-mode):not(.move-mode):not(.comment-mode) [data-gg-locked="true"] [data-editable="true"] {
+    pointer-events: none !important;
+  }
   .drawing-preview {
     position: absolute;
     pointer-events: none;
@@ -409,6 +419,12 @@ export const EDITOR_IFRAME_STYLES = `
    * ルートを選んだら枠・ハンドル・サイズラベルが紫、中のスロットを選んだら枠は青のまま
    * 「部品の中」の札だけ出す。札はパンくず(上 -22px)の左上に重ならないよう、その上に置く
    */
+  /* ロック中(⌘⇧L)の要素: 枠は出すが、大きさ・回転・角丸のハンドルは出さない */
+  .selection-box.selection-locked .resize-handle,
+  .selection-box.selection-locked .rotation-handle,
+  .selection-box.selection-locked .border-radius-handle {
+    display: none !important;
+  }
   .selection-box.selection-part .selection-outline { box-shadow: 0 0 0 var(--outline-w) #7b61ff; }
   .selection-box.selection-part .resize-handle::after { border-color: #7b61ff; }
   .selection-box.selection-part .size-label { background: #7b61ff; }

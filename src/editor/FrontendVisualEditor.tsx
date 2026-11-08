@@ -18,6 +18,8 @@ import {
   selectAllSiblingsIn,
   selectSiblingIn,
   exitTextEditingIn,
+  useCanvasShortcutActions,
+  editableParentOf,
 } from './hooks/useKeyboardShortcuts';
 import type { MoveElementResult } from './hooks/useElementActions';
 import { EditorProvider, useEditorContext, type ContentListItem, type EditorMode } from './EditorContext';
@@ -293,6 +295,7 @@ function FrontendVisualEditorInner({
     copyElements,
     pasteSerializedElements,
     pasteFromInternalIfFresh,
+    pasteInPlace,
     resizeElements,
     cutElements,
     pasteElements,
@@ -2117,19 +2120,13 @@ function FrontendVisualEditorInner({
         return;
       }
 
-      // 3. 1階層上へ
+      // 3. 1階層上へ。複数選択でも親が1つにそろうなら親へ(Enter で子を全選択→Esc で戻れる)。
+      // 親は「編集できる最も近い祖先」。素の parentElement だと ID の無い包みを選んでしまう
       const selectedEls = iframeDoc.querySelectorAll<HTMLElement>('.selected');
-      const selected = selectedEls.length === 1 ? selectedEls[0] : null;
-      const artboard = iframeDoc.getElementById('artboard');
-      const parent = selected?.parentElement ?? null;
-      const canGoUp =
-        !!selected &&
-        !!parent &&
-        parent !== iframeDoc.body &&
-        parent !== artboard &&
-        parent.parentElement !== artboard; // スライドの面の直下(トップレベル)で止める
+      const parents = new Set(Array.from(selectedEls).map(editableParentOf));
+      const parent = parents.size === 1 ? [...parents][0] : null;
 
-      if (canGoUp && parent) {
+      if (parent) {
         selectedEls.forEach((el) => el.classList.remove('selected'));
         parent.classList.add('selected');
         setSelectedElementIds([parent.getAttribute('data-element-id') || '']);
@@ -2274,6 +2271,9 @@ function FrontendVisualEditorInner({
     });
   }, [setZoom, fitZoom, getIframeDoc, selectedElement, selectedElementIds]);
 
+  // Figma 準拠のキャンバス操作(Enter/Shift+Enter・整列・表示/ロック・不透明度・書式)
+  const canvasShortcutActions = useCanvasShortcutActions();
+
   // キーボードショートカット用のコールバックマップ
   // [重要] キー割り当ては KEYBOARD_SHORTCUTS(src/types/editor.ts) が唯一の定義。
   // ここには「アクション名 → 実処理」だけを書く。
@@ -2311,6 +2311,7 @@ function FrontendVisualEditorInner({
     copy: hasSelection ? copyElements : undefined,
     cut: hasSelection ? cutElements : undefined,
     // paste は意図的に未定義のまま（上部のカスタムハンドラで処理し、画像ペーストを許可）
+    pasteInPlace: () => { void pasteInPlace(); },
     // スタイル操作
     copyStyle: hasSelection ? copyStyle : undefined,
     pasteStyle: hasSelection ? pasteStyle : undefined,
@@ -2352,6 +2353,7 @@ function FrontendVisualEditorInner({
     zoomFit: () => handleZoom('fit'),
     zoomActual: () => handleZoom('actual'),
     zoomSelection: () => handleZoom('selection'),
+    ...canvasShortcutActions,
   };
 
   // キーボード処理の唯一の入口。
@@ -2735,6 +2737,10 @@ function FrontendVisualEditorInner({
         onSendBackward={selectedElement ? sendBackward : undefined}
         onBringToFront={selectedElement ? bringToFront : undefined}
         onSendToBack={selectedElement ? sendToBack : undefined}
+        onToggleHidden={canvasShortcutActions.toggleHidden}
+        onToggleLocked={canvasShortcutActions.toggleLocked}
+        onFlipH={canvasShortcutActions.flipH}
+        onFlipV={canvasShortcutActions.flipV}
         onGroup={selectedElementIds.length > 1 ? groupElements : undefined}
         onUngroup={selectedElement?.id && hasUngroupableChildren(selectedElement.id) ? ungroupElements : undefined}
         onInsertRowAbove={tableActions?.insertRowAbove}

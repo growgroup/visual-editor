@@ -51,6 +51,11 @@ export interface SerializedElement {
   style: string;
   innerHTML: string;
   attributes: Record<string, string>;
+  /**
+   * コピーした時点の位置と大きさ(親の中の left/top。絶対配置の要素だけ)。
+   * 器を選んで貼るとき、同じ位置に入りきるか(入らなければ中央)の判定に使う
+   */
+  box?: { left: number; top: number; width: number; height: number };
 }
 
 // Clipboard data structure
@@ -151,7 +156,51 @@ export type ShortcutAction =
   | 'bringForward'
   | 'sendBackward'
   | 'bringToFront'
-  | 'sendToBack';
+  | 'sendToBack'
+  // 選択の階層移動(Figma: Enter で子へ / Shift+Enter で親へ)
+  | 'selectChildren'
+  | 'selectParent'
+  // 整列(Figma: ⌥A/⌥D/⌥W/⌥S/⌥H/⌥V)と等間隔(⌃⌥H/⌃⌥V)
+  | 'alignLeft'
+  | 'alignRight'
+  | 'alignTop'
+  | 'alignBottom'
+  | 'alignHCenter'
+  | 'alignVCenter'
+  | 'distributeH'
+  | 'distributeV'
+  // 表示/ロックの切り替え(Figma: ⌘⇧H / ⌘⇧L)
+  | 'toggleHidden'
+  | 'toggleLocked'
+  // 数字キーで不透明度(Figma: 1=10% … 9=90%, 0=100%)
+  | 'opacity1'
+  | 'opacity2'
+  | 'opacity3'
+  | 'opacity4'
+  | 'opacity5'
+  | 'opacity6'
+  | 'opacity7'
+  | 'opacity8'
+  | 'opacity9'
+  | 'opacity0'
+  // 文字の太字/斜体/下線を要素ごと切り替える(文字編集中はブラウザ既定に任せる)
+  | 'toggleBold'
+  | 'toggleItalic'
+  | 'toggleUnderline'
+  // 文字の大きさを 1px 上げる/下げる(Figma・PowerPoint: ⌘⇧> / ⌘⇧<)
+  | 'fontSizeUp'
+  | 'fontSizeDown'
+  // ⌘⇧V: その場に貼る(Figma の Paste over selection)
+  | 'pasteInPlace'
+  // ⇧H / ⇧V: 左右反転・上下反転(Figma と同じキー)
+  | 'flipH'
+  | 'flipV'
+  // ⌘R: レイヤー名を変える(Figma の Rename)
+  | 'renameLayer'
+  // ⌘\: UI を隠す / 出す(Figma の Hide/Show UI)
+  | 'toggleUi'
+  // ⌘⇧O: アウトライン表示(Figma の Show outlines。塗りを消して枠線だけにする)
+  | 'toggleOutline';
 
 // Shortcut callbacks interface
 export type ShortcutCallbacks = Partial<Record<ShortcutAction, () => void>>;
@@ -324,6 +373,76 @@ export const KEYBOARD_SHORTCUTS: Record<string, ShortcutAction> = {
   'ctrl+shift+]': 'bringToFront',
   'meta+shift+[': 'sendToBack',
   'ctrl+shift+[': 'sendToBack',
+  // Figma の Mac 割り当ては ⌥⌘] / ⌥⌘[(Windows は Ctrl+Shift+] / [)。
+  // ⌘⇧] / ⌘⇧[ は PowerPoint(Mac) と同じなので両方残す
+  'meta+alt+]': 'bringToFront',
+  'meta+alt+[': 'sendToBack',
+
+  // 選択の階層移動(Figma: Enter=子を選ぶ / Shift+Enter=親を選ぶ)
+  'enter': 'selectChildren',
+  'shift+enter': 'selectParent',
+
+  // 整列(Figma: Alt+A/D/W/S/H/V)。Mac の Option 併用で e.key が特殊文字になっても
+  // useEditorShortcuts の keyFromCode が event.code から引き直す
+  'alt+a': 'alignLeft',
+  'alt+d': 'alignRight',
+  'alt+w': 'alignTop',
+  'alt+s': 'alignBottom',
+  'alt+h': 'alignHCenter',
+  'alt+v': 'alignVCenter',
+  // 等間隔。Figma は Mac ⌃⌥H / ⌃⌥V、Windows Alt+Shift+H / V(記憶にもとづく・未確認)。
+  // ⌃⌥V は Windows の「スタイルをペースト」(Ctrl+Alt+V)と同じキーになるので、縦は ⇧⌥V に寄せ、横も揃えて ⇧⌥H を持つ
+  'ctrl+alt+h': 'distributeH',
+  'shift+alt+h': 'distributeH',
+  'shift+alt+v': 'distributeV',
+
+  // 表示/ロック(Figma: ⌘⇧H / ⌘⇧L)
+  'meta+shift+h': 'toggleHidden',
+  'ctrl+shift+h': 'toggleHidden',
+  'meta+shift+l': 'toggleLocked',
+  'ctrl+shift+l': 'toggleLocked',
+
+  // 不透明度(Figma: 1〜9 で 10〜90%、0 で 100%)
+  '1': 'opacity1',
+  '2': 'opacity2',
+  '3': 'opacity3',
+  '4': 'opacity4',
+  '5': 'opacity5',
+  '6': 'opacity6',
+  '7': 'opacity7',
+  '8': 'opacity8',
+  '9': 'opacity9',
+  '0': 'opacity0',
+
+  // 文字の書式(要素を選んだ状態で要素全体に効かせる。編集中は横取りしない)
+  'meta+b': 'toggleBold',
+  'ctrl+b': 'toggleBold',
+  'meta+i': 'toggleItalic',
+  'ctrl+i': 'toggleItalic',
+  'meta+u': 'toggleUnderline',
+  'ctrl+u': 'toggleUnderline',
+
+  // 文字の大きさ。US 配列の Shift+. は '>'、Shift+, は '<'。配列で e.key が違うときは code から引く('.' / ',')
+  'meta+shift+>': 'fontSizeUp',
+  'meta+shift+.': 'fontSizeUp',
+  'ctrl+shift+>': 'fontSizeUp',
+  'ctrl+shift+.': 'fontSizeUp',
+  'meta+shift+<': 'fontSizeDown',
+  'meta+shift+,': 'fontSizeDown',
+  'ctrl+shift+<': 'fontSizeDown',
+  'ctrl+shift+,': 'fontSizeDown',
+
+  'meta+shift+v': 'pasteInPlace',
+  'ctrl+shift+v': 'pasteInPlace',
+
+  'shift+h': 'flipH',
+  'shift+v': 'flipV',
+  'meta+r': 'renameLayer',
+  'ctrl+r': 'renameLayer',
+  'meta+\\': 'toggleUi',
+  'ctrl+\\': 'toggleUi',
+  'meta+shift+o': 'toggleOutline',
+  'ctrl+shift+o': 'toggleOutline',
 };
 
 // Movement amounts in pixels

@@ -27,6 +27,8 @@ import { refreshSelectionOverlay, buildDomTree } from '../utils/dom-utils';
 import { extractElementInfo } from '../utils/style-utils';
 import type { DOMTreeNode } from '../types';
 import { LayerTreeItem, type LayerKind } from './LayerTreeItem';
+import { RENAME_LAYER_EVENT } from '../hooks/useKeyboardShortcuts';
+import { LOCK_ATTR, LOCK_SELECTOR } from '../utils/lock';
 
 // ========================================
 // レイヤー名の生成
@@ -843,6 +845,76 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
     notifyIframeChange();
   }, [getIframeDoc, notifyIframeChange]);
 
+  // レイヤー名の変更(名前のダブルクリック・⌘R。Figma の Rename)。名前は data-layer-name に保存する
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  useEffect(() => {
+    const onRename = (e: Event) => {
+      const id = (e as CustomEvent<{ id: string }>).detail?.id;
+      if (id) setRenamingId(id);
+    };
+    window.addEventListener(RENAME_LAYER_EVENT, onRename);
+    return () => window.removeEventListener(RENAME_LAYER_EVENT, onRename);
+  }, []);
+  const handleRenameStart = useCallback((nodeId: string) => setRenamingId(nodeId), []);
+  const handleRenameCommit = useCallback((nodeId: string, name: string | null) => {
+    setRenamingId((current) => (current === nodeId ? null : current));
+    if (name === null) return;
+    const iframeDoc = getIframeDoc();
+    const el = iframeDoc?.querySelector(`[data-element-id="${nodeId}"]`) as HTMLElement | null;
+    if (!el) return;
+    const next = name.trim();
+    const before = el.getAttribute('data-layer-name') ?? '';
+    if (next === before) return;
+    // 空にしたら自動の名前(見出しの文言など)に戻す
+    if (next) el.setAttribute('data-layer-name', next);
+    else el.removeAttribute('data-layer-name');
+    notifyIframeChange();
+  }, [getIframeDoc, notifyIframeChange]);
+
+  // ロック/解除(⌘⇧L と同じ data-gg-locked="true")。紙面ではロック中の要素を選べないので、ここが解除の入口
+  const handleToggleLock = useCallback((nodeId: string) => {
+    const iframeDoc = getIframeDoc();
+    if (!iframeDoc) return;
+
+    const el = iframeDoc.querySelector(`[data-element-id="${nodeId}"]`) as HTMLElement;
+    if (!el) return;
+
+    if (el.getAttribute(LOCK_ATTR) === 'true') {
+      el.removeAttribute(LOCK_ATTR);
+    } else {
+      el.setAttribute(LOCK_ATTR, 'true');
+    }
+    notifyIframeChange();
+    // 選択枠のハンドルの出し分け(selection-locked)を描き直す
+    requestAnimationFrame(() => refreshSelectionOverlay(iframeDoc));
+  }, [getIframeDoc, notifyIframeChange]);
+
+  const lockedNodes = useMemo(() => {
+    const iframeDoc = getIframeDoc();
+    // domTree が作り直されたとき(属性の変更を含む)に数え直す
+    if (!iframeDoc || domTree.length === 0) return new Set<string>();
+    const locked = new Set<string>();
+    iframeDoc.querySelectorAll<HTMLElement>(`${LOCK_SELECTOR}[data-element-id]`).forEach((el) => {
+      const id = el.getAttribute('data-element-id');
+      if (id) locked.add(id);
+    });
+    return locked;
+  }, [domTree, getIframeDoc]);
+
+  // 祖先がロック中の要素(自分はロックしていない)。行に薄い鍵を出す(Figma と同じ見せ方)
+  const lockedByParentNodes = useMemo(() => {
+    const iframeDoc = getIframeDoc();
+    if (!iframeDoc || lockedNodes.size === 0) return new Set<string>();
+    const inherited = new Set<string>();
+    iframeDoc
+      .querySelectorAll<HTMLElement>(`${LOCK_SELECTOR} [data-element-id]`)
+      .forEach((el) => {
+        const id = el.getAttribute('data-element-id');
+        if (id && !lockedNodes.has(id) && !el.closest('.selection-box')) inherited.add(id);
+      });
+    return inherited;
+  }, [lockedNodes, getIframeDoc]);
+
   // hiddenNodesの計算（メモ化）
   const hiddenNodes = useMemo(() => {
     const iframeDoc = getIframeDoc();
@@ -991,6 +1063,8 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
     const isDragging = draggedNodeId === node.id;
     const isDragOver = dragOverNodeId === node.id;
     const isHidden = hiddenNodes.has(node.id);
+    const isLocked = lockedNodes.has(node.id);
+    const isLockedByParent = lockedByParentNodes.has(node.id);
     const label = labelMap.get(node.id) ?? fallbackLabel(node);
 
     return (
@@ -1004,6 +1078,11 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
         isDragOver={isDragOver}
         dragOverPosition={isDragOver ? dragOverPosition : null}
         isHidden={isHidden}
+        isLocked={isLocked}
+        isLockedByParent={isLockedByParent}
+        isRenaming={renamingId === node.id}
+        onRenameStart={handleRenameStart}
+        onRenameCommit={handleRenameCommit}
         hasStyleInClipboard={styleInClipboard}
         label={label.name}
         kind={label.kind}
@@ -1014,6 +1093,7 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
         labelKey={labelKey}
         onToggleExpand={handleToggleExpand}
         onToggleVisibility={handleToggleVisibility}
+        onToggleLock={handleToggleLock}
         onNodeClick={handleNodeClick}
         onRowMouseEnter={handleRowMouseEnter}
         onRowMouseLeave={handleRowMouseLeave}
@@ -1050,6 +1130,12 @@ export function EditorLayerPanel({ hideSlideList = false }: { hideSlideList?: bo
     dragOverNodeId,
     dragOverPosition,
     hiddenNodes,
+    lockedNodes,
+    lockedByParentNodes,
+    handleToggleLock,
+    renamingId,
+    handleRenameStart,
+    handleRenameCommit,
     styleInClipboard,
     labelMap,
     labelKey,

@@ -34,6 +34,8 @@ import {
 import type { SerializedElement, BoundingBox, StyleClipboard, ClipboardData } from '../types';
 import type { globalLastUsedStylesRef } from '../contexts/EditorRefsContext';
 import { debugLog } from '../utils/debug';
+import { readPosition, rememberDuplicate, repeatOffsetFor } from '../utils/smart-duplicate';
+import { withoutLocked } from '../utils/lock';
 
 /**
  * 要素の種類を判定（shape / text / line）
@@ -111,8 +113,6 @@ function translateOutOfFlowElement(view: Window, el: HTMLElement, dx: number, dy
   return true;
 }
 
-/** 複製時にずらす量(px) */
-const DUPLICATE_OFFSET = 20;
 
 /**
  * 複製した要素を「元要素の見た目の位置 + offset」に置く。
@@ -153,12 +153,32 @@ function offsetDuplicate(
   }
 }
 
+/** 器として扱わない要素(文字・画像・図形など、子を持たせても意味をなさない) */
+const NON_CONTAINER_TAGS = new Set([
+  'P', 'SPAN', 'A', 'BUTTON', 'IMG', 'SVG', 'VIDEO', 'CANVAS', 'IFRAME', 'INPUT', 'TEXTAREA', 'SELECT',
+  'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'LABEL', 'STRONG', 'EM', 'B', 'I', 'U', 'BR', 'HR', 'TABLE', 'TR', 'TD', 'TH',
+  'UL', 'OL', 'LI',
+]);
+
+/**
+ * 貼り付けの器になれるか(Figma のフレーム / グループにあたるか)。
+ * 位置指定のある箱で、文字を直に持たない要素。position:static の箱に絶対配置の子を入れると、
+ * 子の座標が別の祖先基準になって飛ぶので器にしない
+ */
+function isPasteContainer(el: HTMLElement): boolean {
+  if (NON_CONTAINER_TAGS.has(el.tagName.toUpperCase())) return false;
+  if (el.hasAttribute('data-component-instance')) return false;
+  const view = el.ownerDocument.defaultView;
+  if (!view || view.getComputedStyle(el).position === 'static') return false;
+  return !Array.from(el.childNodes).some((n) => n.nodeType === 3 && (n.textContent ?? '').trim());
+}
+
 /** 矢印キー移動の結果。呼び出し側が「なぜ動かないか」を提示できるようにする */
 export interface MoveElementResult {
   /** 実際に動かした要素数 */
   moved: number;
   /** 動かせなかった理由。null なら成功 */
-  blocked: null | 'no-selection' | 'flow';
+  blocked: null | 'no-selection' | 'flow' | 'locked';
 }
 
 /**
@@ -754,17 +774,22 @@ export function useElementActions() {
     if (selectedElementIds.length > 0) {
       const newIds: string[] = [];
       const newElements: HTMLElement[] = [];
+      // Figma と同じく真上に複製。直前の複製を動かしてから押したときは同じずれを繰り返す
+      const firstSource = getIframeElement(iframeDoc, selectedElementIds[0]);
+      const { dx, dy } = repeatOffsetFor(selectedElementIds, firstSource);
+      const firstFrom = firstSource ? readPosition(firstSource) : null;
       selectedElementIds.forEach(id => {
         const el = getIframeElement(iframeDoc, id);
         if (el) {
           const { clone, newId } = cloneElementWithInstance(el);
           // 位置指定は「DOMに入れてから」元要素の実測位置を基準に行う（後述の理由）
           el.parentNode?.insertBefore(clone, el.nextSibling);
-          offsetDuplicate(iframeDoc, el, clone, DUPLICATE_OFFSET, DUPLICATE_OFFSET);
+          offsetDuplicate(iframeDoc, el, clone, dx, dy);
           newIds.push(newId);
           newElements.push(clone);
         }
       });
+      rememberDuplicate(newIds, firstFrom);
 
       // 新しい要素を選択
       setSelectedElementIds(newIds);
@@ -785,9 +810,12 @@ export function useElementActions() {
     if (!selectedElement) return;
     const el = getIframeElement(iframeDoc, selectedElement.id);
     if (el) {
+      const { dx, dy } = repeatOffsetFor([selectedElement.id], el);
+      const from = readPosition(el);
       const { clone, newId } = cloneElementWithInstance(el);
       el.parentNode?.insertBefore(clone, el.nextSibling);
-      offsetDuplicate(iframeDoc, el, clone, DUPLICATE_OFFSET, DUPLICATE_OFFSET);
+      offsetDuplicate(iframeDoc, el, clone, dx, dy);
+      rememberDuplicate([newId], from);
 
       // 新しい要素を選択
       clone.classList.add('selected');
@@ -808,6 +836,7 @@ export function useElementActions() {
         attributes[attr.name] = attr.value;
       }
     }
+    const pos = readPosition(el);
     return {
       tagName: el.tagName.toLowerCase(),
       id: el.getAttribute('data-element-id') || '',
@@ -815,6 +844,7 @@ export function useElementActions() {
       style: el.getAttribute('style') || '',
       innerHTML: el.innerHTML,
       attributes,
+      ...(pos ? { box: { ...pos, width: el.offsetWidth, height: el.offsetHeight } } : {}),
     };
   }, []);
 
@@ -890,7 +920,7 @@ export function useElementActions() {
       if (serialized.length > 0) {
         clipboardRef.current = {
           elements: serialized,
-          offset: { x: 10, y: 10 },
+          offset: { x: 0, y: 0 },
         };
         writeToOsClipboard(clipboardRef.current);
       }
@@ -904,7 +934,7 @@ export function useElementActions() {
 
     clipboardRef.current = {
       elements: [serializeElement(el)],
-      offset: { x: 10, y: 10 },
+      offset: { x: 0, y: 0 },
     };
     writeToOsClipboard(clipboardRef.current);
   }, [selectedElement, selectedElementIds, getIframeDoc, serializeElement, clipboardRef, writeToOsClipboard]);
@@ -920,20 +950,27 @@ export function useElementActions() {
    * 内部クリップボード(同一エディタ内)と、OSクリップボード経由
    * (スライド跨ぎ。pasteイベントがペイロードを取り出して渡す)の両方から使う。
    */
-  const pasteSerializedElements = useCallback((list: SerializedElement[], offset?: { x: number; y: number }) => {
+  const pasteSerializedElements = useCallback((list: SerializedElement[]) => {
     const iframeDoc = getIframeDoc();
     if (!iframeDoc || list.length === 0) return;
-    const off = offset ?? { x: 10, y: 10 };
+
+    // 貼り付け先(Figma「Copy and paste objects」の Paste placement と同じ考え方):
+    // - 器(子を持てる要素)を選んでいれば、その中へ。元の器の中と同じ x / y に置き、入りきらない軸は中央
+    // - 器でない要素を選んでいれば、その要素の親へ(その要素のすぐ手前=1つ前面)
+    // - 何も選んでいなければスライドのルートへ
+    // どの場合も「ずらさない」。同じスライドで元が見えていても、元の真上に重なる(Figma と同じ)
+    const selected = selectedElement ? getIframeElement(iframeDoc, selectedElement.id) : null;
+    const sourceIds = new Set(list.map((item) => item.id));
+    const isSelfPaste = !!selected && sourceIds.has(selected.getAttribute('data-element-id') || '');
+    // 選んだ器の中へ入れるのは、スライド(絶対配置)で、貼る要素がすべて位置(box)を持つときだけ。
+    // webpage は流し込みを保つ約束なので従来どおり選択の直後に入れる。box の無いフローの要素も同じ
+    const canNest = editorMode !== 'webpage' && list.every((item) => !!item.box);
+    const container = canNest && selected && !isSelfPaste && isPasteContainer(selected) ? selected : null;
+    let insertAfterElement: HTMLElement | null = container ? null : selected;
 
     // 既存の選択ボックスをクリア
     iframeDoc.querySelectorAll('.selection-box').forEach(box => box.remove());
     iframeDoc.querySelectorAll('.selected').forEach(el => el.classList.remove('selected'));
-
-    // 挿入先を決定: 選択要素がある場合はその直後、なければbodyの末尾
-    let insertAfterElement: HTMLElement | null = null;
-    if (selectedElement) {
-      insertAfterElement = getIframeElement(iframeDoc, selectedElement.id);
-    }
 
     const pastedIds: string[] = [];
     const pastedElements: HTMLElement[] = [];
@@ -941,17 +978,30 @@ export function useElementActions() {
     list.forEach(serialized => {
       const el = deserializeElement(serialized);
       if (!el) return;
-      
+
+      // ルートだけでなく中の要素の ID も作り直す(元と同じ ID が2つできると選択・履歴が混線する)
       const newId = generateElementId('paste');
       el.setAttribute('data-element-id', newId);
-      const left = parseInt(el.style.left || '0') || 0;
-      const top = parseInt(el.style.top || '0') || 0;
-      el.style.left = `${left + off.x}px`;
-      el.style.top = `${top + off.y}px`;
-      
-      // 挿入先に応じて挿入
-      if (insertAfterElement && insertAfterElement.parentNode) {
-        // 選択要素の直後に挿入
+      el.querySelectorAll('[data-element-id]').forEach((child) => {
+        child.setAttribute('data-element-id', generateElementId('paste'));
+      });
+      el.classList.remove('selected', 'hover-preview', 'text-editable-hover', 'marquee-hover', 'dragging');
+      el.removeAttribute('data-layer-hover');
+
+      if (container) {
+        container.appendChild(el);
+        // 元の器の中と同じ x / y。入りきらない軸は器の中央(Figma と同じ)
+        const box = serialized.box;
+        if (box) {
+          const cw = container.clientWidth;
+          const ch = container.clientHeight;
+          const fitsX = box.left >= 0 && box.left + box.width <= cw;
+          const fitsY = box.top >= 0 && box.top + box.height <= ch;
+          el.style.left = `${Math.round(fitsX ? box.left : (cw - box.width) / 2)}px`;
+          el.style.top = `${Math.round(fitsY ? box.top : (ch - box.height) / 2)}px`;
+        }
+      } else if (insertAfterElement && insertAfterElement.parentNode) {
+        // 選択要素の直後(1つ前面)に。位置はコピーしたときのまま
         insertAfterElement.parentNode.insertBefore(el, insertAfterElement.nextSibling);
         // 次のペースト要素のために更新
         insertAfterElement = el;
@@ -963,13 +1013,13 @@ export function useElementActions() {
           iframeDoc.body;
         root.appendChild(el);
       }
-      
+
       pastedIds.push(newId);
       pastedElements.push(el);
     });
 
     notifyIframeChange();
-    
+
     // ペーストした要素を選択し、選択ボックスを更新
     if (pastedIds.length > 0) {
       setSelectedElementIds(pastedIds);
@@ -983,15 +1033,43 @@ export function useElementActions() {
         if (info) setSelectedElement(info);
       }
     }
-  }, [getIframeDoc, deserializeElement, notifyIframeChange, selectedElement, setSelectedElementIds, setSelectedElement]);
+  }, [getIframeDoc, deserializeElement, notifyIframeChange, selectedElement, setSelectedElementIds, setSelectedElement, editorMode]);
 
   // 内部クリップボードからのペースト(pasteイベント側のフォールバック用)
   const pasteElements = useCallback(() => {
     const clip = clipboardRef.current;
     if (!clip) return;
-    pasteSerializedElements(clip.elements, clip.offset);
-    clip.offset.x += 10;
-    clip.offset.y += 10;
+    // Figma と同じく何度貼ってもずらさない
+    pasteSerializedElements(clip.elements);
+  }, [clipboardRef, pasteSerializedElements]);
+
+  /**
+   * ⌘⇧V(Figma の Paste over selection / その場に貼る)。
+   * ⌘V も同じ位置に貼るので動きは同じ。⌘⇧V はブラウザが paste イベントを出さないことがあるため、
+   * OS のクリップボードを直接読み、読めなければ(権限が無い等)このエディタの内部クリップボードを使う
+   */
+  const pasteInPlace = useCallback(async () => {
+    try {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        if (!item.types.includes('text/html')) continue;
+        const html = await (await item.getType('text/html')).text();
+        const payload = html.match(/data-gg-payload="([^"]+)"/);
+        if (payload) {
+          pasteSerializedElements(JSON.parse(decodeURIComponent(escape(atob(payload[1])))));
+          return;
+        }
+      }
+      // 読めたのに要素の印が無い = 後から別のもの(文字・画像など)をコピーした。
+      // 内部に残っている古い要素は貼らない(何もしない)
+      return;
+    } catch {
+      // 権限が無い・未対応のブラウザ。下で内部クリップボードを見る
+    }
+    // 読めなかったときだけ内部クリップボードへ。それも通常の ⌘V(pasteFromInternalIfFresh)と同じく、
+    // OS への書き込みが成功していた(= OS 側に新しいものがあるかもしれない)なら貼らない
+    const clip = clipboardRef.current;
+    if (clip && !clip.osWritten) pasteSerializedElements(clip.elements);
   }, [clipboardRef, pasteSerializedElements]);
 
   /**
@@ -1394,10 +1472,13 @@ export function useElementActions() {
         : [];
     if (ids.length === 0) return { moved: 0, blocked: 'no-selection' };
 
-    const elements = ids
+    const found = ids
       .map(id => getIframeElement(iframeDoc, id))
       .filter((el): el is HTMLElement => el !== null);
-    if (elements.length === 0) return { moved: 0, blocked: 'no-selection' };
+    if (found.length === 0) return { moved: 0, blocked: 'no-selection' };
+    // ロック中(本人か祖先)は矢印キーでも動かさない・大きさも変えない(Figma と同じ。記憶)
+    const elements = withoutLocked(found);
+    if (elements.length === 0) return { moved: 0, blocked: 'locked' };
 
     // webpage はフロー内の要素を倒さない。矢印キーは並べ替えを1段動かす
     if (editorMode === 'webpage') {
@@ -1458,10 +1539,13 @@ export function useElementActions() {
       : selectedElement
         ? [selectedElement.id]
         : [];
-    const elements = ids
+    const found = ids
       .map(id => getIframeElement(iframeDoc, id))
       .filter((el): el is HTMLElement => el !== null);
-    if (elements.length === 0) return { moved: 0, blocked: 'no-selection' };
+    if (found.length === 0) return { moved: 0, blocked: 'no-selection' };
+    // ロック中(本人か祖先)は矢印キーでも動かさない・大きさも変えない(Figma と同じ。記憶)
+    const elements = withoutLocked(found);
+    if (elements.length === 0) return { moved: 0, blocked: 'locked' };
 
     // フロー内の要素は移動と同じ遅延変換で絶対配置へ倒してから触る
     elements.forEach(el => {
@@ -1824,6 +1908,7 @@ export function useElementActions() {
     pasteElements,
     pasteSerializedElements,
     pasteFromInternalIfFresh,
+    pasteInPlace,
     copyStyle,
     pasteStyle,
     hasStyleInClipboard,

@@ -38,6 +38,7 @@ import React, {
   useState,
 } from 'react';
 import { MAX_HISTORY_SIZE } from '../../types/editor';
+import { COALESCE_WINDOW_MS } from '../utils/history-timing';
 import { useEditorRefs } from './EditorRefsContext';
 
 export interface EditorHistoryContextValue {
@@ -77,8 +78,8 @@ export function useEditorHistory(): EditorHistoryContextValue {
  * - 矢印キーのキーリピート(約30ms間隔)・テキスト入力・プロパティ入力が1エントリにまとまる
  * - 意図的に間を空けた操作(400ms超)は別エントリのまま残る
  * ドラッグ/リサイズはmouseupで1回しかpushされないため、この窓に依存せず元から1エントリ。
+ * 値は utils/history-timing.ts の COALESCE_WINDOW_MS(数字キーの2桁入力と共有)。
  */
-const COALESCE_WINDOW_MS = 400;
 
 /**
  * 履歴に残してはいけないエディタUIのノード。
@@ -155,6 +156,10 @@ function normalizeSnapshot(rawHtml: string): { html: string; signature: string }
       template.content.querySelectorAll(`.${cls}`).forEach((node) => {
         node.classList.remove(cls);
       });
+    });
+    // レイヤーパネルの行のホバー強調(属性)も一時状態。焼き付けると ⌘Z で強調が戻ってくる
+    template.content.querySelectorAll('[data-layer-hover]').forEach((node) => {
+      node.removeAttribute('data-layer-hover');
     });
     // 空になったclass属性は落とす。
     // 「元から空」と「剥がして空になった」が同じ表記になるようにして、

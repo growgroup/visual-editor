@@ -18,7 +18,9 @@ import {
   syncSelectionOverlayRects,
   getOverlayRect,
   setOverlayLabel,
+  generateElementId,
 } from '../utils/dom-utils';
+import { rememberDuplicate, forgetDuplicate } from '../utils/smart-duplicate';
 import {
   DRAG_START_THRESHOLD,
   MIN_ELEMENT_SIZE,
@@ -55,6 +57,7 @@ import { computeFreeBounds, keepsInlineGeometry } from '../utils/free-layout';
 import { extractElementInfo } from '../utils/style-utils';
 import { convertInlineStylesToTailwind } from '../utils/tailwind-utils';
 import { isAspectRatioLocked } from '../utils/aspect-lock';
+import { isLockedEl } from '../utils/lock';
 import {
   getFlexContainerInfo,
   calculateDropIndex,
@@ -238,6 +241,17 @@ const RESIZE_INERT_CLASS = 'resize-inert';
 const RESIZE_INERT_ATTR = 'data-resize-inert';
 
 /**
+ * iframe が外側(キャンバス表示の拡縮)で何倍に表示されているか。1 枚表示では 1。
+ * 中のアートボードの倍率(getDragScale)とは別で、画面の px に直すには両方を掛ける
+ */
+function iframeOuterScale(iframeDoc: Document): number {
+  const frame = iframeDoc.defaultView?.frameElement as HTMLElement | null | undefined;
+  if (!frame || !frame.offsetWidth) return 1;
+  const shown = frame.getBoundingClientRect().width / frame.offsetWidth;
+  return shown > 0 && Number.isFinite(shown) ? shown : 1;
+}
+
+/**
  * transform の中の指定した関数だけを差し替える(他の関数は順序を保って残す)
  *
  * [なぜ必要か]
@@ -292,6 +306,39 @@ function normalizeAngle(deg: number): number {
 const ROTATION_SNAP_DEG = 15;
 
 /**
+ * Alt(⌥)ドラッグの複製(Figma と同じ)。
+ *
+ * 掴んでいる要素はそのまま動かし続け、**元の位置に複製を置いていく**。
+ * Figma は「複製が動いて元が残る」が、見た目と結果(元の位置と新しい位置に1つずつ)は同じで、
+ * こちらのほうが選択・ドラッグの状態(掴んでいる要素・選択枠・スナップの基準)を一切
+ * 差し替えずに済む。複製は掴んでいる要素の直前(1つ背面)に入れるので、動いている側が手前に見える。
+ *
+ * 部品のインスタンス(data-component-instance)を含む要素は複製しない。
+ * インスタンスの登録を伴う複製は ⌘D(duplicateElement)の経路にしか無く、
+ * DOM だけ写すと同じインスタンスIDを持つ要素が2つできてしまうため。
+ */
+function createAltDuplicates(
+  targets: { element: HTMLElement; origin: { left: number; top: number } }[],
+): HTMLElement[] {
+  const clones: HTMLElement[] = [];
+  for (const { element, origin } of targets) {
+    if (!element.parentElement) continue;
+    if (element.matches('[data-component-instance]') || element.querySelector('[data-component-instance]')) continue;
+    const clone = element.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.selection-box').forEach((box) => box.remove());
+    [clone, ...Array.from(clone.querySelectorAll<HTMLElement>('[data-element-id]'))].forEach((node) => {
+      if (node.hasAttribute('data-element-id')) node.setAttribute('data-element-id', generateElementId('dup'));
+    });
+    clone.classList.remove('selected', 'dragging', 'hover-preview', 'text-editable-hover', 'marquee-hover');
+    clone.style.left = `${roundPx(origin.left)}px`;
+    clone.style.top = `${roundPx(origin.top)}px`;
+    element.parentElement.insertBefore(clone, element);
+    clones.push(clone);
+  }
+  return clones;
+}
+
+/**
  * ドラッグ・リサイズ処理フック
  */
 export function useDragResize(
@@ -337,6 +384,8 @@ export function useDragResize(
   // ここを立てずに素通りさせると convertDragTargetsToAbsolute が走って版面が崩れ、
   // さらに mouseup が「動いた」と見なして履歴を1段積んでしまう
   const dragBlockedRef = useRef(false);
+  // Alt(⌥)ドラッグで元の位置に置いた複製。Alt を離すと消し、Esc の取り消しでも消す
+  const altClonesRef = useRef<HTMLElement[] | null>(null);
   // 案内はセッション中1回だけ。ドラッグのたびに帯が出ると操作の邪魔になる
   const reorderHintShownRef = useRef(false);
 
@@ -391,6 +440,8 @@ export function useDragResize(
     reorderIndexRef.current = -1;
     dragBlockedRef.current = false;
     freeBoundsRef.current = null;
+    // 複製は確定済み(DOM に残す)。参照だけ手放す
+    altClonesRef.current = null;
   }, [dragStateRef]);
 
   /**
@@ -575,6 +626,8 @@ export function useDragResize(
       resizeState.elements.forEach((el, index) => {
         const orig = resizeState.origElementStates[index];
         if (!orig) return;
+        // ロック中(本人か祖先)は一緒に選ばれていても大きさを変えない
+        if (isLockedEl(el)) return;
 
         // 相対位置を維持して座標変換
         const relativeLeft = orig.left - bounds.left;
@@ -876,7 +929,8 @@ export function useDragResize(
         })
         .filter(
           (v): v is { element: HTMLElement; origin: { left: number; top: number } } =>
-            v !== null
+            // ロック中(本人か祖先)は一緒に選ばれていても動かさない
+            v !== null && !isLockedEl(v.element)
         );
     },
     []
@@ -1032,6 +1086,23 @@ export function useDragResize(
         return true;
       }
 
+      // Alt(⌥)を押している間だけ、元の位置に複製を置く(Figma と同じく途中で押しても離してもよい)。
+      // コンポーネント編集中は部品の構造を変えないので複製しない
+      const wantsCopy = e.altKey && !iframeDoc.body.classList.contains('component-edit-mode');
+      if (wantsCopy && !altClonesRef.current) {
+        const targets = getDragTargets(dragState);
+        altClonesRef.current = createAltDuplicates(targets);
+        // このあとの ⌘D は「元の位置 → 離した位置」のずれで複製を続ける(Figma と同じ)
+        rememberDuplicate(
+          targets.map((t) => t.element.getAttribute('data-element-id') ?? '').filter(Boolean),
+          targets[0]?.origin ?? null,
+        );
+      } else if (!wantsCopy && altClonesRef.current) {
+        altClonesRef.current.forEach((clone) => clone.remove());
+        altClonesRef.current = null;
+        forgetDuplicate();
+      }
+
       // スナップ補正。Cmd/Ctrl を押している間は吸着しない(Figmaと同じ逃げ道)
       let snappedDx = dx;
       let snappedDy = dy;
@@ -1039,7 +1110,8 @@ export function useDragResize(
       const baseRect = dragBaseRectRef.current;
       if (!e.metaKey && !e.ctrlKey && candidates && baseRect) {
         // 吸着距離は「画面上で4px」。ズームで見た目の効きが変わらないよう割り戻す
-        const threshold = SNAP_THRESHOLD_SCREEN_PX / (scale || 1);
+        // キャンバス表示では iframe ごと外から拡縮されるので、その倍率も掛けて「画面の 4px」にする
+        const threshold = SNAP_THRESHOLD_SCREEN_PX / ((scale || 1) * iframeOuterScale(iframeDoc));
         const snap = snapToGuides(
           candidates,
           {
@@ -1060,17 +1132,20 @@ export function useDragResize(
         // 斜めへずれる(拘束が破れる)
         let guideX = snap.guideX;
         let guideY = snap.guideY;
+        let spacing = snap.spacing ?? [];
         if (e.shiftKey) {
           if (dx === 0) {
             snappedDx = 0;
             guideX = null;
+            spacing = spacing.filter((m) => m.axis !== 'x');
           }
           if (dy === 0) {
             snappedDy = 0;
             guideY = null;
+            spacing = spacing.filter((m) => m.axis !== 'y');
           }
         }
-        drawSmartGuides(iframeDoc, guideX, guideY);
+        drawSmartGuides(iframeDoc, guideX, guideY, spacing);
       } else {
         clearSmartGuides(iframeDoc);
       }
@@ -1123,6 +1198,11 @@ export function useDragResize(
 
       const doc = iframeDoc ?? dragState.element.ownerDocument;
       if (!doc) return false;
+
+      // Alt ドラッグの複製は取り消しでは残さない
+      if (altClonesRef.current) forgetDuplicate();
+      altClonesRef.current?.forEach((clone) => clone.remove());
+      altClonesRef.current = null;
 
       // 並べ替え中の取り消し: DOMの順番はまだ変えていないので、
       // 持ち上げの見た目と線を戻すだけで元の状態に戻る

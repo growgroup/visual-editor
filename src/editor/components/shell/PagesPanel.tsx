@@ -18,6 +18,7 @@ import { DeckSlideRender } from '../../../components/DeckSlideRender';
 import { flushAutoSave } from '../../autosave';
 import { useMultiPageCanvasOptional } from '../../contexts/MultiPageCanvasContext';
 import { CollabPageDots } from '../../collab/CollabPresence';
+import { useRowsNearViewport } from './useRowsNearViewport';
 
 /**
  * スライド描画はメモ化する。パネル幅の変更や他ページの選択で親が再レンダーしても、
@@ -49,6 +50,10 @@ export function PagesPanel({ page, height = '33vh' }: { page: number; height?: s
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  // 画面に近づいた行だけ紙面を描く(一度描いた行は残す)。行の大きさは幅が決まってから決まるので、それまでは見ない
+  const rowKeys = deck.slides.map((s) => s.id);
+  const nearRows = useRowsNearViewport(rootRef, rowKeys, rowKeys.slice(page - 1, page), thumbWidth > 0);
 
   // 編集中のページが視界の外にあると「今どこか」が分からないので追う
   useEffect(() => {
@@ -91,6 +96,7 @@ export function PagesPanel({ page, height = '33vh' }: { page: number; height?: s
             key={s.id}
             ref={current ? currentRef : undefined}
             data-page-thumb={n}
+            data-row-key={s.id}
             aria-current={current ? "page" : undefined}
             onClick={() => void goto(n)}
             className="flex w-full shrink-0 items-start gap-1.5 px-2 py-1 text-left"
@@ -111,7 +117,7 @@ export function PagesPanel({ page, height = '33vh' }: { page: number; height?: s
                 opacity: s.hidden ? 0.45 : 1,
               }}
             >
-              {thumbWidth > 0 && (
+              {thumbWidth > 0 && nearRows.has(s.id) && (
                 <span
                   data-editor-preview className="pointer-events-none absolute left-0 top-0 origin-top-left"
                   style={{ width: 1920, height: 1080, transform: `scale(${thumbWidth / 1920})` }}

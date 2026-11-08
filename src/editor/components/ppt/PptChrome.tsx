@@ -55,6 +55,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '../../../components/ui/
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '../../../components/ui/dropdown-menu';
 import { useResizablePanel } from '../../hooks/useResizablePanel';
 import { ConfirmDialog } from '../shell/ConfirmDialog';
+import { useRowsNearViewport } from '../shell/useRowsNearViewport';
 import { can, io } from '../../../io';
 import { MIN_ZOOM, MAX_ZOOM, editorZoomApiRef } from '../../hooks/useCanvasControls';
 import { toast } from 'sonner';
@@ -2301,14 +2302,17 @@ export function PptThumbnails({ page, theme, search }: { page: number; theme: Pp
   const q = search.trim().toLocaleLowerCase();
   const slides = deck.slides.map((slide, i) => ({ slide, n: i + 1 })).filter(({ slide, n }) => !q || slide.title.toLocaleLowerCase().includes(q) || String(n) === q);
   const hasMenu = !!(ops?.move || ops?.duplicate || ops?.remove || ops?.updateMeta);
+  // 画面に近づいた行だけ紙面を描く(一度描いた行は残す)。描かない行も同じ大きさの白い枠・番号・題名は出す
+  const listRef = useRef<HTMLDivElement>(null);
+  const nearRows = useRowsNearViewport(listRef, slides.map(({ slide }) => slide.id), deck.slides.slice(page - 1, page).map((s) => s.id));
 
   return (
     <aside data-ppt-thumbnails aria-label="スライド一覧" className="relative flex shrink-0 flex-col border-r" style={{ width, backgroundColor: pal.rail, borderColor: pal.border }}>
       <div className="ed-panel-heading">スライド<span className="ml-auto text-xs font-normal text-gray-400">{page} / {deck.slides.length}</span></div>
-      <div className="min-h-0 flex-1 overflow-y-auto py-2">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-2">
         {slides.length === 0 && <p className="ed-empty">{q ? '一致するスライドがありません。' : 'スライドがありません。'}</p>}
         {slides.map(({ slide: s, n }) => <div key={s.id} className="relative px-2 py-2" style={{ opacity: dragFrom === n ? .5 : 1 }}>
-          <button ref={n === page ? currentRef : undefined} data-page-thumb={n} aria-current={n === page ? 'page' : undefined}
+          <button ref={n === page ? currentRef : undefined} data-page-thumb={n} data-row-key={s.id} aria-current={n === page ? 'page' : undefined}
             disabled={busy} draggable={!!ops?.move && !busy}
             onDragStart={(e) => { setDragFrom(n); e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(n)); }}
             onDragOver={(e) => { if (dragFrom === null || !ops?.move) return; e.preventDefault(); const r = e.currentTarget.getBoundingClientRect(); setDropAt(e.clientY < r.top + r.height / 2 ? n : n + 1); }}
@@ -2319,9 +2323,9 @@ export function PptThumbnails({ page, theme, search }: { page: number; theme: Pp
             <span className="min-w-0 flex-1">
               {can('renderContent') && <span className="relative block aspect-video overflow-hidden rounded bg-white"
                 style={{ width: thumbWidth, boxShadow: n === page ? `0 0 0 2px ${PPT_ACCENT}` : `0 0 0 1px ${pal.border}`, opacity: s.hidden ? .5 : 1 }}>
-                <span data-editor-preview className="pointer-events-none absolute left-0 top-0 origin-top-left" style={{ width: 1920, height: 1080, transform: `scale(${thumbWidth / 1920})` }}>
+                {nearRows.has(s.id) && <span data-editor-preview className="pointer-events-none absolute left-0 top-0 origin-top-left" style={{ width: 1920, height: 1080, transform: `scale(${thumbWidth / 1920})` }}>
                   <MemoSlideRender page={n} template={s.template} edited={s.edited} />
-                </span>
+                </span>}
               </span>}
               <span className="mt-2 block truncate pr-6 text-xs" style={{ color: pal.text }}>{s.title || '無題'}{s.hidden ? '（非表示）' : ''}</span>
               {can('commentAction') && unresolvedCount(s.comments) > 0 && <span className="mt-1 block text-xs" style={{ color: pal.sub }}>未解決 {unresolvedCount(s.comments)}件</span>}

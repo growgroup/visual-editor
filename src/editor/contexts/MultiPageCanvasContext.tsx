@@ -76,6 +76,14 @@ export const RULER_SIZE = 20;
 const VIEW_ANIMATION_MS = 240;
 /** 見るだけの紙面を同時に読む枚数 */
 const PREVIEW_PARALLEL = 4;
+
+/** 主スレッドが空いたときに 1 回呼ぶ(requestIdleCallback が無い環境は次のタスク)。待つのは最大 200ms */
+function scheduleIdle(cb: () => void): void {
+  const w = typeof window !== 'undefined' ? (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }) : null;
+  if (w?.requestIdleCallback) w.requestIdleCallback(cb, { timeout: 200 });
+  else setTimeout(cb, 16);
+}
+
 /**
  * 見るだけの紙面を画像で描く倍率の **上限の最大値**。これ以上に拡大されていれば、
  * どんなに解像度の高い画像でも iframe で描く(画像は文字を選べない・検索できないため)。
@@ -1131,6 +1139,8 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey, zoomOpt
   // 保存と読み込みは利用側(FrontendVisualEditor.handleContentChange)が 1 か所で行う。
   // ここでは「どこへ移ろうとしているか」を持ち、リングを先に動かして押した手応えを返す
   const [activatingPageId, setActivatingPageId] = useState<string | null>(null);
+  // 移っている最中の数。activatePage が重なっても、全部が終わるまで 0 に戻らない(boolean だと先に終わった側が戻してしまう)
+  const activatingCountRef = useRef(0);
   const onContentChangeRef = useRef(artboard.onContentChange);
   onContentChangeRef.current = artboard.onContentChange;
   const activatePage = useCallback<MultiPageCanvasContextValue['activatePage']>(
@@ -1146,14 +1156,19 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey, zoomOpt
       // この切替は終わっているので、state ではなく ref で残す
       editorInitiatedPageIdRef.current = id;
       setActivatingPageId(id);
-      if (options?.reveal) revealPage(id);
       let moved = false;
+      // 移る先の本文を読むあいだは、見るだけの紙面を新しく載せない(編集するページを先に出す)。
+      // 数を上げるのは try の直前。ここから先で例外が出ても finally で必ず下がる(下がらないと紙面が二度と載らない)
+      activatingCountRef.current += 1;
       try {
+        if (options?.reveal) revealPage(id);
         const result = await (notify as (contentId: string) => unknown)(id);
         moved = result !== false;
         return moved;
       } finally {
         setActivatingPageId((v) => (v === id ? null : v));
+        activatingCountRef.current -= 1;
+        pumpAfterInteractionRef.current();
         // 移れなかったら印を消す(残すと、あとで同じページへホスト発で移るときに視点が動かない)。
         // 別のページへ移ったあとなら消さない ── その印はそちらの切替のもの
         if (!moved && editorInitiatedPageIdRef.current === id) editorInitiatedPageIdRef.current = null;
@@ -1165,10 +1180,22 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey, zoomOpt
   // ---- 操作状態
   const [isInteracting, setIsInteracting] = useState(false);
   const interactingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // パン・ズームの最中は見るだけの紙面を新しく載せない(下の pumpPreviewSlots)。
+  // iframe を載せると本文の解析・スタイル・レイアウトがその段のフレームに乗り、
+  // ズームアウトの途中で 50〜200ms のフレームが混じる(ヘッドレス 150 枚で実測)。
+  // 止まったら(160ms 後)編集中のページに近い順に、空いた時間に 1 枚ずつ載せる。
+  // それまでは骨組み(または画像)が見える。止まらずにパンし続けると、その間は 1 枚も増えない
+  const interactingRef = useRef(false);
+  const pumpAfterInteractionRef = useRef<() => void>(() => undefined);
   const markInteracting = useCallback(() => {
+    interactingRef.current = true;
     setIsInteracting(true);
     if (interactingTimer.current) clearTimeout(interactingTimer.current);
-    interactingTimer.current = setTimeout(() => setIsInteracting(false), 160);
+    interactingTimer.current = setTimeout(() => {
+      interactingRef.current = false;
+      setIsInteracting(false);
+      pumpAfterInteractionRef.current();
+    }, 160);
   }, []);
   useEffect(() => () => { if (interactingTimer.current) clearTimeout(interactingTimer.current); }, []);
 
@@ -1177,21 +1204,32 @@ export function MultiPageCanvasProvider({ children, enabled, storageKey, zoomOpt
   // ---- 見るだけの紙面の読み込み枠(同時に PREVIEW_PARALLEL 枚まで。編集中のページに近い順)
   const slotQueueRef = useRef<{ id: string; grant: () => void }[]>([]);
   const slotHoldersRef = useRef(new Set<string>());
+  // 枠は 1 回に 1 枚だけ、主スレッドが空いたとき(requestIdleCallback)に渡す。
+  // iframe を載せると本文の解析・スタイル・レイアウト・初回のラスタが同じ主スレッドに乗る。
+  // 4 枚を同じフレームで渡すと 1 フレームに 4 枚分が積まれ、編集中のページの読み込みや
+  // 直後のクリック・ページ移動の描画を押し出す(ヘッドレス 150 枚のページ移動で 30〜60ms のフレームが続いた)
+  const pumpScheduledRef = useRef(false);
   const pumpPreviewSlots = useCallback(() => {
     const holders = slotHoldersRef.current;
-    const queue = slotQueueRef.current;
-    if (holders.size >= PREVIEW_PARALLEL || queue.length === 0) return;
-    const indexById = new Map(pagesRef.current.map((p) => [p.id, p.index] as const));
-    const indexOf = (id: string) => indexById.get(id) ?? 0;
-    const activeId = viewStore.get().activePageId;
-    const activeIndex = activeId ? indexOf(activeId) : 0;
-    queue.sort((a, b) => Math.abs(indexOf(a.id) - activeIndex) - Math.abs(indexOf(b.id) - activeIndex));
-    while (holders.size < PREVIEW_PARALLEL && queue.length > 0) {
+    if (pumpScheduledRef.current) return;
+    if (holders.size >= PREVIEW_PARALLEL || slotQueueRef.current.length === 0 || interactingRef.current || activatingCountRef.current > 0) return;
+    pumpScheduledRef.current = true;
+    scheduleIdle(() => {
+      pumpScheduledRef.current = false;
+      const queue = slotQueueRef.current;
+      if (holders.size >= PREVIEW_PARALLEL || queue.length === 0 || interactingRef.current || activatingCountRef.current > 0) return;
+      const indexById = new Map(pagesRef.current.map((p) => [p.id, p.index] as const));
+      const indexOf = (id: string) => indexById.get(id) ?? 0;
+      const activeId = viewStore.get().activePageId;
+      const activeIndex = activeId ? indexOf(activeId) : 0;
+      queue.sort((a, b) => Math.abs(indexOf(a.id) - activeIndex) - Math.abs(indexOf(b.id) - activeIndex));
       const next = queue.shift()!;
       holders.add(next.id);
       next.grant();
-    }
+      pumpAfterInteractionRef.current();
+    });
   }, [viewStore]);
+  pumpAfterInteractionRef.current = pumpPreviewSlots;
   const requestPreviewSlot = useCallback<MultiPageCanvasContextValue['requestPreviewSlot']>(
     (id, grant) => {
       if (slotHoldersRef.current.has(id)) {

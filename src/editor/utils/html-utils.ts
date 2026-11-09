@@ -3,7 +3,7 @@
  */
 
 import { SLIDE_WIDTH, SLIDE_HEIGHT, WEBPAGE_WIDTH, WEBPAGE_MIN_HEIGHT } from '../constants';
-import type { PreviewStyle } from '../../io';
+import { io, type PreviewStyle } from '../../io';
 import type { EditorMode } from '../EditorContext';
 import { prepareHtmlForSave } from './viewport-utils';
 import { classifySaveAndRevert, isNonEditableTag } from './dom-utils';
@@ -80,8 +80,10 @@ function getTailwindScriptHtml(safeMode: boolean = false): string {
   const baseUrl = typeof window !== 'undefined'
     ? window.location.origin
     : '';
+  // サブパス配下で動くホスト(Vite の base など)は io().vendorBase で置き場所を教える
+  const vendorBase = (io().vendorBase ?? '/').replace(/\/+$/, '');
   const scriptUrl = baseUrl
-    ? `${baseUrl}/vendor/tailwindcss-browser.js`
+    ? `${baseUrl}${vendorBase}/vendor/tailwindcss-browser.js`
     : 'https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4';
 
   // セーフモード: より厳格にpreflightを無効化し、既存スタイルへの影響を最小化

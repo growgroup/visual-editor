@@ -250,6 +250,12 @@ export type EditorIO = {
    */
   apiFetch?: (path: string, init?: RequestInit) => Promise<unknown>;
 
+  /**
+   * ホストの `/vendor/tailwindcss-browser.js` の置き場所(例: `/t/gg-deck/`)。
+   * サブパス配下で動くときだけ渡す。無ければサイトの直下を見る。
+   */
+  vendorBase?: string;
+
   /** 画像の保存。無ければ data URL のまま本文に埋め込む */
   uploadImage?: (
     data: File | Blob | string,
